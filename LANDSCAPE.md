@@ -168,14 +168,12 @@ specification
 └── conformance requirements
 
 reference implementation
-├── framework-neutral Zod contract at packages/rgap
-│   └── exported schemas, inferred types, and RgapEngine interface
-├── TanStack Start application at apps/web
-├── complete Drizzle implementation of RgapEngine
-├── durable local PGlite database
+├── asynchronous RgapRepository contract
+├── React and Vite application at apps/frontend
+├── browser repository backed by Zustand and localStorage
+├── pure capability, delegation, revocation, and move rules
 ├── local model explorer and decision simulator
-├── typed server functions and one JSON API route
-└── conformance tests and test vectors
+└── domain tests and deterministic example state
 ```
 
 The protocol remains vendor-neutral. Resource identifiers, issuer discovery, credentials, and conformance tests do not depend on an Arcade account. Arcade can act as one issuer and enforcement implementation while other tool gateways, agent runtimes, and resource servers interoperate with the same semantics.
