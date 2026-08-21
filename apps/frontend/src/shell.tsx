@@ -7,8 +7,6 @@ import { repository } from './repository';
 type ShellState = {
   token: string;
   setToken: (value: string) => void;
-  notice: string | null;
-  setNotice: (value: string | null) => void;
 };
 
 /** Which plane the interface sends commands to. An active token makes every command an authorized one. */
@@ -25,7 +23,6 @@ export function useShell() {
 export function Shell() {
   const client = useRgapClient();
   const [token, setToken] = useState('');
-  const [notice, setNotice] = useState<string | null>(null);
 
   // With no token the interface holds the administrative plane; with one, every command is authorized first.
   useEffect(() => {
@@ -33,7 +30,7 @@ export function Shell() {
   }, [client, token]);
 
   return (
-    <ShellContext.Provider value={{ token, setToken, notice, setNotice }}>
+    <ShellContext.Provider value={{ token, setToken }}>
       <Header />
       <main>
         <Outlet />
@@ -44,7 +41,7 @@ export function Shell() {
 
 function Header() {
   const client = useRgapClient();
-  const { token, setToken, notice, setNotice } = useShell();
+  const { token, setToken } = useShell();
   const { authority } = useRgapAuthority(token);
 
   const lens = !token.trim()
@@ -78,7 +75,6 @@ function Header() {
               // Reset is chrome, not an operation: it always runs on the administrative plane.
               await repository.reset();
               setToken('');
-              setNotice('reset to the example state');
               await client.refresh();
             }}
           >
@@ -105,7 +101,6 @@ function Header() {
         <span className={`lens ${lens.tone}`}>
           {lens.label} · {lens.detail}
         </span>
-        <span className="notice">{notice ?? 'ready'}</span>
       </div>
     </header>
   );

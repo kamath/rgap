@@ -87,11 +87,53 @@ main { padding: 2rem; }
 .pane-head { display: flex; justify-content: space-between; align-items: stretch; gap: 1rem; min-height: 3rem; border-bottom: 1px solid var(--line); }
 .pane-label { padding: 0.9rem 1.1rem; font-size: 0.82rem; }
 .pane-meta { padding: 0.9rem 1.1rem; color: var(--dim); font-size: 0.78rem; text-align: right; }
-.pane-head .tabs { border: 0; }
-.pane-head .tab { padding: 0.9rem; font-size: 0.8rem; }
 .pane-body { padding: 1.1rem; }
 .pane.allowed { box-shadow: inset 0 1px 0 var(--accent); }
 .pane.denied { box-shadow: inset 0 1px 0 var(--danger); }
+/* Action bars: controls in a listing head, bright enough to read as controls. */
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-right: auto; padding: 0.5rem 0; }
+.action {
+  padding: 0.4rem 0.7rem;
+  color: var(--text);
+  font-size: 0.78rem;
+  background: #1c1c1a;
+  border: 1px solid #55554f;
+}
+.action:hover:not(:disabled) { color: #0a0a0a; background: var(--pale); border-color: var(--pale); }
+.action.open { color: #0a0a0a; background: var(--accent); border-color: var(--accent); }
+.action:disabled { color: var(--dim); background: transparent; border-color: var(--line); }
+
+/* A listing is the main view of its route, and one operation opens in a drawer beside it. */
+.view { display: grid; grid-template-columns: minmax(0, 1fr); border: 1px solid var(--line); }
+.view.open { grid-template-columns: minmax(0, 1fr) minmax(21rem, 27rem); }
+.stack { display: flex; min-width: 0; flex-direction: column; }
+.stack > .pane { border-right: 0; border-bottom: 1px solid var(--line); }
+.stack > .pane:last-child { border-bottom: 0; }
+.view.open > .stack { border-right: 1px solid var(--line); }
+.drawer { border-right: 0; }
+.drawer .pane-head { align-items: center; }
+.drawer .pane-meta { margin-left: auto; }
+.drawer-close {
+  align-self: stretch;
+  padding: 0 1rem;
+  color: var(--dim);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  border: 0;
+  border-left: 1px solid var(--line);
+}
+.drawer-close:hover { color: var(--accent); }
+.targets { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 1rem; font-size: 0.8rem; }
+.targets-label { color: var(--dim); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; }
+.response { margin-top: 1rem; border-top: 1px solid var(--line); padding-top: 0.9rem; }
+.response-label { display: block; margin-bottom: 0.4rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; }
+.response.allowed .response-label { color: var(--accent); }
+.response.denied .response-label { color: var(--danger); }
+.response .json { margin: 0; }
+
+/* Object line: the facts of the record the route addresses. */
+.object-line { margin: 0 0 0.9rem; font-size: 0.8rem; }
 
 /* Breadcrumb */
 .breadcrumb { margin: 0 0 0.9rem; font-size: 0.85rem; }
@@ -110,6 +152,9 @@ th, td { padding: 0.5rem 0.6rem; text-align: left; border-bottom: 1px solid var(
 th { color: var(--dim); font-weight: normal; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; }
 tbody tr:hover { background: #141414; }
 tbody tr.selected { background: #171b0c; box-shadow: inset 2px 0 var(--accent); }
+tbody tr { cursor: default; }
+th.check-cell, td.check-cell { width: 2.4rem; padding-right: 0; }
+.check-cell input { width: auto; margin: 0; accent-color: var(--accent); }
 .record { display: flex; align-items: center; gap: 1rem; padding: 0.6rem 0; border-bottom: 1px solid var(--line); }
 .record button { margin-left: auto; }
 .empty { padding: 2rem 0.5rem; color: var(--dim); text-align: center; }
@@ -141,7 +186,7 @@ form label > span { display: block; margin-bottom: 0.3rem; color: var(--dim); fo
   header, main { padding-left: 1rem; padding-right: 1rem; }
   .header-top { flex-direction: column; }
   .token-control label { min-width: 0; }
-  .pane-row, .field-row { grid-template-columns: minmax(0, 1fr); }
+  .pane-row, .field-row, .view.open { grid-template-columns: minmax(0, 1fr); }
   .pane { border-right: 0; border-bottom: 1px solid var(--line); }
   .pane:last-child { border-bottom: 0; }
 }

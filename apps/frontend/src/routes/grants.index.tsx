@@ -1,9 +1,11 @@
-import { Link, createFileRoute } from '@tanstack/react-router';
+import { useState } from 'react';
+import { createFileRoute } from '@tanstack/react-router';
 import { useRgapAuthority, useRgapSnapshot } from '@rgap/react';
-import { GrantFields } from '../grant-form';
-import { Pane, PageTitle, ResponsePane, useOperation } from '../panes';
-import { usePlane, useShell } from '../shell';
-import { grantRows, grantStatus, isDelegatedFrom } from '../tree';
+import { GrantBreadcrumb, GrantListing } from '../grant-listing';
+import { DelegateDrawer, RevokeGrantsDrawer, type GrantOperation } from '../grant-ops';
+import { PageTitle, useSelection } from '../panes';
+import { useShell } from '../shell';
+import { childGrants, visibleGrantIds } from '../tree';
 
 export const Route = createFileRoute('/grants/')({ component: Grants });
 
@@ -11,62 +13,33 @@ function Grants() {
   const snapshot = useRgapSnapshot();
   const { token } = useShell();
   const { authority } = useRgapAuthority(token);
-  const { response, execute } = useOperation();
-  const plane = usePlane();
-  const focus = authority?.valid ? authority : null;
-  const rows = grantRows(snapshot.grants).filter(
-    ({ grant }) =>
-      !focus ||
-      focus.lineage.includes(grant.id) ||
-      (focus.grantId ? isDelegatedFrom(snapshot.grants, grant.id, focus.grantId) : false),
-  );
+  const visible = visibleGrantIds(snapshot.grants, authority);
+  const listing = childGrants(snapshot.grants, null).filter((grant) => !visible || visible.has(grant.id));
+  const selection = useSelection('grants', listing);
+  const [operation, setOperation] = useState<GrantOperation | null>(null);
+  // Creating a root grant needs no selection; revoking has nothing to act on without one.
+  const drawer = operation === 'Delegate' || selection.targets.length ? operation : null;
+  const close = () => setOperation(null);
 
   return (
     <>
-      <PageTitle title="Grant tree" note="Authority indented under the grant it was delegated from." />
-      <div className="pane-row single">
-        <Pane label="Grants" meta={focus ? 'narrowed to the token lineage' : `${rows.length} grants`}>
-          <table>
-            <thead>
-              <tr>
-                <th>Grant</th>
-                <th>Subject</th>
-                <th>Capabilities</th>
-                <th>Expires</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(({ grant, depth }) => (
-                <tr key={grant.id}>
-                  <td style={{ paddingLeft: `${depth * 1.4 + 0.7}rem` }}>
-                    {depth ? <span className="dim">└ </span> : null}
-                    <Link to="/grants/$grantId" params={{ grantId: grant.id }}>
-                      {grant.name}
-                    </Link>
-                  </td>
-                  <td>{grant.subject}</td>
-                  <td>
-                    <code>{grant.capabilities.length}</code>
-                  </td>
-                  <td>
-                    <code>{grant.expiresAt ?? 'never'}</code>
-                  </td>
-                  <td className={grantStatus(grant) === 'active' ? 'allowed' : 'denied'}>
-                    <code>{grantStatus(grant)}</code>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {rows.length ? null : <p className="empty">No grants are visible.</p>}
-        </Pane>
-      </div>
-      <div className="pane-row">
-        <Pane label="Create root grant" meta={`${plane} plane · createGrant`}>
-          <GrantFields execute={execute} />
-        </Pane>
-        <ResponsePane response={response} />
+      <PageTitle title="Grants" note="Authority walked from the grant it was delegated from." />
+      <GrantBreadcrumb lineage={[]} />
+      <div className={drawer ? 'view open' : 'view'}>
+        <div className="stack">
+          <GrantListing
+            label="Root grants"
+            meta={visible ? 'narrowed to the token lineage' : `${listing.length} grants`}
+            createLabel="Create"
+            listing={listing}
+            selection={selection}
+            open={drawer}
+            onOpen={setOperation}
+            empty="No root grants are visible."
+          />
+        </div>
+        {drawer === 'Delegate' ? <DelegateDrawer parent={null} onClose={close} /> : null}
+        {drawer === 'Revoke' ? <RevokeGrantsDrawer targets={selection.targets} onClose={close} /> : null}
       </div>
     </>
   );

@@ -15,25 +15,6 @@ export function childrenOf(resources: State['resources'], parentId: string | nul
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
-/**
- * Splits a parent path into the deepest resource that exists and the segments that do not.
- * The interface creates each missing segment as its own command before it creates the named resource.
- */
-export function planPath(resources: State['resources'], path: string) {
-  let parentId: string | null = null;
-  const missing: string[] = [];
-  for (const segment of segments(path)) {
-    if (missing.length) {
-      missing.push(segment);
-      continue;
-    }
-    const existing: Resource | undefined = childrenOf(resources, parentId).find((item) => item.name === segment);
-    if (existing) parentId = existing.id;
-    else missing.push(segment);
-  }
-  return { parentId, missing };
-}
-
 /** Resources the active token may see, including the ancestors that explain their paths. */
 export function visibleIds(resources: State['resources'], authority: AuthorityView | null) {
   if (!authority) return null;
@@ -53,20 +34,11 @@ export const isActive = (record: { expiresAt: string | null; revokedAt: string |
 export const grantStatus = (grant: Grant) =>
   grant.revokedAt ? 'revoked' : isActive(grant) ? 'active' : 'expired';
 
-/** Depth-first grant rows, so the delegation tree renders as indented rows. */
-export function grantRows(grants: State['grants']) {
-  const rows: { grant: Grant; depth: number }[] = [];
-  const walk = (parentId: string | null, depth: number) => {
-    Object.values(grants)
-      .filter((grant) => grant.parentId === parentId)
-      .sort((left, right) => left.name.localeCompare(right.name))
-      .forEach((grant) => {
-        rows.push({ grant, depth });
-        walk(grant.id, depth + 1);
-      });
-  };
-  walk(null, 0);
-  return rows;
+/** The grants delegated directly from one grant, or the root grants when no grant is given. */
+export function childGrants(grants: State['grants'], parentId: string | null): Grant[] {
+  return Object.values(grants)
+    .filter((grant) => grant.parentId === parentId)
+    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
 export function grantLineage(grants: State['grants'], grantId: string) {
@@ -81,3 +53,15 @@ export function grantLineage(grants: State['grants'], grantId: string) {
 
 export const isDelegatedFrom = (grants: State['grants'], grantId: string, ancestorId: string) =>
   grantLineage(grants, grantId).some((grant) => grant.id === ancestorId);
+
+/** Grants the active token explains: its own lineage, and everything delegated from its grant. */
+export function visibleGrantIds(grants: State['grants'], authority: AuthorityView | null) {
+  if (!authority) return null;
+  const visible = new Set<string>();
+  if (!authority.valid) return visible;
+  authority.lineage.forEach((id) => visible.add(id));
+  Object.keys(grants).forEach((id) => {
+    if (authority.grantId && isDelegatedFrom(grants, id, authority.grantId)) visible.add(id);
+  });
+  return visible;
+}

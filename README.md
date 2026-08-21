@@ -153,7 +153,7 @@ This prevents requests from observing a partially updated authorization state.
 
 The repository contains a React, TypeScript, and Vite application at `apps/frontend`, routed by TanStack Router. It is a local, browser-only demonstrator for exercising RGAP and inspecting how authorization decisions are made. It requires no application server, database, authentication system, or external service.
 
-The interface is a protocol workbench. Every route states what it operates on, shows the current state in a reading pane, and executes repository calls from an operations pane that displays the request it sends and the response it receives. Resources browse like an object store: the URL holds the current resource path, a breadcrumb shows where that path sits, and the explorer lists one location at a time.
+The interface is a protocol workbench. Every route states what it operates on, shows the current state in a reading pane, and executes repository calls from an operations surface that displays the request it sends and the response it receives. Resources browse like an object store: the URL holds the current resource path, a breadcrumb shows where that path sits, and the explorer lists one location at a time as the full width of the route. Its operations open one at a time in a drawer beside the listing, so the listing is what the route shows when no operation is in progress.
 
 ### Routes
 
@@ -161,8 +161,8 @@ The interface is a protocol workbench. Every route states what it operates on, s
 | --- | --- |
 | `/` | Redirects to the resource explorer root. |
 | `/browse/$path` | Resource explorer for the resource at `$path`. An empty splat lists the tree roots. |
-| `/grants` | Every grant as an indented delegation tree. |
-| `/grants/$grantId` | One grant's capabilities, tokens, delegation form, and revocation. |
+| `/grants` | The root grants. |
+| `/grants/$grantId` | One grant: its capabilities, the grants delegated from it, and its tokens. |
 | `/authorize` | Authorization simulator. |
 | `/audit` | Audit events, newest first. |
 
@@ -177,34 +177,51 @@ The application is dark, typographic, and flat. Structure comes from hairline ru
 - Uppercase monospace eyebrows label the workbench and each pane. Each route opens with a large title and a one-line note about what backs it.
 - Route navigation is a tab strip of bordered cells. The selected route fills with the accent colour.
 - Panes are bordered cells in a grid: a pane label on the left of its head, dim monospace metadata on the right.
-- A command runs from one pale full-width execute button per operations pane. Its result appears in the response pane, and the status line under the header reports the outcome in monospace.
+- A command runs from one pale full-width execute button per operations surface, and its result appears as monospace JSON in the same surface.
+- A drawer is a pane in a column at the right edge of the route, separated from the content beside it by a hairline. It carries the same head, label, and metadata as any other pane, and the content beside it stays visible and usable while it is open.
+- Action bar buttons are bordered cells in the text colour, bright enough to read as controls rather than metadata. The button whose drawer is open fills with the accent colour, and a button with nothing to act on dims to the metadata colour.
+- The status line under the header reports the active token's authority. Command outcomes are not reported there; they belong to the surface the command was sent from.
 
-### Operations panes
+### Operations surfaces
 
-Every command runs through the same pane pair. The request pane holds the form and, under it, the exact repository call the form will make as monospace JSON. The response pane holds the returned record, decision, or error as monospace JSON. The request preview is a read-only rendering of the form, not a JSON editor, so the domain rules always receive typed input.
+Every command runs through the same request-and-response pair. The request holds the form and, under it, the exact repository call the form will make as monospace JSON. The response holds the returned record, decision, or error as monospace JSON. The request preview is a read-only rendering of the form, not a JSON editor, so the domain rules always receive typed input.
 
-Every repository command names resources by stable ID, never by path. Forms still accept a path, because a path is what a person can read and type; the interface resolves it against the current tree and sends the resolved ID, and the request preview shows that ID. A path that resolves to nothing has no ID to show, so the request preview omits it and the form marks it; executing anyway reports it in the response pane before any command is sent.
+Every repository command names resources by stable ID, never by path. Forms still accept a path, because a path is what a person can read and type; the interface resolves it against the current tree and sends the resolved ID, and the request preview shows that ID. A path that resolves to nothing has no ID to show, so the request preview omits it and the form marks it; executing anyway reports it in the response before any command is sent.
 
-An operations pane with more than one command presents them as a tab strip above the form:
+Routes present their operations one of two ways. An operations pane sits beside a response pane and is always open, which suits the simulator, whose whole purpose is the form. A drawer holds one operation, opens from a named button in an action bar, and closes when that operation is finished or abandoned, so a route with drawers shows no form until one is asked for.
 
-| Route | Operations |
-| --- | --- |
-| `/browse/$path` | Create resource, Move, Delete |
-| `/grants` | Create root grant |
-| `/grants/$grantId` | Delegate, Issue token, Revoke grant |
-| `/authorize` | Authorize |
+| Route | Operations | Presentation |
+| --- | --- | --- |
+| `/browse/$path` | Create resource, Move, Delete | Drawer, one operation at a time |
+| `/grants` | Create root grant, Revoke grant | Drawer, one operation at a time |
+| `/grants/$grantId` | Delegate, Revoke grant, Issue token, Revoke token | Drawer, one operation at a time |
+| `/authorize` | Authorize | Operations pane |
+
+### Listings and drawers
+
+Two routes are built the same way, so browsing resources and walking grants read as one interface.
+
+A listing is the route's main view. It shows one record's contents at a time, the way a file viewer does, and spans the full width of the route. A breadcrumb above it walks back out of the tree, and under the breadcrumb one monospace line states the facts of the record the route addresses.
+
+Every listing row carries a checkbox, and clicking a row anywhere but its link checks it. A checkbox in the listing head checks and unchecks every row at once. A leading `..` row navigates to the parent. The selection covers only the location the listing shows: navigating clears it, because the listing is what the checkboxes describe. Reading the selection back out of the listing on every render drops whatever a committed command removed from it.
+
+An action bar in the listing head holds that listing's operations. One of them creates a record inside the record the route addresses and is always available. The rest act on the selection, name the count they would act on, as `Delete 3`, and are unavailable while nothing is checked.
+
+Each button opens its operation in a drawer, and one drawer is open at a time across the route, so asking for another operation replaces the open one. The listing stays live while a drawer is open: checking and unchecking rows retargets the operation, and the drawer's target list and request preview follow the selection. Losing the selection closes a drawer that acts on it. A drawer closes when its operation commits, from the close control in its head, and on `Escape`; a refused command leaves it open with the decision's explanation in its response so the form can be corrected.
+
+An operation over several records is several commands, one per selected record, sent in listing order. The drawer reports one result per record in its response, so a selection where some commands are authorized and others are refused shows exactly which were applied.
 
 ### Resource explorer
 
 The explorer path is the canonical resource path, so `/browse/acme/drive` addresses `acme/drive` and the browser's back button walks back out of the tree. Leading, trailing, and repeated separators are ignored, so `/browse/acme`, `/browse/acme/`, and `/browse//acme//` address the same resource.
 
-The explorer shows one location at a time, the way a file viewer does. A breadcrumb above the panes spells out the current path as `root / acme / mcp`, and every segment navigates to that ancestor.
+The breadcrumb spells out the current path as `root / acme / mcp`, and every segment navigates to that ancestor. The line under it states the addressed resource's stable ID, move policy, delete policy, effective permissions under the active token, and child count.
 
-The contents pane lists the live children of the current path: one row per child with its name, stable ID, move policy, delete policy, and permissions under the active token. Deleted resources appear in no listing. Clicking a name navigates into that child, replacing the listing with that child's contents; a leading `..` row navigates to the parent. Selecting a row targets the move and delete operations at it, and the row stays marked while it is the target. Because RGAP assigns no resource kinds, a resource with no children lists nothing.
+The listing has one row per live child of the current path, with the child's name, stable ID, move policy, delete policy, and permissions under the active token. Deleted resources appear in no listing. Clicking a name navigates into that child, replacing the listing with that child's contents. Because RGAP assigns no resource kinds, a resource with no children lists nothing.
 
-The object pane describes the resource the path addresses: its full path, stable ID, move policy, delete policy, and effective permissions under the active token.
+The create drawer takes a name, a `move_policy`, and a `delete_policy`. It creates the resource in the location the listing shows: the parent is that location, stated as a read-only path rather than typed, so creating somewhere else means navigating there first. At the tree root the parent is no resource, so the drawer creates a root resource, which no token authorizes and which the guarded plane therefore refuses.
 
-The explorer's operations pane creates, moves, and deletes. Create takes a name, a parent path prefilled with the current path, a `move_policy`, and a `delete_policy`. When the submitted parent path does not exist, the interface creates each missing segment as its own ordinary resource before creating the named resource, so that convenience is a sequence of commands rather than one commit: a rejected segment leaves the segments already created. Move takes a destination parent path, resolved the same way, and an empty path moves the resource to a root. Delete removes the selected resource and its descendants. Move and delete default to the resource the path addresses and retarget to whichever row is selected.
+The move drawer lists the checked resources as paths and takes one destination parent path, resolved against the current tree to the stable ID the commands send, where an empty path moves them to roots. The delete drawer lists the checked resources as paths and removes each together with its descendants.
 
 ### Active token
 
@@ -216,9 +233,15 @@ Bearer values stay in transient interface memory. The active token never appears
 
 ### Grants
 
-The grant list renders the whole delegation tree at once: each grant is indented under the grant it was delegated from, with its subject, capability count, expiration, and status. Revoked and expired grants are marked as inactive.
+Grants are walked the same way resources are. `/grants` lists the root grants, clicking a grant navigates into it, and a grant's page lists the grants delegated from it. The breadcrumb walks the delegation lineage as `grants / Acme admin / Drive read`, and every name navigates to that ancestor grant. The line under it states the addressed grant's stable ID, subject, expiration, status, and the number of grants delegated from it.
 
-A grant's page shows its capabilities as a table of resource path, permissions, descendant behavior, and relocation policy, marking any capability whose resource has been deleted while still showing the path that resource held; its issued tokens with labels and status; and the delegation lineage from the root grant down to it. Its operations pane delegates a child grant, issues a token, and revokes the grant branch, and each issued token row revokes that token. The delegation form selects the subject, resource path, permissions, descendant behavior, relocation policy, and optional expiration; the domain rules reject any child that would expand authority and the response pane shows the reason. The grant list creates root grants in the administrative view.
+A grant row carries the grant's name, subject, capability count, expiration, and status. Revoked and expired grants are marked as inactive.
+
+A grant's page adds two panes to that listing. Capabilities is a read-only table of resource path, permissions, descendant behavior, and relocation policy, marking any capability whose resource has been deleted while still showing the path that resource held. Tokens is a second listing, with its own checkboxes and action bar, holding one row per issued token with its label, status, and hash prefix.
+
+The delegated listing's action bar delegates and revokes. `Delegate` creates a child grant of the grant the page addresses, which is the same relationship create has to the location in the explorer; at `/grants` the equivalent button is `Create` and it creates a root grant, an administrative operation no token authorizes. The delegation form selects the name, subject, resource path, permissions, descendant behavior, relocation policy, and optional expiration; the domain rules reject any child that would expand authority and the drawer's response shows the reason. `Revoke` revokes each checked grant together with the grants delegated from it.
+
+The tokens listing's action bar issues and revokes. `Issue token` takes a label and issues a token for the grant the page addresses, and the issued bearer value becomes the active token immediately. `Revoke token` revokes each checked token, which disables that credential and leaves the grant intact.
 
 ### Authorization and audit
 

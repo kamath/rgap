@@ -13,7 +13,15 @@ const toLocalInput = (iso: string) => {
 };
 
 /** Request side of the grant operation: a root grant, or a downscoped child when a parent is given. */
-export function GrantFields({ parent, execute }: { parent?: Grant; execute: ExecuteFn }) {
+export function GrantFields({
+  parent,
+  execute,
+  onCommitted,
+}: {
+  parent?: Grant;
+  execute: ExecuteFn;
+  onCommitted?: () => void;
+}) {
   const client = useRgapClient();
   const snapshot = useRgapSnapshot();
   const [name, setName] = useState('');
@@ -37,13 +45,16 @@ export function GrantFields({ parent, execute }: { parent?: Grant; execute: Exec
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        void execute('createGrant', async () => {
-          const capability = { ...input.capabilities[0], resourceId: requireResourceId(snapshot.resources, path) };
-          const grant = await client.createGrant({ ...input, capabilities: [capability] });
-          setName('');
-          setSubject('');
-          return grant;
-        });
+        void (async () => {
+          const committed = await execute('createGrant', async () => {
+            const capability = { ...input.capabilities[0], resourceId: requireResourceId(snapshot.resources, path) };
+            const grant = await client.createGrant({ ...input, capabilities: [capability] });
+            setName('');
+            setSubject('');
+            return grant;
+          });
+          if (committed) onCommitted?.();
+        })();
       }}
     >
       <div className="field-row">
