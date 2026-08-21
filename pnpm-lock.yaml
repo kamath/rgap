@@ -10,15 +10,21 @@ importers:
 
   apps/frontend:
     dependencies:
+      '@rgap/browser':
+        specifier: workspace:*
+        version: link:../../packages/browser
+      '@rgap/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@rgap/react':
+        specifier: workspace:*
+        version: link:../../packages/react
       react:
         specifier: latest
         version: 19.2.8
       react-dom:
         specifier: latest
         version: 19.2.8(react@19.2.8)
-      zustand:
-        specifier: latest
-        version: 5.0.15(@types/react@19.2.18)(react@19.2.8)
     devDependencies:
       '@types/react':
         specifier: latest
@@ -35,9 +41,47 @@ importers:
       vite:
         specifier: latest
         version: 8.2.2
+
+  packages/browser:
+    dependencies:
+      '@rgap/core':
+        specifier: workspace:*
+        version: link:../core
+      zustand:
+        specifier: latest
+        version: 5.0.15(@types/react@19.2.18)(react@19.2.8)
+    devDependencies:
+      typescript:
+        specifier: latest
+        version: 7.0.2
       vitest:
         specifier: latest
         version: 4.1.11(vite@8.2.2)
+
+  packages/core:
+    devDependencies:
+      typescript:
+        specifier: latest
+        version: 7.0.2
+      vitest:
+        specifier: latest
+        version: 4.1.11(vite@8.2.2)
+
+  packages/react:
+    dependencies:
+      '@rgap/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/react':
+        specifier: latest
+        version: 19.2.18
+      react:
+        specifier: latest
+        version: 19.2.8
+      typescript:
+        specifier: latest
+        version: 7.0.2
 
 packages:
 

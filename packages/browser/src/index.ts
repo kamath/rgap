@@ -14,40 +14,27 @@ import {
   revokeToken as revokeTokenRecord,
   type CreateGrantInput,
   type CreateResourceAtPathInput,
-  type Decision,
-  type Grant,
   type Permission,
-  type AuthorityView,
-  type Resource,
   type State,
   type Token,
-} from './domain';
-import { seed } from './seed';
+  type RgapRepository,
+} from '@rgap/core';
 
-export type IssuedToken = { record: Token; value: string };
-
-export interface RgapRepository {
-  getSnapshot(): State;
-  subscribe(listener: () => void): () => void;
-  createResource(input: CreateResourceAtPathInput): Promise<Resource>;
-  moveResource(id: string, parentPath: string): Promise<Resource>;
-  deleteResource(id: string): Promise<void>;
-  createGrant(input: CreateGrantInput): Promise<Grant>;
-  issueToken(grantId: string, label: string): Promise<IssuedToken>;
-  revokeToken(id: string): Promise<void>;
-  revokeGrant(id: string): Promise<void>;
-  authorize(token: string, resourceId: string, permission: Permission): Promise<Decision>;
-  inspectToken(token: string): Promise<AuthorityView>;
-  reset(): Promise<void>;
-}
+export type BrowserRgapRepositoryOptions = {
+  initialState: State;
+  storage?: Storage;
+  storageKey?: string;
+};
 
 export class BrowserRgapRepository implements RgapRepository {
   private store: StoreApi<State>;
+  private initialState: State;
 
-  constructor(storage?: Storage) {
+  constructor(options: BrowserRgapRepositoryOptions) {
+    this.initialState = structuredClone(options.initialState);
     const creator = persist<State>(
-      () => seed(),
-      { name: 'rgap-state-v2', storage: createJSONStorage(() => storage ?? localStorage) },
+      () => structuredClone(this.initialState),
+      { name: options.storageKey ?? 'rgap-state', storage: createJSONStorage(() => options.storage ?? localStorage) },
     );
     this.store = createStore(creator);
   }
@@ -114,7 +101,7 @@ export class BrowserRgapRepository implements RgapRepository {
   }
 
   async reset() {
-    this.commit(seed());
+    this.commit(structuredClone(this.initialState));
   }
 
   private commit(state: State) {

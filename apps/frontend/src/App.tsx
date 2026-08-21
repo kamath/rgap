@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import {
   permissions,
   resourcePath,
@@ -8,28 +8,19 @@ import {
   type Permission,
   type Resource,
   type State,
-} from './domain';
-import type { RgapRepository } from './repository';
+  type RgapRepository,
+} from '@rgap/core';
+import { useRgapAuthority, useRgapRepository, useRgapSnapshot } from '@rgap/react';
 
 type View = 'resources' | 'grants' | 'simulator' | 'audit';
 
-export function App({ repository }: { repository: RgapRepository }) {
-  const state = useSyncExternalStore(repository.subscribe, repository.getSnapshot);
+export function App() {
+  const repository = useRgapRepository();
+  const state = useRgapSnapshot();
   const [view, setView] = useState<View>('resources');
   const [token, setToken] = useState('');
-  const [authority, setAuthority] = useState<AuthorityView | null>(null);
   const [message, setMessage] = useState('Ready. State is stored in this browser.');
-
-  useEffect(() => {
-    if (!token.trim()) {
-      setAuthority(null);
-      return;
-    }
-    setAuthority(null);
-    let current = true;
-    repository.inspectToken(token).then((result) => { if (current) setAuthority(result); });
-    return () => { current = false; };
-  }, [repository, state, token]);
+  const { authority } = useRgapAuthority(token);
 
   async function run(action: () => Promise<unknown>, success: string) {
     try {

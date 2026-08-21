@@ -1,11 +1,13 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { BrowserRgapRepository } from '@rgap/browser';
+import { RgapProvider } from '@rgap/react';
 import { App } from './App';
-import { BrowserRgapRepository } from './repository';
+import { seed } from './seed';
 import './styles.css';
 
-const repository = new BrowserRgapRepository();
+const repository = new BrowserRgapRepository({ initialState: seed() });
 
 createRoot(document.getElementById('root')!).render(
-  <StrictMode><App repository={repository} /></StrictMode>,
+  <StrictMode><RgapProvider repository={repository}><App /></RgapProvider></StrictMode>,
 );

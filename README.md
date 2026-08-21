@@ -149,14 +149,20 @@ The application separates domain behavior from state management and presentation
 ```text
 React interface
       ↓
-RgapRepository interface
+@rgap/react hooks
       ↓
-BrowserRgapRepository
+RgapRepository in @rgap/core
       ↓
-Zustand browser store
+BrowserRgapRepository in @rgap/browser
+      ↓
+Zustand browser store + localStorage
 ```
 
-The React interface calls an `RgapRepository` contract for every query and command. Components do not read or mutate Zustand state directly. `BrowserRgapRepository` implements that contract over a Zustand store and uses pure domain functions for validation, authorization, delegation, relocation, revocation, and audit-event creation.
+`@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, and asynchronous `RgapRepository` contract. It has no dependency on React, Zustand, browser storage, or a transport.
+
+`@rgap/browser` implements `RgapRepository` over a vanilla Zustand store and local storage. It accepts initial state from its caller, so the package has no dependency on the reference application's example data.
+
+`@rgap/react` provides a repository context plus hooks for the current snapshot, repository commands, and token-derived authority. React components use these hooks and do not access Zustand directly. The Vite application owns only its example seed, interface components, and styles.
 
 The store contains resources, grants, token records, and audit events in normalized collections. Repository snapshots contain only this serializable application data; Zustand actions and other functions remain private to the adapter and never cross into domain operations. Each command computes and commits its complete state change atomically. Local persistence, when enabled, serializes the same application-state schema to browser storage. Raw bearer-token values exist only in transient UI memory; persisted token records contain only token hashes.
 

@@ -1,0 +1,22 @@
+{
+  "name": "@rgap/react",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": "./src/index.tsx",
+  "types": "./src/index.tsx",
+  "scripts": {
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@rgap/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "latest",
+    "react": "latest",
+    "typescript": "latest"
+  }
+}

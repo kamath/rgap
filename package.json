@@ -4,7 +4,7 @@
   "packageManager": "pnpm@11.10.0",
   "scripts": {
     "dev": "pnpm --filter @rgap/frontend dev",
-    "build": "pnpm --filter @rgap/frontend build",
-    "test": "pnpm --filter @rgap/frontend test"
+    "build": "pnpm -r --if-present build",
+    "test": "pnpm -r --if-present test"
   }
 }

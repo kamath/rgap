@@ -1,4 +1,4 @@
-import type { Capability, State } from './domain';
+import type { Capability, State } from '@rgap/core';
 
 export const demoToken = 'rgap_demo_coordinator';
 

@@ -168,10 +168,10 @@ specification
 └── conformance requirements
 
 reference implementation
-├── asynchronous RgapRepository contract
+├── framework-neutral @rgap/core contract and rules
+├── @rgap/browser Zustand and localStorage adapter
+├── @rgap/react provider and hooks
 ├── React and Vite application at apps/frontend
-├── browser repository backed by Zustand and localStorage
-├── pure capability, delegation, revocation, and move rules
 ├── local model explorer and decision simulator
 └── domain tests and deterministic example state
 ```

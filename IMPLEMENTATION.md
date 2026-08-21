@@ -5,9 +5,11 @@ The repository contains one regular React and TypeScript Vite application at `ap
 The implementation is an interface test bed. It favors short files, direct control flow, explicit data shapes, and a plain functional UI over production infrastructure or visual polish.
 
 ```text
+packages/
+├── core/           # records, pure RGAP rules, RgapRepository
+├── browser/        # Zustand and localStorage implementation
+└── react/          # provider, snapshot, repository, and authority hooks
 apps/frontend/src/
-├── domain.ts       # records and pure RGAP rules
-├── repository.ts   # async contract and browser implementation
 ├── seed.ts         # deterministic example state
 ├── App.tsx         # plain interface for every operation
 ├── main.tsx
@@ -16,15 +18,17 @@ apps/frontend/src/
 
 ## Boundary under test
 
-React depends on `RgapRepository`, which exposes a snapshot subscription and asynchronous methods for every query and command. Components never access Zustand directly.
+`@rgap/core` exports `RgapRepository`, which exposes a snapshot subscription and asynchronous methods for every query and command. It also exports the domain records and pure rules. The package has no framework, browser, persistence, or transport dependency.
 
 ```text
-React UI → RgapRepository → BrowserRgapRepository → Zustand + localStorage
+React UI → @rgap/react → @rgap/core contract → @rgap/browser → Zustand + localStorage
 ```
 
 The contract stays asynchronous and JSON-compatible even though its browser implementation is local. A future `HttpRgapRepository` can implement the same interface without changing the UI or domain record shapes.
 
-`BrowserRgapRepository` owns the Zustand store. Each command calls a pure domain function that returns one complete next state, then commits that state once. Browser persistence serializes normalized resources, grants, token records, and audit events. Issued bearer values are returned once; persisted tokens contain only hashes.
+`@rgap/browser` exports `BrowserRgapRepository`. It owns the Zustand store and accepts initial state, optional browser storage, and an optional storage key. Each command calls a pure core function that returns one complete next state, then commits that state once. Browser persistence serializes normalized resources, grants, token records, and audit events. Issued bearer values are returned once; persisted tokens contain only hashes.
+
+`@rgap/react` exports `RgapProvider`, `useRgapRepository`, `useRgapSnapshot`, and `useRgapAuthority`. The hooks depend only on the core contract. Components never access Zustand or the browser adapter directly.
 
 ## Supported operations
 

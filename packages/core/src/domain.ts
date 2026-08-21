@@ -1,3 +1,4 @@
+/** Permissions understood by the reference RGAP contract. */
 export const permissions = ['read', 'write', 'delete', 'move', 'invoke'] as const;
 export type Permission = (typeof permissions)[number];
 export type RelocationPolicy = 'follow_resource' | 'revoke_on_scope_exit' | 'deny_move';

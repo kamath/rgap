@@ -5,20 +5,20 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
-    "test": "vitest run"
+    "build": "tsc && vite build"
   },
   "dependencies": {
+    "@rgap/browser": "workspace:*",
+    "@rgap/core": "workspace:*",
+    "@rgap/react": "workspace:*",
     "react": "latest",
-    "react-dom": "latest",
-    "zustand": "latest"
+    "react-dom": "latest"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "typescript": "latest",
-    "vite": "latest",
-    "vitest": "latest"
+    "vite": "latest"
   }
 }
