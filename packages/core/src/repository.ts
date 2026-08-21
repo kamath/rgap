@@ -1,7 +1,7 @@
 import type {
   AuthorityView,
   CreateGrantInput,
-  CreateResourceAtPathInput,
+  CreateResourceInput,
   Decision,
   Grant,
   Permission,
@@ -14,8 +14,8 @@ export type IssuedToken = { record: Token; value: string };
 
 export interface RgapRepository {
   readState(): Promise<State>;
-  createResource(input: CreateResourceAtPathInput): Promise<Resource>;
-  moveResource(id: string, parentPath: string): Promise<Resource>;
+  createResource(input: CreateResourceInput): Promise<Resource>;
+  moveResource(id: string, parentId: string | null): Promise<Resource>;
   deleteResource(id: string): Promise<void>;
   createGrant(input: CreateGrantInput): Promise<Grant>;
   issueToken(grantId: string, label: string): Promise<IssuedToken>;

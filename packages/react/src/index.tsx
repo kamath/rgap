@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, useSyncExternalStore, t
 import type {
   AuthorityView,
   CreateGrantInput,
-  CreateResourceAtPathInput,
+  CreateResourceInput,
   Decision,
   Grant,
   IssuedToken,
@@ -25,6 +25,11 @@ export class RgapClient {
 
   getSnapshot = () => this.snapshot;
 
+  /** Swaps the repository commands run against, such as an administrative plane for a guarded one. */
+  setRepository(repository: RgapRepository) {
+    this.repository = repository;
+  }
+
   subscribe = (listener: Listener) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -35,12 +40,12 @@ export class RgapClient {
     this.listeners.forEach((listener) => listener());
   }
 
-  createResource(input: CreateResourceAtPathInput): Promise<Resource> {
+  createResource(input: CreateResourceInput): Promise<Resource> {
     return this.run(() => this.repository.createResource(input));
   }
 
-  moveResource(id: string, parentPath: string): Promise<Resource> {
-    return this.run(() => this.repository.moveResource(id, parentPath));
+  moveResource(id: string, parentId: string | null): Promise<Resource> {
+    return this.run(() => this.repository.moveResource(id, parentId));
   }
 
   deleteResource(id: string): Promise<void> {

@@ -32,7 +32,7 @@ export function fixture(): State {
 }
 
 const resource = (id: string, parentId: string | null): Resource => ({
-  id, parentId, name: id, movePolicy: 'normal', deletePolicy: 'revoke',
+  id, parentId, name: id, movePolicy: 'normal', deletePolicy: 'revoke', deletedAt: null,
 });
 
 const cap = (resourceId: string): Capability => ({

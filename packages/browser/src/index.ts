@@ -2,18 +2,17 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import {
   authorize as decide,
-  createResourceAtPath,
+  availableId,
+  createResource as addResource,
   createGrant as addGrant,
   deleteResource as removeResource,
-  findByPath,
   inspectAuthority,
-  normalizePath,
   moveResource as move,
   recordToken,
   revokeGrant as revokeGrantBranch,
   revokeToken as revokeTokenRecord,
   type CreateGrantInput,
-  type CreateResourceAtPathInput,
+  type CreateResourceInput,
   type Permission,
   type State,
   type Token,
@@ -43,16 +42,13 @@ export class BrowserRgapRepository implements RgapRepository {
     return structuredClone(this.currentState());
   }
 
-  async createResource(input: CreateResourceAtPathInput) {
-    const result = createResourceAtPath(this.currentState(), input, now());
-    this.commit(result.state);
-    return this.currentState().resources[result.id];
+  async createResource(input: CreateResourceInput) {
+    const id = availableId(this.currentState(), input.name);
+    this.commit(addResource(this.currentState(), input, id, now()));
+    return this.currentState().resources[id];
   }
 
-  async moveResource(id: string, parentPath: string) {
-    const path = normalizePath(parentPath);
-    const parentId = path ? findByPath(this.currentState().resources, path) : null;
-    if (path && !parentId) throw new Error('Destination path does not exist.');
+  async moveResource(id: string, parentId: string | null) {
     this.commit(move(this.currentState(), id, parentId, now()));
     return this.currentState().resources[id];
   }

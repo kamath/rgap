@@ -9,6 +9,8 @@ export type Resource = {
   name: string;
   movePolicy: 'normal' | 'deny_while_granted';
   deletePolicy: 'revoke' | 'deny_while_granted';
+  /** Set when the resource is deleted. The record is retained so its stable ID is never reissued. */
+  deletedAt: string | null;
 };
 
 export type Capability = {
@@ -61,12 +63,7 @@ export type Decision = {
 };
 
 export type CreateGrantInput = Omit<Grant, 'id' | 'revokedAt'>;
-export type CreateResourceAtPathInput = {
-  name: string;
-  parentPath: string;
-  movePolicy: Resource['movePolicy'];
-  deletePolicy: Resource['deletePolicy'];
-};
+export type CreateResourceInput = Omit<Resource, 'id' | 'deletedAt'>;
 export type AuthorityView = {
   valid: boolean;
   detail: string;
@@ -82,6 +79,9 @@ export class RgapError extends Error {
 }
 
 const copy = (state: State): State => structuredClone(state);
+/** A deleted resource is retained only as a tombstone; nothing but its ID and path history remains observable. */
+export const isLive = (resource: Resource | undefined): resource is Resource => Boolean(resource && !resource.deletedAt);
+export const liveResources = (resources: State['resources']) => Object.values(resources).filter(isLive);
 const active = (item: { revokedAt: string | null; expiresAt: string | null }, now: string) =>
   !item.revokedAt && (!item.expiresAt || item.expiresAt > now);
 
@@ -108,28 +108,41 @@ export function resourcePath(resources: State['resources'], id: string) {
   return names.join('/');
 }
 
-export function findByPath(resources: State['resources'], path: string) {
+/** Resolves a path to a stable resource ID. The root is not a resource, so an empty path resolves to null. */
+export function resourceIdAtPath(resources: State['resources'], path: string) {
   let parentId: string | null = null;
   for (const name of pathParts(path)) {
-    const match = Object.values(resources).find((item) => item.parentId === parentId && item.name === name);
+    const match = liveResources(resources).find((item) => item.parentId === parentId && item.name === name);
     if (!match) return null;
     parentId = match.id;
   }
   return parentId;
 }
 
+/** Resolves a path that must name an existing resource, such as the target of a move or delete. */
+export function requireResourceId(resources: State['resources'], path: string) {
+  const id = resourceIdAtPath(resources, path);
+  if (!id) throw new RgapError('missing_resource', `No resource exists at ${normalizePath(path) || '/'}.`);
+  return id;
+}
+
 export const normalizePath = (path: string) => pathParts(path).join('/');
 
+/**
+ * Whether every request the child entry authorizes is also authorized by the parent entry.
+ * Location containment is required in every case: relocation policy governs what happens to an
+ * existing grant when its resource later moves, and never substitutes for containment at issue.
+ */
 function covers(parent: Capability, child: Capability, resources: State['resources']) {
   const policyRank: Record<RelocationPolicy, number> = {
     deny_move: 0,
     revoke_on_scope_exit: 1,
     follow_resource: 2,
   };
-  const locationCovered = parent.resourceId === child.resourceId ||
-    (parent.descendants && isWithin(resources, child.resourceId, parent.resourceId));
-  const relocationCovered = parent.relocation === 'follow_resource' && child.relocation === 'follow_resource';
-  return (locationCovered || relocationCovered) &&
+  const locationCovered = parent.descendants
+    ? isWithin(resources, child.resourceId, parent.resourceId)
+    : parent.resourceId === child.resourceId && !child.descendants;
+  return locationCovered &&
     policyRank[child.relocation] <= policyRank[parent.relocation] &&
     child.permissions.every((permission) => parent.permissions.includes(permission));
 }
@@ -168,53 +181,27 @@ function revokeBranch(state: State, grantId: string, at: string) {
 
 export function createResource(
   state: State,
-  input: Omit<Resource, 'id'>,
+  input: CreateResourceInput,
   id: string,
   at: string,
 ) {
   if (!input.name.trim()) throw new RgapError('invalid_name', 'Resource name is required.');
   if (input.name.includes('/')) throw new RgapError('invalid_name', 'Resource names cannot contain slashes.');
-  if (input.parentId && !state.resources[input.parentId]) throw new RgapError('missing_parent', 'Parent resource does not exist.');
-  if (Object.values(state.resources).some((item) => item.parentId === input.parentId && item.name === input.name.trim())) {
+  if (state.resources[id]) throw new RgapError('duplicate_id', `Resource ${id} already exists.`);
+  if (input.parentId && !isLive(state.resources[input.parentId])) throw new RgapError('missing_parent', 'Parent resource does not exist.');
+  if (liveResources(state.resources).some((item) => item.parentId === input.parentId && item.name === input.name.trim())) {
     throw new RgapError('duplicate_path', 'A resource already exists at that path.');
   }
   const next = copy(state);
-  next.resources[id] = { ...input, id, name: input.name.trim() };
+  next.resources[id] = { ...input, id, name: input.name.trim(), deletedAt: null };
   audit(next, { at, action: 'resource.create', target: id, result: 'recorded', detail: `Created ${input.name}.` });
   return next;
 }
 
-export function createResourceAtPath(state: State, input: CreateResourceAtPathInput, at: string) {
-  let next = state;
-  let parentId: string | null = null;
-  for (const segment of pathParts(input.parentPath)) {
-    const existing = Object.values(next.resources).find((item) => item.parentId === parentId && item.name === segment);
-    if (existing) {
-      parentId = existing.id;
-      continue;
-    }
-    const id = availableId(next, segment);
-    next = createResource(next, {
-      name: segment, parentId, movePolicy: 'normal', deletePolicy: 'revoke',
-    }, id, at);
-    parentId = id;
-  }
-  const id = availableId(next, input.name);
-  return {
-    state: createResource(next, {
-      name: input.name,
-      parentId,
-      movePolicy: input.movePolicy,
-      deletePolicy: input.deletePolicy,
-    }, id, at),
-    id,
-  };
-}
-
 export function moveResource(state: State, id: string, parentId: string | null, at: string) {
   const resource = state.resources[id];
-  if (!resource) throw new RgapError('missing_resource', 'Resource does not exist.');
-  if (parentId && !state.resources[parentId]) throw new RgapError('missing_parent', 'Parent resource does not exist.');
+  if (!isLive(resource)) throw new RgapError('missing_resource', 'Resource does not exist.');
+  if (parentId && !isLive(state.resources[parentId])) throw new RgapError('missing_parent', 'Parent resource does not exist.');
   if (parentId === id || (parentId && isWithin(state.resources, parentId, id))) {
     throw new RgapError('resource_cycle', 'A resource cannot move inside itself.');
   }
@@ -243,8 +230,10 @@ export function moveResource(state: State, id: string, parentId: string | null, 
 
 export function deleteResource(state: State, id: string, at: string) {
   const resource = state.resources[id];
-  if (!resource) throw new RgapError('missing_resource', 'Resource does not exist.');
-  const removed = Object.keys(state.resources).filter((candidate) => isWithin(state.resources, candidate, id));
+  if (!isLive(resource)) throw new RgapError('missing_resource', 'Resource does not exist.');
+  const removed = liveResources(state.resources)
+    .filter((candidate) => isWithin(state.resources, candidate.id, id))
+    .map((candidate) => candidate.id);
   const affected = Object.values(state.grants).filter((grant) =>
     active(grant, at) && grant.capabilities.some((cap) => removed.includes(cap.resourceId)),
   );
@@ -253,7 +242,7 @@ export function deleteResource(state: State, id: string, at: string) {
   }
   const next = copy(state);
   affected.forEach((grant) => revokeBranch(next, grant.id, at));
-  removed.forEach((removedId) => delete next.resources[removedId]);
+  removed.forEach((removedId) => { next.resources[removedId].deletedAt = at; });
   audit(next, { at, action: 'resource.delete', target: id, result: 'recorded', detail: `Deleted ${resource.name} and its descendants.` });
   return next;
 }
@@ -262,7 +251,7 @@ export function createGrant(state: State, input: CreateGrantInput, id: string, a
   if (!input.name.trim() || !input.subject.trim()) throw new RgapError('invalid_grant', 'Grant name and subject are required.');
   if (!input.capabilities.length) throw new RgapError('invalid_grant', 'At least one capability is required.');
   input.capabilities.forEach((cap) => {
-    if (!state.resources[cap.resourceId]) throw new RgapError('missing_resource', 'Capability resource does not exist.');
+    if (!isLive(state.resources[cap.resourceId])) throw new RgapError('missing_resource', 'Capability resource does not exist.');
     if (!cap.permissions.length) throw new RgapError('invalid_capability', 'Select at least one permission.');
   });
   if (input.parentId) {
@@ -309,7 +298,7 @@ export function revokeGrant(state: State, id: string, at: string) {
 }
 
 export function authorize(state: State, tokenHash: string, resourceId: string, permission: Permission, at: string): Decision {
-  if (!state.resources[resourceId]) return { allowed: false, detail: 'Resource does not exist.', grantId: null, lineage: [] };
+  if (!isLive(state.resources[resourceId])) return { allowed: false, detail: 'Resource does not exist.', grantId: null, lineage: [] };
   const token = Object.values(state.tokens).find((item) => item.hash === tokenHash);
   if (!token || !active(token, at)) return { allowed: false, detail: 'Token is unknown, expired, or revoked.', grantId: null, lineage: [] };
   const chain = lineage(state, token.grantId);
@@ -338,7 +327,7 @@ export function inspectAuthority(state: State, tokenHash: string, at: string): A
   if (chain.some((grant) => !active(grant, at))) {
     return { valid: false, detail: 'A grant in the delegation chain is expired or revoked.', grantId: token.grantId, lineage: chain.map((grant) => grant.id), permissions: {} };
   }
-  const effective = Object.fromEntries(Object.keys(state.resources).flatMap((resourceId) => {
+  const effective = Object.fromEntries(liveResources(state.resources).map((resource) => resource.id).flatMap((resourceId) => {
     const allowed = permissions.filter((permission) => authorize(state, tokenHash, resourceId, permission, at).allowed);
     return allowed.length ? [[resourceId, allowed]] : [];
   }));
@@ -353,7 +342,8 @@ export function inspectAuthority(state: State, tokenHash: string, at: string): A
 
 const pathParts = (path: string) => path.split('/').map((part) => part.trim()).filter(Boolean);
 
-function availableId(state: State, name: string) {
+/** Mints a readable, unused stable ID from a resource name. */
+export function availableId(state: State, name: string) {
   const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'resource';
   let id = base;
   let suffix = 2;
