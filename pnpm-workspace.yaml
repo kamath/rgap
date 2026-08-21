@@ -1,3 +1,9 @@
 packages:
   - apps/*
+  - examples
   - packages/*
+
+# better-sqlite3 ships a prebuilt binding for every platform it supports, so it needs no build step.
+allowBuilds:
+  better-sqlite3: false
+  esbuild: true

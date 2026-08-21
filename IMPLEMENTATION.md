@@ -8,7 +8,10 @@ The implementation is an interface test bed. It favors short files, direct contr
 packages/
 ├── core/           # records, pure RGAP rules, RgapRepository
 ├── browser/        # Zustand and localStorage implementation
+├── sqlite/         # Drizzle and SQLite implementation
 └── react/          # provider, snapshot, repository, and authority hooks
+examples/
+└── index.ts        # scratchpad run with pnpm scratch
 apps/frontend/src/
 ├── seed.ts            # deterministic example state
 ├── shell.tsx          # workbench chrome, tab navigation, active-token control, plane selection
@@ -38,12 +41,17 @@ apps/frontend/src/
 Repository commands are the administrative plane and take no token. `@rgap/core` also exports `guardCommands(repository, token)`, a decorator returning an `RgapRepository` whose commands each authorize the required permission before delegating and reject with the decision's explanation otherwise. It guards commands only; `inspectToken` remains the read-side lens.
 
 ```text
-React UI → @rgap/react observable client → @rgap/core contract → @rgap/browser → Zustand + localStorage
+React UI          → @rgap/react observable client → @rgap/core contract → @rgap/browser → Zustand + localStorage
+TypeScript caller →                                 @rgap/core contract → @rgap/sqlite  → Drizzle + SQLite
 ```
 
 The contract stays asynchronous and JSON-compatible even though its browser implementation is local. A future `HttpRgapRepository` implements the same interface with ordinary request-response endpoints and does not need SSE, WebSockets, or another push transport.
 
 `@rgap/browser` exports `BrowserRgapRepository`. It owns the Zustand store and accepts initial state, optional browser storage, and an optional storage key. Each command calls a pure core function that returns one complete next state, then commits that state once. Browser persistence serializes normalized resources, grants, token records, and audit events. Issued bearer values are returned once; persisted tokens contain only hashes.
+
+`@rgap/sqlite` exports `SqliteRgapRepository`. It takes an optional database URL, a file path or `:memory:`, and an optional initial state, which is what an empty database is initialized with and what `reset` restores. `src/schema.ts` declares the tables and `drizzle-kit generate` writes the DDL to `drizzle/`, which the constructor applies to whatever database it opens. Each command is one `better-sqlite3` transaction that reads the complete state, applies the same pure core rule the browser adapter applies, and replaces the stored rows with the state that rule returns; rows are written parents before children so the foreign keys hold statement by statement. Its suite runs against `:memory:` databases, so it exercises real SQL rather than a stand-in.
+
+`examples/index.ts` is a workspace package that consumes `@rgap/sqlite` the way any caller does. It is a scratchpad for arranging grants and printing decisions, not a fixture anything depends on.
 
 `@rgap/react` exports `RgapClient`, `RgapProvider`, `useRgapClient`, `useRgapSnapshot`, and `useRgapAuthority`. `RgapClient` loads and caches repository state, exposes a client-local subscription for React, and refreshes its snapshot after every completed command. `setRepository` swaps the repository its commands run against, which is how the interface moves between the administrative plane and a guarded one as the active token changes. Components never access Zustand or the browser adapter directly.
 
@@ -74,4 +82,4 @@ pnpm install
 pnpm dev
 ```
 
-Use `pnpm build` for a production bundle and `pnpm test` for the domain tests.
+Use `pnpm build` for a production bundle, `pnpm test` for the domain tests, and `pnpm scratch` to run `examples/index.ts` against a SQLite store.

@@ -256,6 +256,10 @@ Capabilities is the addressed grant's own entries: resource path, permissions, d
 
 Its action bar holds `Set capabilities`, the one operation that changes what a grant reaches. Setting replaces the whole set in one command, so the operation opens seeded with the entries the grant holds now and executes the set it is left in.
 
+Whether that action is offered depends on the plane the active token selects. On the administrative plane it is always offered, bounded only by the parent grant. On the guarded plane the pane states what the active token can do before a form opens, rather than letting a form be filled in and the command refused: a token on a grant above the addressed grant is offered the action, and a token that is not is offered the reason in its place.
+
+A token on the addressed grant itself is refused, because a grant does not amend itself. Its holder would widen it to the authority its issuer withheld, so raising what a grant reaches belongs to the grant above it. The note therefore names that parent grant and links to it, because a token on the parent is what performs the operation. A token on a grant that is neither the addressed grant nor above it is refused as outside that branch, and a root grant's entries are administrative, so no token amends them. These are the guard's own rules, stated where the operation would be started instead of where it would fail.
+
 This is the one operation that does not open in a drawer. A drawer exists so a form can sit beside content that stays useful while it is open, and here that content is the very table the form edits. So the pane becomes the form in place: the entries stay where they were, gain their controls, and the pane grows an execute button and a response. Until `Set capabilities` is pressed the pane is a reading pane, so the route still shows no form until one is asked for.
 
 ### Choosing resources
@@ -268,7 +272,7 @@ Selecting a resource adds an entry rooted at it; clearing the checkbox removes t
 
 Under the picker is one row per selected entry, in selection order, stating the entry's resource path and carrying its own controls: the descendant toggle, a permission checkbox set, and a relocation policy. Permissions default to none, and the form marks an entry that has none, because an entry with no permission is not a valid entry.
 
-For a child grant the picker lists only resources that some entry of the parent grant reaches, and each selected entry offers only the permissions and relocation policies its covering parent entries allow, taken as the union across every parent entry that reaches it. The form therefore cannot express a set the rules would reject. The domain check stays authoritative; the form only narrows what can be asked for. A root grant is bounded by nothing, so its picker spans the whole tree and offers every permission.
+For a child grant the picker still lists every resource, because a resource the parent grant does not reach is usually the way to one it does: an ancestor of a reachable resource is generally not reachable itself, and its row is how the picker walks through it. Selection is what the parent bounds. A row the parent reaches carries a live checkbox, a row it does not carries a disabled one, and a note under the picker names the parent grant that decides this. Each selected entry offers only the permissions and relocation policies its covering parent entries allow, taken as the union across every parent entry that reaches it. The form therefore cannot express a set the rules would reject. The domain check stays authoritative; the form only narrows what can be asked for. A root grant is bounded by nothing, so its picker spans the whole tree and offers every permission.
 
 Tokens is a listing with its own checkboxes and action bar, holding one row per issued token with its label, status, and hash prefix. Its action bar issues and revokes. `Issue token` takes a label and issues a token for the grant the route addresses. Only a hash of that token is stored, so the bearer value the command returns is the only copy there will ever be: the drawer stays open after it commits, states the value on a line of its own, and offers a control that copies it. The value also becomes the active token immediately, so the header carries it until it is replaced or cleared, and the drawer says plainly that dismissing it is the last chance to read the value. `Revoke token` revokes each checked token, which disables that credential and leaves the grant intact.
 
@@ -291,7 +295,7 @@ RgapClient observable cache
       ↓
 RgapRepository in @rgap/core
       ↓
-Browser storage or an HTTP API
+Browser storage, a SQLite database, or an HTTP API
 ```
 
 `@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, and asynchronous `RgapRepository` contract. The repository is a request-response boundary: it reads the current state and exposes asynchronous query and command methods. It does not expose a subscription and does not require a streaming transport. The package has no dependency on React, Zustand, browser storage, or a transport.
@@ -307,6 +311,66 @@ The store contains resources, grants, token records, and audit events in normali
 The repository contract uses asynchronous methods and JSON-compatible inputs and outputs even though the browser implementation is local. An HTTP-backed repository implements ordinary request-response operations, including a state read, and can replace `BrowserRgapRepository` without changing pages, components, or domain types. Live updates from changes made by other clients are optional client behavior. A client may refresh on demand, on window focus, or on an interval, and may add a streaming transport when an application specifically needs one. Backend-specific concerns such as transport, durable storage, concurrent transactions, authentication, and secret management remain outside the browser implementation.
 
 The reference application does not expose a JSON API and is not a production authorization service. Browser state is appropriate for demonstrating the model, not for enforcing access between mutually untrusted parties.
+
+## SQLite store
+
+`@rgap/sqlite` implements `RgapRepository` over a SQLite database with Drizzle ORM, so the model runs from ordinary TypeScript — a script, a test, or a service — against a real database rather than browser storage. It runs on `better-sqlite3`, whose synchronous API is what lets a command read, decide, and write inside one transaction.
+
+```ts
+import { SqliteRgapRepository } from '@rgap/sqlite';
+
+const repository = new SqliteRgapRepository({ url: 'rgap.db' });
+
+const acme = await repository.createResource({
+  name: 'acme', parentId: null, movePolicy: 'normal', deletePolicy: 'revoke',
+});
+const grant = await repository.createGrant({
+  name: 'Acme admin', subject: 'alice', parentId: null, capabilities: [], expiresAt: null,
+});
+await repository.setCapabilities(grant.id, [
+  { resourceId: acme.id, permissions: ['read', 'write'], descendants: true, relocation: 'revoke_on_scope_exit' },
+]);
+
+const { value } = await repository.issueToken(grant.id, 'cli');
+const decision = await repository.authorize(value, acme.id, 'read');
+
+repository.close();
+```
+
+The constructor takes an optional `url`, a file path or `:memory:`, and an optional `initialState`, which is what an empty database is initialized with and what `reset()` restores. A database that already holds records is opened as it stands. `close()` releases the connection. Bearer values are returned once and never stored; the `tokens` table holds only hashes.
+
+The adapter is nothing but an `RgapRepository`, so everything `@rgap/core` composes over one composes over this one: `guardCommands` wraps it to get the enforced plane, and `inspectToken` reads authority out of it.
+
+### Schema
+
+The store is normalized. Every record the protocol defines is a table, and every reference between records is a foreign key, so a state SQLite accepts is a state whose IDs all resolve.
+
+| Table | Holds |
+| --- | --- |
+| `resources` | One row per resource: stable ID, parent ID, name, move policy, delete policy, deletion marker. |
+| `grants` | One row per grant: stable ID, name, subject, parent grant ID, expiration, revocation. |
+| `capabilities` | One row per capability entry, keyed by its grant and its position in that grant's set. |
+| `capability_permissions` | One row per permission an entry carries, so a permission set is a relation SQL can query rather than an encoded value. |
+| `tokens` | One row per issued token: stable ID, grant ID, label, hash, expiration, revocation. |
+| `audit` | One row per recorded event, ordered by an explicit sequence number so the log's order is stored rather than inferred. |
+
+Because an entry's permissions are a set, reading returns them in the protocol's canonical permission order rather than the order they were written in.
+
+The schema is declared once as Drizzle tables, and `drizzle-kit` generates the DDL from that declaration. Opening a database applies the generated DDL, so a new file becomes a valid store and an existing one is left as it stands.
+
+### Commands and transactions
+
+A command is one SQLite transaction. It reads the complete state, applies the same pure `@rgap/core` rule the browser adapter applies, and replaces the stored rows with the state that rule returns. Nothing observes a partially updated authorization state, and a refused command writes nothing at all, because the rule rejects before the write begins.
+
+Rows are written parents before children, so the foreign keys hold at every statement rather than only at the end of the transaction.
+
+### Scratchpad
+
+`examples/index.ts` is a scratchpad: ordinary TypeScript that opens a store, exercises whatever arrangement of resources, grants, and tokens is in question, and prints what the model decides. `pnpm scratch` runs it. It is a workspace package, so it imports `@rgap/sqlite` and `@rgap/core` the way any consumer does, and it is meant to be edited rather than preserved.
+
+It opens `examples/scratch.db` and resets it as it starts, so every run begins from the state the file declares and the database is left on disk afterwards to be read with any SQLite client. Removing the reset keeps what the previous run wrote.
+
+The package's own suite runs against a `:memory:` database, so the tests exercise real SQL and real transactions rather than a stand-in.
 
 ## Testing
 

@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "pnpm --filter @rgap/frontend dev",
     "build": "pnpm -r --if-present build",
-    "test": "pnpm -r --if-present test"
+    "test": "pnpm -r --if-present test",
+    "scratch": "pnpm --filter @rgap/examples start"
   }
 }
