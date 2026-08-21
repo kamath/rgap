@@ -22,16 +22,17 @@ type Resource = {
   id: string;                                        // stable identity, assigned once
   parentId: string | null;                           // null for a root
   name: string;                                      // unique among live siblings, contains no separator
-  movePolicy: 'normal' | 'deny_while_granted';
-  deletePolicy: 'revoke' | 'deny_while_granted';
   deletedAt: string | null;                          // tombstone marker
 };
 
+type CapabilityTarget =
+  | { type: 'resource'; resourceId: string }          // follows one stable resource identity
+  | { type: 'path'; path: string };                   // stays attached to one normalized location
+
 type Capability = {
-  resourceId: string;                                // the entry's root
+  target: CapabilityTarget;
   permissions: Permission[];                         // a set; order is not significant
   descendants: boolean;                              // whether the entry covers the root's subtree
-  relocation: RelocationPolicy;
 };
 
 type Grant = {
@@ -63,7 +64,7 @@ type AuditEvent = {
 };
 ```
 
-`Permission` is `'read' | 'write' | 'delete' | 'move' | 'invoke'`. `RelocationPolicy` is `'follow_resource' | 'revoke_on_scope_exit' | 'deny_move'`.
+`Permission` is `'read' | 'write' | 'delete' | 'move' | 'invoke'`.
 
 Every record is JSON-compatible. Timestamps are RFC 3339 strings compared lexicographically, which requires them to be UTC with a fixed number of fractional digits.
 
@@ -85,7 +86,9 @@ resourceIdAtPath(resources, path) -> string | null      // null when nothing liv
 requireResourceId(resources, path) -> string            // raises missing_resource instead of returning null
 ```
 
-Path resolution belongs to the caller. Every command names resources by stable ID, so an implementation resolves a path at the moment it reads state, not at the moment a command executes. This binds a request to the resource the caller observed rather than to whatever later occupies that path.
+Resource commands name resources by stable ID, so a caller resolves an operational path at the moment it reads state. Capability path targets are different: the normalized path is stored as part of the grant and resolved from the current tree for every authorization decision.
+
+An ID target names an identity. It follows the resource and its subtree when they move. A path target names a location. It remains attached to the same normalized path while empty and applies to a resource that later occupies that path.
 
 ### Ancestry
 
@@ -109,7 +112,7 @@ Every read skips resources that are not live: path resolution, listings, capabil
 - A stable ID is never reissued, because the retained record still occupies it. A capability or audit event that names a deleted ID still names exactly what it always named.
 - A name is released, because uniqueness among siblings is checked against live resources only. A new resource may take a deleted resource's name under the same parent; it is a different resource with its own new ID.
 
-`resourcePath` continues to resolve for a tombstone, so a revoked grant can still report the path its capability referred to.
+`resourcePath` continues to resolve for a tombstone, so an ID-targeted capability can still report the path its resource held.
 
 ## Permissions
 
@@ -148,11 +151,17 @@ Two relations define everything else: what a capability authorizes, and when one
 ### Authorization by a single entry
 
 ```ts
+targetResourceId(capability, resources) =
+  capability.target.type === 'resource'
+    ? (isLive(resources[capability.target.resourceId]) ? capability.target.resourceId : null)
+    : resourceIdAtPath(resources, capability.target.path)
+
 authorizes(capability, resources, resourceId, permission) =
   capability.permissions.includes(permission) &&
+  targetResourceId(capability, resources) !== null &&
   (capability.descendants
-    ? isWithin(resources, resourceId, capability.resourceId)
-    : capability.resourceId === resourceId)
+    ? isWithin(resources, resourceId, targetResourceId(capability, resources))
+    : targetResourceId(capability, resources) === resourceId)
 ```
 
 ### Containment
@@ -160,26 +169,31 @@ authorizes(capability, resources, resourceId, permission) =
 `covers(parent, child)` holds when every request the child entry authorizes is also authorized by the parent entry.
 
 ```ts
-const rank = { deny_move: 0, revoke_on_scope_exit: 1, follow_resource: 2 };
-
 covers(parent, child, resources) =
   location(parent, child, resources) &&
-  rank[child.relocation] <= rank[parent.relocation] &&
   child.permissions.every((permission) => parent.permissions.includes(permission));
 
-location(parent, child, resources) =
-  parent.descendants
-    ? isWithin(resources, child.resourceId, parent.resourceId)
-    : parent.resourceId === child.resourceId && !child.descendants;
+location(parent, child, resources) = {
+  if both targets are paths:
+    parent.descendants
+      ? child.path is equal to or lexically beneath parent.path
+      : child.path === parent.path && !child.descendants
+  otherwise:
+    let parentId = targetResourceId(parent, resources)
+    let childId = targetResourceId(child, resources)
+    parentId !== null && childId !== null &&
+      (parent.descendants
+        ? isWithin(resources, childId, parentId)
+        : parentId === childId && !child.descendants)
+}
 ```
 
 Each clause is a containment proof over one dimension:
 
-- **Location.** A parent entry that covers a subtree contains any child entry rooted inside that subtree, with or without its own descendants, because that child's reach is a subset of the parent's. A parent entry that covers only its root contains only a child rooted at the same resource and reaching no further. A child never widens `descendants` past its parent.
-- **Relocation.** A child's policy is no more permissive than its parent's, ordered `deny_move` < `revoke_on_scope_exit` < `follow_resource`. `follow_resource` is available to a child only when the covering parent entry is itself `follow_resource`, which is how a parent explicitly permits delegated authority to survive a scope exit.
+- **Location.** Two path targets compare lexically, which permits an empty child path to be delegated beneath a parent path. Every comparison involving an ID resolves both targets against the current live tree. A parent entry that covers only its root contains only a child reaching that same root and no descendants.
 - **Permissions.** The child's set is a subset of the parent's.
 
-Location containment is evaluated against the current tree, and it is required in every case. Relocation policy governs what happens to an *existing* grant when its resource later moves; it never substitutes for containment at the moment a grant is issued.
+Containment is required when a grant is issued or amended. Authorization separately checks every grant in the lineage against the requested resource in the current tree. Moving a target can therefore make delegated authority ineffective or effective again, but it cannot widen authority beyond what every ancestor currently authorizes.
 
 ## Grants
 
@@ -188,7 +202,7 @@ Location containment is evaluated against the current tree, and it is required i
 A grant is created only when all of the following hold:
 
 1. `name` and `subject` are non-empty.
-2. Every entry in `capabilities` has at least one permission and a `resourceId` naming a live resource. The set may be empty, in which case the grant authorizes nothing until its capabilities are set.
+2. Every entry in `capabilities` has at least one permission. A resource target names a live resource. A path target has a non-empty normalized path and need not currently resolve. The set may be empty, in which case the grant authorizes nothing until its capabilities are set.
 3. If `parentId` is set, the parent grant exists and is active.
 4. If the parent has an `expiresAt`, the child has one and it is no later than the parent's.
 5. Every child capability entry is covered by at least one parent capability entry, by `covers` above.
@@ -200,15 +214,15 @@ Rules 4 and 5 are the downscoping proof. A root grant, having no parent, is unco
 A grant's identity, subject, parent, and expiry are fixed at issue. Its capability set is not: `setCapabilities(state, grantId, capabilities, at)` replaces the whole set in one atomic transition.
 
 1. The grant exists and is active. A revoked or expired grant is not amended.
-2. Every entry has at least one permission and a `resourceId` naming a live resource.
+2. Every entry has at least one permission. Resource targets name live resources, and path targets hold non-empty normalized paths that may be empty locations.
 3. If the grant has a parent, every entry is covered by at least one entry of the parent grant, by `covers` above. A root grant's entries are unconstrained, so setting them is administrative.
 4. Let `orphaned` be the active grants delegated directly from this grant that hold an entry which no entry of the new set covers.
 5. Revoke each grant in `orphaned` together with everything delegated from it.
-6. Commit the new capability set, the revocations, and the audit event together.
+6. Commit the normalized capability set, the revocations, and the audit event together.
 
-Rule 3 is the same downscoping proof as issue, applied at the moment the set changes, so an amended grant is bounded by its parent exactly as a newly issued one is. Rule 4 need only consider direct children: a deeper grant is covered against its own parent, which this operation does not change. It tests the full `covers`, so a child is orphaned by a parent narrowing a relocation policy or a permission set, not only by a parent giving up a resource.
+Rule 3 is the same downscoping proof as issue, applied at the moment the set changes, so an amended grant is bounded by its parent exactly as a newly issued one is. Rule 4 need only consider direct children: a deeper grant is covered against its own parent, which this operation does not change. A child is orphaned when the parent gives up its target or permission coverage.
 
-Rule 2 completes an invariant the other operations already maintain: **the entries of an active grant always name live resources.** Deletion revokes every active grant holding an entry rooted at a removed resource, and neither issue nor amendment accepts an entry naming one. An entry that no longer resolves therefore belongs only to a grant that is already revoked, which rule 1 refuses to amend.
+Resource targets name live resources when set but remain stored if their resources are later deleted. Path targets may be unresolved from the start. Neither condition invalidates or revokes the grant; the affected entry simply authorizes no live resource.
 
 Narrowing a set takes effect on the next decision whether or not rule 5 runs, because `authorize` re-checks coverage against every grant in the lineage. Rule 5 exists so the consequence is a recorded revocation rather than a grant record that remains active while authorizing nothing.
 
@@ -258,16 +272,16 @@ The procedure:
 1. If `resources[resourceId]` is not live, deny. The resource does not exist.
 2. Find the token whose `hash` equals `tokenHash`. If there is none, or it is not active, deny.
 3. Compute `chain = lineage(grants, token.grantId)`. If any grant in the chain is not active, deny; a revoked or expired ancestor disables everything beneath it.
-4. Let `leaves` be the entries of `chain[0]` — the grant the token references — that satisfy `authorizes(entry, resources, resourceId, permission)`.
-5. Allow when some leaf entry is covered by at least one entry of *every* remaining grant in the chain:
+4. For every grant in the chain, find whether at least one of its entries satisfies `authorizes(entry, resources, resourceId, permission)`.
+5. Allow only when every grant has such an entry:
 
 ```ts
-allowed = leaves.some((leaf) =>
-  chain.slice(1).every((ancestor) =>
-    ancestor.capabilities.some((entry) => covers(entry, leaf, resources))));
+allowed = chain.every((grant) =>
+  grant.capabilities.some((entry) =>
+    authorizes(entry, resources, resourceId, permission)));
 ```
 
-Step 5 is the security invariant made executable. Authority is the intersection of the whole chain: an entry that no longer sits inside an ancestor's authority authorizes nothing, whatever the leaf grant says.
+Step 5 is the security invariant made executable. Authority is the intersection of the whole chain in the current tree. Entries at different levels need not use the same target type, but every level must currently authorize the concrete requested resource.
 
 A decision is a pure function of state. Recording an audit event for the decision is a separate, additive state change.
 
@@ -289,7 +303,7 @@ It is defined by the decision procedure: for every live resource, the permission
 
 ## Resource operations
 
-Each operation is one atomic state transition. It reads one snapshot, computes the complete next state — resource changes, grant revocations, and audit events together — and commits once. A request never observes a partially updated authorization state.
+Each operation is one atomic state transition. It reads one snapshot, computes the complete next state and its audit event, and commits once. A request never observes a partially updated resource tree.
 
 ### Create
 
@@ -301,35 +315,27 @@ Requires a non-empty name containing no `/`, a live parent when `parentId` is se
 
 1. The resource is live, and the destination parent is live or `null`.
 2. The destination is neither the resource itself nor within its subtree, which would create a cycle.
-3. Let `affected` be the active grants holding a capability rooted inside the moved subtree.
-4. If the resource's `movePolicy` is `deny_while_granted` and `affected` is non-empty, reject.
-5. Reparent the resource.
-6. For each affected grant that has a parent grant, compute the entries that are *no longer covered* by that parent grant in the new tree. This is the scope exit.
-   - Any such entry with `deny_move` rejects the whole operation.
-   - Otherwise, any such entry with `revoke_on_scope_exit` revokes that grant and everything delegated from it.
-   - Entries with `follow_resource` survive: the grant stays attached to the resource in its new location.
-7. Commit the reparenting, the revocations, and the audit event together.
+3. Reparent the resource.
+4. Commit the reparenting and audit event together.
 
-Because grants reference stable IDs, a rename — a change of `name` with no change of `parentId` — requires no authorization rewrite at all.
+Moves and renames do not rewrite or revoke grants. ID targets follow their resources. Path targets remain attached to their normalized locations. The next authorization decision evaluates every target against the new tree.
 
 ### Delete
 
 `delete(state, id, at)`:
 
 1. The resource is live.
-2. Let `removed` be the live resources within its subtree, and `affected` the active grants holding a capability rooted at any of them.
-3. If the resource's `deletePolicy` is `deny_while_granted` and `affected` is non-empty, reject.
-4. Revoke each affected grant and everything delegated from it.
-5. Mark every resource in `removed` with `deletedAt`.
-6. Commit the tombstones, the revocations, and the audit event together.
+2. Let `removed` be the live resources within its subtree.
+3. Mark every resource in `removed` with `deletedAt`.
+4. Commit the tombstones and audit event together.
 
-Deletion revokes grants rather than erasing them, and tombstones resources rather than removing them, so the audit trail stays resolvable.
+Deletion does not rewrite or revoke grants. ID targets naming removed resources become permanently ineffective because IDs are not reused. Path targets become ineffective while empty and apply again if their locations are occupied later. Other entries in each grant continue to work.
 
 ## Enforcement boundary
 
 RGAP decides; the host enforces.
 
-`authorize` is the decision function. The repository commands defined above are an administrative plane: they enforce the model's own invariants — downscoping, relocation policy, ancestry, resource policy — but they do not demand a token. This keeps the model embeddable behind whatever transport, session, or service identity a host already has.
+`authorize` is the decision function. The repository commands defined above are an administrative plane: they enforce the model's own invariants — downscoping and ancestry — but they do not demand a token. This keeps the model embeddable behind whatever transport, session, or service identity a host already has.
 
 A host that wants a token-scoped surface composes two pieces:
 
@@ -343,11 +349,11 @@ The reference implementation ships the guard as `guardCommands(repository, token
 An implementation conforms when:
 
 1. Stable IDs are assigned once, never rewritten, and never reissued after deletion.
-2. Paths are derived from names, canonicalized as defined, and resolved by the caller before a command is issued.
+2. Paths are derived from names and canonicalized as defined. Operational paths resolve before resource commands; capability path targets resolve during every decision.
 3. Permissions are compared as sets, with no implication between them.
-4. `covers` is implemented exactly as defined, including location containment in every case.
+4. `covers` is implemented exactly as defined, including lexical containment for two path targets and current-tree containment otherwise.
 5. A grant is created, and its capabilities set, only when the result satisfies every validity rule, so authority never widens through delegation.
 6. `authorize` checks the complete lineage and allows only what survives every grant in it.
 7. Revocation cascades to delegated grants, and an inactive ancestor disables its descendants.
-8. Resource operations and capability amendments commit their record changes, grant revocations, and audit events as one atomic transition.
+8. Resource operations and capability amendments commit their record changes and audit events as one atomic transition; capability amendments also commit any resulting child-grant revocations.
 9. Deleted resources are retained as tombstones, excluded from every read, and their IDs stay permanently taken.

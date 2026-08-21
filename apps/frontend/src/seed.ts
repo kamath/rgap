@@ -23,17 +23,22 @@ export function seed(): State {
     grants: {
       coordinator: {
         id: 'coordinator', name: 'Coordinator', subject: 'coordinator agent', parentId: null,
-        capabilities: [cap('search-files'), cap('search-messages'), cap('create-issue')],
+        capabilities: [
+          resourceCap('search-files'),
+          pathCap('Acme/MCP servers/Slack/Tools/search_messages'),
+          pathCap('Acme/MCP servers/GitHub/Tools/create_issue'),
+          pathCap('Acme/MCP servers/GitHub/Tools/archive_issue'),
+        ],
         expiresAt: '2027-08-21T23:00:00.000Z', revokedAt: null,
       },
       researcher: {
         id: 'researcher', name: 'Researcher', subject: 'research sub-agent', parentId: 'coordinator',
-        capabilities: [cap('search-files'), cap('search-messages')],
+        capabilities: [resourceCap('search-files'), pathCap('Acme/MCP servers/Slack/Tools/search_messages')],
         expiresAt: '2027-08-21T22:00:00.000Z', revokedAt: null,
       },
       summarizer: {
         id: 'summarizer', name: 'Summarizer', subject: 'summarizing sub-agent', parentId: 'researcher',
-        capabilities: [cap('search-files')],
+        capabilities: [resourceCap('search-files')],
         expiresAt: '2027-08-21T21:00:00.000Z', revokedAt: null,
       },
     },
@@ -52,12 +57,17 @@ export function seed(): State {
 }
 
 function resource(id: string, parentId: string | null, name: string) {
-  return { id, parentId, name, movePolicy: 'normal' as const, deletePolicy: 'revoke' as const, deletedAt: null };
+  return { id, parentId, name, deletedAt: null };
 }
 
-function cap(resourceId: string): Capability {
-  return {
-    resourceId, permissions: ['invoke'],
-    descendants: false, relocation: 'revoke_on_scope_exit' as const,
-  };
-}
+const resourceCap = (resourceId: string): Capability => ({
+  target: { type: 'resource', resourceId },
+  permissions: ['invoke'],
+  descendants: false,
+});
+
+const pathCap = (path: string): Capability => ({
+  target: { type: 'path', path },
+  permissions: ['invoke'],
+  descendants: false,
+});

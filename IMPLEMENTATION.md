@@ -60,18 +60,19 @@ The contract stays asynchronous and JSON-compatible even though its browser impl
 The interface exposes all repository methods without extra workflow abstractions:
 
 - Browse the resource tree by path, with the current path in the URL
-- Create a resource by name and parent ID, with selectable move and delete policies
+- Create a resource by name and parent ID
 - Move a resource under another parent, or delete its subtree by marking it deleted and retaining its stable ID
 - Create a root grant or delegate from a parent grant
+- Set ID-targeted capabilities that follow resources or path-targeted capabilities that remain at locations
 - Issue, activate, paste, clear, or revoke a token
 - Revoke a grant branch
 - Authorize a token for a resource and permission
 - Run commands on the administrative plane, or through `guardCommands` when a token is active
 - Reset to the deterministic MCP example
 
-The resource tree shows paths using names while every command and record references stable IDs. The interface resolves each typed path to an ID before it calls, and an operation over a multi-row selection runs one command per row. A shared active-token lens derives effective resource permissions and grant lineage. Blank selects the complete administrative view; a valid token narrows the tree; an invalid or inactive token exposes no authority.
+The resource tree shows paths using names while resource commands reference stable IDs. The interface resolves each operational path to an ID before it calls, while capability path targets remain stored as normalized paths and resolve during authorization. An operation over a multi-row selection runs one command per row. A shared active-token lens derives effective resource permissions and grant lineage. Blank selects the complete administrative view; a valid token narrows the tree; an invalid or inactive token exposes no authority.
 
-Pure domain rules enforce acyclic resources, capability containment, permission downscoping, parent-bounded expiration, relocation policy, token status, current resource ancestry, and ancestor grant status. Deleted resources are retained as tombstones, so path resolution, listings, authorization, and ID minting all skip them while their IDs stay permanently taken.
+Pure domain rules enforce acyclic resources, capability containment, permission downscoping, parent-bounded expiration, target resolution, token status, current resource ancestry, and ancestor grant status. Deleted resources are retained as tombstones, so path resolution, listings, authorization, and ID minting all skip them while their IDs stay permanently taken.
 
 The application is a browser-only model explorer, not a security boundary. A production adapter places the repository behind authenticated transport, durable storage, and transactional concurrency control.
 

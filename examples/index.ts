@@ -13,23 +13,19 @@ const repository = new SqliteRgapRepository({ url: fileURLToPath(new URL('scratc
 // Every run starts from an empty store. Remove this to keep what the last run wrote.
 await repository.reset();
 
-await repository.createResource({ name: 'acme', parentId: null, movePolicy: 'normal', deletePolicy: 'revoke' });
-
-
-const acme = await repository.createResource({ name: 'acme', parentId: null, movePolicy: 'normal', deletePolicy: 'revoke' });
-const drive = await repository.createResource({ name: 'drive', parentId: acme.id, movePolicy: 'normal', deletePolicy: 'revoke' });
-const notes = await repository.createResource({ name: 'notes', parentId: drive.id, movePolicy: 'normal', deletePolicy: 'revoke' });
-const secret = await repository.createResource({ name: 'secret', parentId: acme.id, movePolicy: 'normal', deletePolicy: 'revoke' });
+const acme = await repository.createResource({ name: 'acme', parentId: null });
+const drive = await repository.createResource({ name: 'drive', parentId: acme.id });
+const notes = await repository.createResource({ name: 'notes', parentId: drive.id });
+const secret = await repository.createResource({ name: 'secret', parentId: acme.id });
 
 const admin = await repository.createGrant({
   name: 'Acme admin', subject: 'alice', parentId: null, capabilities: [], expiresAt: null,
 });
 await repository.setCapabilities(admin.id, [
   {
-    resourceId: acme.id,
+    target: { type: 'resource', resourceId: acme.id },
     permissions: ['read', 'write', 'invoke', 'move', 'delete'],
     descendants: true,
-    relocation: 'revoke_on_scope_exit',
   },
 ]);
 
@@ -38,7 +34,7 @@ const reader = await repository.createGrant({
   name: 'Drive read', subject: 'bob', parentId: admin.id, capabilities: [], expiresAt: null,
 });
 await repository.setCapabilities(reader.id, [
-  { resourceId: drive.id, permissions: ['read'], descendants: true, relocation: 'revoke_on_scope_exit' },
+  { target: { type: 'path', path: 'acme/drive' }, permissions: ['read'], descendants: true },
 ]);
 
 const alice = await repository.issueToken(admin.id, 'alice cli');

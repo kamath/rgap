@@ -33,11 +33,11 @@ export function fixture(): State {
 }
 
 const resource = (id: string, parentId: string | null): Resource => ({
-  id, parentId, name: id, movePolicy: 'normal', deletePolicy: 'revoke', deletedAt: null,
+  id, parentId, name: id, deletedAt: null,
 });
 
 const cap = (resourceId: string): Capability => ({
-  resourceId, permissions: ['invoke'], descendants: false, relocation: 'revoke_on_scope_exit',
+  target: { type: 'resource', resourceId }, permissions: ['invoke'], descendants: false,
 });
 
 /** A call the guard forwarded to the repository, in the order the guard made it. */
@@ -57,7 +57,7 @@ export function stubRepository(state: State, at: string) {
     return Promise.resolve(result);
   };
   const resourceStub = (id: string, parentId: string | null): Resource =>
-    ({ id, parentId, name: id, movePolicy: 'normal', deletePolicy: 'revoke', deletedAt: null });
+    ({ id, parentId, name: id, deletedAt: null });
 
   const repository: RgapRepository = {
     readState: () => Promise.resolve(state),

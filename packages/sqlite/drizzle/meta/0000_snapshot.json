@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c0981e82-0016-4fe5-bc11-cfcdc97c99c0",
+  "id": "02b24eaa-7492-4be3-aa51-17e8371800ba",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "audit": {
@@ -88,23 +88,30 @@
           "notNull": true,
           "autoincrement": false
         },
+        "target_type": {
+          "name": "target_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "resource_id": {
           "name": "resource_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "descendants": {
           "name": "descendants",
           "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "relocation": {
-          "name": "relocation",
-          "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -149,7 +156,12 @@
         }
       },
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "capabilities_target_check": {
+          "name": "capabilities_target_check",
+          "value": "(\"capabilities\".\"target_type\" = 'resource' and \"capabilities\".\"resource_id\" is not null and \"capabilities\".\"path\" is null)\n        or (\"capabilities\".\"target_type\" = 'path' and \"capabilities\".\"resource_id\" is null and \"capabilities\".\"path\" is not null)"
+        }
+      }
     },
     "capability_permissions": {
       "name": "capability_permissions",
@@ -292,20 +304,6 @@
         },
         "name": {
           "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "move_policy": {
-          "name": "move_policy",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "delete_policy": {
-          "name": "delete_policy",
           "type": "text",
           "primaryKey": false,
           "notNull": true,

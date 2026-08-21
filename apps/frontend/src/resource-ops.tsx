@@ -27,15 +27,11 @@ function CreateDrawer({ path, parentId, onClose }: DrawerProps) {
   const plane = usePlane();
   const { response, execute } = useOperation();
   const [name, setName] = useState('');
-  const [movePolicy, setMovePolicy] = useState<Resource['movePolicy']>('normal');
-  const [deletePolicy, setDeletePolicy] = useState<Resource['deletePolicy']>('revoke');
   // The resource is created where the listing already is, so the parent is stated rather than typed.
-  const request = { method: 'createResource', params: { name, parentId, movePolicy, deletePolicy } };
+  const request = { method: 'createResource', params: { name, parentId } };
 
   const submit = async () => {
-    const committed = await execute('createResource', () =>
-      client.createResource({ name, parentId, movePolicy, deletePolicy }),
-    );
+    const committed = await execute('createResource', () => client.createResource({ name, parentId }));
     if (committed) onClose();
   };
 
@@ -55,23 +51,6 @@ function CreateDrawer({ path, parentId, onClose }: DrawerProps) {
             ? 'The resource is created here. Navigate to another location to create one there.'
             : 'A resource created at the root is a root resource, which no token authorizes.'}
         </p>
-        <label>
-          <span>move policy</span>
-          <select value={movePolicy} onChange={(event) => setMovePolicy(event.target.value as Resource['movePolicy'])}>
-            <option value="normal">normal</option>
-            <option value="deny_while_granted">deny_while_granted</option>
-          </select>
-        </label>
-        <label>
-          <span>delete policy</span>
-          <select
-            value={deletePolicy}
-            onChange={(event) => setDeletePolicy(event.target.value as Resource['deletePolicy'])}
-          >
-            <option value="revoke">revoke</option>
-            <option value="deny_while_granted">deny_while_granted</option>
-          </select>
-        </label>
         <Json value={request} />
         <Execute label="Execute operation" />
         <ResponseBlock response={response} />

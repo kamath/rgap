@@ -9,6 +9,24 @@ import { fixture } from './fixture';
 
 const at = '2026-08-22T00:00:00.000Z';
 const demoHash = 'b528aaf0496a7f1b670eaf73987ee9237eaddbbefa1ade4844e5d318d4d35bc3';
+const cap = (
+  resourceId: string,
+  over: Partial<Omit<Capability, 'target'>> = {},
+): Capability => ({
+  target: { type: 'resource', resourceId },
+  permissions: ['invoke'],
+  descendants: false,
+  ...over,
+});
+const pathCap = (
+  path: string,
+  over: Partial<Omit<Capability, 'target'>> = {},
+): Capability => ({
+  target: { type: 'path', path },
+  permissions: ['invoke'],
+  descendants: false,
+  ...over,
+});
 
 describe('RGAP domain', () => {
   it('authorizes only capabilities present in the complete grant chain', () => {
@@ -41,13 +59,11 @@ describe('RGAP domain', () => {
 
   it('rejects delegation that expands permission', () => {
     const state = fixture();
-    state.grants.coordinator.capabilities = [{
-      resourceId: 'drive', permissions: ['read'], descendants: true, relocation: 'revoke_on_scope_exit',
-    }];
+    state.grants.coordinator.capabilities = [cap('drive', { permissions: ['read'], descendants: true })];
 
     expect(() => createGrant(state, {
       name: 'Writer', subject: 'writer agent', parentId: 'coordinator', expiresAt: '2027-01-01T00:00:00.000Z',
-      capabilities: [{ resourceId: 'read-file', permissions: ['write'], descendants: false, relocation: 'revoke_on_scope_exit' }],
+      capabilities: [cap('read-file', { permissions: ['write'] })],
     }, 'writer', at)).toThrow('not covered');
   });
 
@@ -60,7 +76,7 @@ describe('RGAP domain', () => {
     expect(created.grants.empty.capabilities).toEqual([]);
 
     const withEntry = setCapabilities(created, 'empty', [
-      { resourceId: 'search-files', permissions: ['invoke'], descendants: false, relocation: 'revoke_on_scope_exit' },
+      cap('search-files'),
     ], at);
     expect(withEntry.grants.empty.capabilities).toHaveLength(1);
   });
@@ -74,13 +90,13 @@ describe('RGAP domain', () => {
     // The coordinator holds `invoke` on search-files, so neither a wider permission nor a
     // resource it does not reach may be set on a grant delegated from it.
     expect(() => setCapabilities(state, 'empty', [
-      { resourceId: 'search-files', permissions: ['write'], descendants: false, relocation: 'revoke_on_scope_exit' },
+      cap('search-files', { permissions: ['write'] }),
     ], at)).toThrow('not covered by the parent');
     expect(() => setCapabilities(state, 'empty', [
-      { resourceId: 'post-message', permissions: ['invoke'], descendants: false, relocation: 'revoke_on_scope_exit' },
+      cap('post-message'),
     ], at)).toThrow('not covered by the parent');
     expect(() => setCapabilities(state, 'empty', [
-      { resourceId: 'search-files', permissions: [], descendants: false, relocation: 'revoke_on_scope_exit' },
+      cap('search-files', { permissions: [] }),
     ], at)).toThrow('at least one permission');
   });
 
@@ -89,12 +105,12 @@ describe('RGAP domain', () => {
     state = createGrant(state, {
       name: 'Deeper', subject: 'sub-sub-agent', parentId: 'researcher',
       expiresAt: '2027-01-01T00:00:00.000Z',
-      capabilities: [{ resourceId: 'search-files', permissions: ['invoke'], descendants: false, relocation: 'revoke_on_scope_exit' }],
+      capabilities: [cap('search-files')],
     }, 'deeper', at);
 
     // The coordinator gives up search-files, which is all the researcher held.
     const next = setCapabilities(state, 'coordinator', [
-      { resourceId: 'create-issue', permissions: ['invoke'], descendants: false, relocation: 'revoke_on_scope_exit' },
+      cap('create-issue'),
     ], at);
 
     expect(next.grants.coordinator.revokedAt).toBe(null);
@@ -103,19 +119,15 @@ describe('RGAP domain', () => {
     expect(next.audit[0].detail).toContain('Researcher');
   });
 
-  it('orphans a child by narrowing relocation policy, not only by giving up a resource', () => {
+  it('orphans a child by narrowing path coverage, not only by giving up a resource', () => {
     let state = fixture();
-    state.grants.coordinator.capabilities = [
-      { resourceId: 'search-files', permissions: ['invoke'], descendants: false, relocation: 'follow_resource' },
-    ];
+    state.grants.coordinator.capabilities = [pathCap('acme/drive', { descendants: true })];
     state = createGrant(state, {
       name: 'Follower', subject: 'sub-agent', parentId: 'coordinator', expiresAt: '2027-01-01T00:00:00.000Z',
-      capabilities: [{ resourceId: 'search-files', permissions: ['invoke'], descendants: false, relocation: 'follow_resource' }],
+      capabilities: [pathCap('acme/drive/search-files')],
     }, 'follower', at);
 
-    const next = setCapabilities(state, 'coordinator', [
-      { resourceId: 'search-files', permissions: ['invoke'], descendants: false, relocation: 'revoke_on_scope_exit' },
-    ], at);
+    const next = setCapabilities(state, 'coordinator', [pathCap('acme/drive')], at);
 
     expect(next.grants.follower.revokedAt).toBe(at);
   });
@@ -126,17 +138,18 @@ describe('RGAP domain', () => {
     expect(() => setCapabilities(state, 'researcher', [], at)).toThrow('revoked or expired grant is not amended');
   });
 
-  it('revokes a delegated grant when its resource leaves parent scope', () => {
+  it('makes delegated authority ineffective when its resource leaves parent scope without revoking it', () => {
     const state = fixture();
-    state.grants.coordinator.capabilities = [{
-      resourceId: 'drive', permissions: ['invoke'], descendants: true, relocation: 'revoke_on_scope_exit',
-    }];
-    state.grants.researcher.capabilities = [{
-      resourceId: 'search-files', permissions: ['invoke'], descendants: false, relocation: 'revoke_on_scope_exit',
-    }];
+    state.grants.coordinator.capabilities = [pathCap('acme/drive', { descendants: true })];
+    state.grants.researcher.capabilities = [cap('search-files')];
+    state.tokens.demo.grantId = 'researcher';
 
     const moved = moveResource(state, 'search-files', 'slack-tools', at);
-    expect(moved.grants.researcher.revokedAt).toBe(at);
+    expect(moved.grants.researcher.revokedAt).toBe(null);
+    expect(authorize(moved, demoHash, 'search-files', 'invoke', at).allowed).toBe(false);
+
+    const returned = moveResource(moved, 'search-files', 'drive', at);
+    expect(authorize(returned, demoHash, 'search-files', 'invoke', at).allowed).toBe(true);
   });
 
   it('resolves a path to a stable ID and refuses a path that names nothing', () => {
@@ -161,56 +174,48 @@ describe('RGAP domain', () => {
   it('frees a deleted name without reissuing its stable ID', () => {
     const deleted = deleteResource(fixture(), 'drive', at);
     const recreated = createResource(deleted, {
-      name: 'drive', parentId: 'acme', movePolicy: 'normal', deletePolicy: 'revoke',
+      name: 'drive', parentId: 'acme',
     }, 'drive-2', at);
 
     expect(resourceIdAtPath(recreated.resources, 'acme/drive')).toBe('drive-2');
     expect(() => createResource(recreated, {
-      name: 'anything', parentId: 'acme', movePolicy: 'normal', deletePolicy: 'revoke',
+      name: 'anything', parentId: 'acme',
     }, 'drive', at)).toThrow('Resource drive already exists.');
   });
 
-  it('refuses a child rooted outside its parent, whatever the relocation policies are', () => {
+  it('refuses a child rooted outside its parent', () => {
     const state = fixture();
     const expiresAt = state.grants.coordinator.expiresAt;
-    state.grants.coordinator.capabilities = [{
-      resourceId: 'search-files', permissions: ['invoke'], descendants: false, relocation: 'follow_resource',
-    }];
+    state.grants.coordinator.capabilities = [cap('search-files')];
 
     expect(() => createGrant(state, {
       name: 'Escalated', subject: 'bad actor', parentId: 'coordinator', expiresAt,
-      capabilities: [{ resourceId: 'post-message', permissions: ['invoke'], descendants: false, relocation: 'follow_resource' }],
+      capabilities: [cap('post-message')],
     }, 'escalated', at)).toThrow('not covered');
   });
 
   it('refuses a child that widens descendants past its parent', () => {
     const state = fixture();
     const expiresAt = state.grants.coordinator.expiresAt;
-    state.grants.coordinator.capabilities = [{
-      resourceId: 'drive', permissions: ['invoke'], descendants: false, relocation: 'revoke_on_scope_exit',
-    }];
+    state.grants.coordinator.capabilities = [cap('drive')];
 
     expect(() => createGrant(state, {
       name: 'Widened', subject: 'sub-agent', parentId: 'coordinator', expiresAt,
-      capabilities: [{ resourceId: 'drive', permissions: ['invoke'], descendants: true, relocation: 'revoke_on_scope_exit' }],
+      capabilities: [cap('drive', { descendants: true })],
     }, 'widened', at)).toThrow('not covered');
 
     expect(createGrant(state, {
       name: 'Narrowed', subject: 'sub-agent', parentId: 'coordinator', expiresAt,
-      capabilities: [{ resourceId: 'drive', permissions: ['invoke'], descendants: false, relocation: 'deny_move' }],
+      capabilities: [cap('drive')],
     }, 'narrowed', at).grants.narrowed.name).toBe('Narrowed');
   });
 
   it('never authorizes a descendant grant beyond the grant it was delegated from', () => {
     const state = fixture();
     const expiresAt = state.grants.coordinator.expiresAt;
-    state.grants.coordinator.capabilities = [{
-      resourceId: 'drive', permissions: ['invoke'], descendants: false, relocation: 'follow_resource',
-    }];
+    state.grants.coordinator.capabilities = [cap('drive')];
     // A capability that was never covered cannot appear through a stored grant either.
-    state.grants.researcher.capabilities = [{
-      resourceId: 'post-message', permissions: ['invoke'], descendants: false, relocation: 'follow_resource',
-    }];
+    state.grants.researcher.capabilities = [cap('post-message')];
     state.tokens.demo.grantId = 'researcher';
 
     expect(authorize(state, demoHash, 'post-message', 'invoke', at).allowed).toBe(false);
@@ -224,7 +229,7 @@ describe('RGAP domain', () => {
 });
 
 const resourceRecord = (id: string, parentId: string | null): Resource =>
-  ({ id, parentId, name: id, movePolicy: 'normal', deletePolicy: 'revoke', deletedAt: null });
+  ({ id, parentId, name: id, deletedAt: null });
 
 /** A state whose resource tree contains a cycle, which no command can produce. */
 function cyclicResources() {
@@ -286,25 +291,28 @@ describe('paths', () => {
 });
 
 describe('coverage of one capability by another', () => {
-  const entry = (over: Partial<Capability> = {}): Capability => ({
-    resourceId: 'drive', permissions: ['invoke'], descendants: false,
-    relocation: 'revoke_on_scope_exit', ...over,
-  });
-
-  it('requires containment, a policy no wider than the parent, and a permission subset', () => {
+  it('requires target containment and a permission subset', () => {
     const { resources } = fixture();
 
-    expect(covers(entry({ descendants: true }), entry({ resourceId: 'search-files' }), resources)).toBe(true);
-    expect(covers(entry({ descendants: true }), entry({ resourceId: 'post-message' }), resources)).toBe(false);
-    expect(covers(entry(), entry({ resourceId: 'search-files' }), resources)).toBe(false);
-    expect(covers(entry(), entry({ relocation: 'follow_resource' }), resources)).toBe(false);
-    expect(covers(entry(), entry({ relocation: 'deny_move' }), resources)).toBe(true);
-    expect(covers(entry(), entry({ permissions: ['write'] }), resources)).toBe(false);
+    expect(covers(cap('drive', { descendants: true }), cap('search-files'), resources)).toBe(true);
+    expect(covers(cap('drive', { descendants: true }), cap('post-message'), resources)).toBe(false);
+    expect(covers(cap('drive'), cap('search-files'), resources)).toBe(false);
+    expect(covers(cap('drive'), cap('drive'), resources)).toBe(true);
+    expect(covers(cap('drive'), cap('drive', { permissions: ['write'] }), resources)).toBe(false);
+  });
+
+  it('compares two path targets lexically even while the child path is empty', () => {
+    const { resources } = fixture();
+
+    expect(covers(pathCap('/acme/', { descendants: true }), pathCap('acme/future/tool'), resources)).toBe(true);
+    expect(covers(pathCap('acme'), pathCap('acme', { descendants: true }), resources)).toBe(false);
+    expect(covers(pathCap('acme/drive', { descendants: true }), pathCap('acme/slack'), resources)).toBe(false);
+    expect(covers(pathCap('acme/drive'), cap('drive'), resources)).toBe(true);
   });
 });
 
 describe('creating a resource', () => {
-  const input = { name: 'notes', parentId: 'drive', movePolicy: 'normal' as const, deletePolicy: 'revoke' as const };
+  const input = { name: 'notes', parentId: 'drive' };
 
   it('requires a name that is present and holds no separator', () => {
     expect(() => createResource(fixture(), { ...input, name: '  ' }, 'notes', at)).toThrow('Resource name is required.');
@@ -344,26 +352,19 @@ describe('moving a resource', () => {
     expect(() => moveResource(fixture(), 'drive', 'search-files', at)).toThrow('A resource cannot move inside itself.');
   });
 
-  it('denies a move only while a grant covers the resource', () => {
+  it('keeps ID targets on the resource and path targets at their location', () => {
     const state = fixture();
-    state.resources.drive.movePolicy = 'deny_while_granted';
-    state.resources.slack.movePolicy = 'deny_while_granted';
+    state.grants.coordinator.capabilities = [cap('drive', { descendants: true })];
 
-    expect(() => moveResource(state, 'drive', 'slack', at))
-      .toThrow('This resource cannot move while an active grant covers it.');
-    expect(moveResource(state, 'slack', 'drive', at).resources.slack.parentId).toBe('drive');
-  });
+    const moved = moveResource(state, 'drive', 'slack-tools', at);
+    expect(authorize(moved, demoHash, 'search-files', 'invoke', at).allowed).toBe(true);
+    expect(resourceIdAtPath(moved.resources, 'acme/drive/search-files')).toBe(null);
+    expect(moved.grants.coordinator.revokedAt).toBe(null);
 
-  it('lets a grant that must not follow its resource prevent the move outright', () => {
-    const state = fixture();
-    state.grants.coordinator.capabilities = [{
-      resourceId: 'drive', permissions: ['invoke'], descendants: true, relocation: 'follow_resource',
-    }];
-    state.grants.researcher.capabilities = [{
-      resourceId: 'search-files', permissions: ['invoke'], descendants: false, relocation: 'deny_move',
-    }];
-
-    expect(() => moveResource(state, 'search-files', 'slack-tools', at)).toThrow('Grant Researcher prevents this move.');
+    const pathState = fixture();
+    pathState.grants.coordinator.capabilities = [pathCap('acme/drive/search-files')];
+    const pathMoved = moveResource(pathState, 'search-files', 'slack-tools', at);
+    expect(authorize(pathMoved, demoHash, 'search-files', 'invoke', at).allowed).toBe(false);
   });
 });
 
@@ -374,14 +375,20 @@ describe('deleting a resource', () => {
     expect(() => deleteResource(deleted, 'drive', at)).toThrow('Resource does not exist.');
   });
 
-  it('denies a delete only while a grant covers the resource', () => {
+  it('leaves grants active and lets a path target apply to a replacement resource', () => {
     const state = fixture();
-    state.resources['search-files'].deletePolicy = 'deny_while_granted';
-    state.resources.slack.deletePolicy = 'deny_while_granted';
+    state.grants.coordinator.capabilities = [
+      cap('search-files'),
+      pathCap('acme/drive/search-files'),
+      cap('create-issue'),
+    ];
 
-    expect(() => deleteResource(state, 'search-files', at))
-      .toThrow('This resource cannot be deleted while an active grant covers it.');
-    expect(deleteResource(state, 'slack', at).resources.slack.deletedAt).toBe(at);
+    const deleted = deleteResource(state, 'search-files', at);
+    expect(deleted.grants.coordinator.revokedAt).toBe(null);
+    expect(authorize(deleted, demoHash, 'create-issue', 'invoke', at).allowed).toBe(true);
+
+    const recreated = createResource(deleted, { name: 'search-files', parentId: 'drive' }, 'search-files-2', at);
+    expect(authorize(recreated, demoHash, 'search-files-2', 'invoke', at).allowed).toBe(true);
   });
 });
 
@@ -398,16 +405,27 @@ describe('creating a grant', () => {
       .toThrow('Grant name and subject are required.');
   });
 
-  it('requires each capability to name a live resource and carry a permission', () => {
-    const entry: Capability = {
-      resourceId: 'ghost', permissions: ['invoke'], descendants: false, relocation: 'revoke_on_scope_exit',
-    };
+  it('requires resource targets to be live and every capability to carry a permission', () => {
+    const entry = cap('ghost');
 
     expect(() => createGrant(fixture(), { ...input, capabilities: [entry] }, 'child', at))
       .toThrow('Capability resource does not exist.');
     expect(() => createGrant(fixture(), {
-      ...input, capabilities: [{ ...entry, resourceId: 'search-files', permissions: [] }],
+      ...input, capabilities: [cap('search-files', { permissions: [] })],
     }, 'child', at)).toThrow('Select at least one permission.');
+  });
+
+  it('normalizes path targets and allows them to name empty locations', () => {
+    const created = createGrant(fixture(), {
+      ...input,
+      parentId: null,
+      capabilities: [pathCap('/acme//future /')],
+    }, 'path-root', at);
+
+    expect(created.grants['path-root'].capabilities[0].target).toEqual({ type: 'path', path: 'acme/future' });
+    expect(() => createGrant(fixture(), {
+      ...input, parentId: null, capabilities: [pathCap(' / ')],
+    }, 'empty-path', at)).toThrow('Capability path is required.');
   });
 
   it('requires a parent that is present and active', () => {
@@ -438,13 +456,14 @@ describe('setting capabilities', () => {
     expect(() => setCapabilities(fixture(), 'ghost', [], at)).toThrow('Grant does not exist.');
   });
 
-  it('requires each capability to name a live resource', () => {
-    // No grant covers the slack subtree, so deleting it leaves the coordinator active and amendable.
+  it('requires each resource target to name a live resource while path targets may be empty', () => {
     const deleted = deleteResource(fixture(), 'slack', at);
 
     expect(() => setCapabilities(deleted, 'coordinator', [{
-      resourceId: 'post-message', permissions: ['invoke'], descendants: false, relocation: 'revoke_on_scope_exit',
+      target: { type: 'resource', resourceId: 'post-message' }, permissions: ['invoke'], descendants: false,
     }], at)).toThrow('Capability resource does not exist.');
+    expect(setCapabilities(deleted, 'coordinator', [pathCap('acme/slack/post-message')], at)
+      .grants.coordinator.capabilities[0].target).toEqual({ type: 'path', path: 'acme/slack/post-message' });
   });
 
   it('requires a parent that is present and active', () => {
@@ -499,9 +518,7 @@ describe('authorization decisions', () => {
 
   it('reaches a descendant resource through an entry that includes descendants', () => {
     const state = fixture();
-    state.grants.coordinator.capabilities = [{
-      resourceId: 'drive', permissions: ['invoke'], descendants: true, relocation: 'revoke_on_scope_exit',
-    }];
+    state.grants.coordinator.capabilities = [cap('drive', { descendants: true })];
 
     expect(authorize(state, demoHash, 'read-file', 'invoke', at).allowed).toBe(true);
     expect(authorize(state, demoHash, 'post-message', 'invoke', at).allowed).toBe(false);

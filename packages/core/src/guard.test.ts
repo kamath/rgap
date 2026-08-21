@@ -7,14 +7,14 @@ const at = '2026-08-22T00:00:00.000Z';
 const bearer = 'b528aaf0496a7f1b670eaf73987ee9237eaddbbefa1ade4844e5d318d4d35bc3';
 const subBearer = 'sub-token-hash';
 const cap = (resourceId: string, permissions: Capability['permissions']): Capability =>
-  ({ resourceId, permissions, descendants: true, relocation: 'follow_resource' });
+  ({ target: { type: 'resource', resourceId }, permissions, descendants: true });
 
 /** The demo token references `coordinator`, which holds every permission across the drive subtree. */
 function state(): State {
   const base = fixture();
   base.grants.coordinator.capabilities = [cap('drive', ['read', 'write', 'delete', 'move', 'invoke'])];
   base.grants.researcher.capabilities = [
-    { resourceId: 'search-files', permissions: ['invoke'], descendants: false, relocation: 'revoke_on_scope_exit' },
+    { target: { type: 'resource', resourceId: 'search-files' }, permissions: ['invoke'], descendants: false },
   ];
   // A grant tree beside the acting grant, which no token on the coordinator branch reaches.
   base.grants['other-root'] = {
@@ -60,7 +60,7 @@ describe('command guard', () => {
     const { guard, calls } = guarded();
 
     await expect(guard.createResource({
-      name: 'root', parentId: null, movePolicy: 'normal', deletePolicy: 'revoke',
+      name: 'root', parentId: null,
     })).rejects.toThrow('Creating a root resource is an administrative operation');
     await expect(guard.moveResource('drive', null)).rejects.toThrow('Moving a resource to a root is an administrative');
     await expect(guard.createGrant({
@@ -73,7 +73,7 @@ describe('command guard', () => {
 
   it('creates a resource only where the token holds write on the parent', async () => {
     const { guard, calls } = guarded();
-    const input = { name: 'notes', parentId: 'drive', movePolicy: 'normal' as const, deletePolicy: 'revoke' as const };
+    const input = { name: 'notes', parentId: 'drive' };
 
     expect((await guard.createResource(input)).id).toBe('created');
     expect(calls).toEqual([{ method: 'createResource', args: [input] }]);

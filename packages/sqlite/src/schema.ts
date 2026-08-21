@@ -1,13 +1,12 @@
-import { foreignKey, integer, primaryKey, sqliteTable, text, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
-import type { AuditEvent, Capability, Permission, Resource } from '@rgap/core';
+import { sql } from 'drizzle-orm';
+import { check, foreignKey, integer, primaryKey, sqliteTable, text, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
+import type { AuditEvent, CapabilityTarget, Permission } from '@rgap/core';
 
 /** A resource's stable ID is its key; its parent is a reference to another row of the same table. */
 export const resources = sqliteTable('resources', {
   id: text('id').primaryKey(),
   parentId: text('parent_id').references((): AnySQLiteColumn => resources.id),
   name: text('name').notNull(),
-  movePolicy: text('move_policy').$type<Resource['movePolicy']>().notNull(),
-  deletePolicy: text('delete_policy').$type<Resource['deletePolicy']>().notNull(),
   deletedAt: text('deleted_at'),
 });
 
@@ -26,11 +25,19 @@ export const capabilities = sqliteTable(
   {
     grantId: text('grant_id').notNull().references(() => grants.id),
     position: integer('position').notNull(),
-    resourceId: text('resource_id').notNull().references(() => resources.id),
+    targetType: text('target_type').$type<CapabilityTarget['type']>().notNull(),
+    resourceId: text('resource_id').references(() => resources.id),
+    path: text('path'),
     descendants: integer('descendants', { mode: 'boolean' }).notNull(),
-    relocation: text('relocation').$type<Capability['relocation']>().notNull(),
   },
-  (table) => [primaryKey({ columns: [table.grantId, table.position] })],
+  (table) => [
+    primaryKey({ columns: [table.grantId, table.position] }),
+    check(
+      'capabilities_target_check',
+      sql`(${table.targetType} = 'resource' and ${table.resourceId} is not null and ${table.path} is null)
+        or (${table.targetType} = 'path' and ${table.resourceId} is null and ${table.path} is not null)`,
+    ),
+  ],
 );
 
 /** One row per permission an entry carries, so a permission set is a relation rather than an encoded value. */

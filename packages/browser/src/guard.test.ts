@@ -15,7 +15,7 @@ const memoryStorage = (): Storage => {
 };
 
 const resource = (id: string, parentId: string | null, name: string) =>
-  ({ id, parentId, name, movePolicy: 'normal' as const, deletePolicy: 'revoke' as const, deletedAt: null });
+  ({ id, parentId, name, deletedAt: null });
 
 const initialState = (): State => ({
   resources: Object.fromEntries([
@@ -28,8 +28,8 @@ const initialState = (): State => ({
     owner: {
       id: 'owner', name: 'Owner', subject: 'owner', parentId: null, expiresAt: null, revokedAt: null,
       capabilities: [{
-        resourceId: 'drive', permissions: ['read', 'write', 'move', 'delete'],
-        descendants: true, relocation: 'revoke_on_scope_exit',
+        target: { type: 'resource', resourceId: 'drive' },
+        permissions: ['read', 'write', 'move', 'delete'], descendants: true,
       }],
     },
   },
@@ -48,7 +48,7 @@ describe('guardCommands', () => {
     const { repo, admin } = await guarded();
 
     const created = await repo.createResource({
-      name: 'read_file', parentId: 'tools', movePolicy: 'normal', deletePolicy: 'revoke',
+      name: 'read_file', parentId: 'tools',
     });
 
     expect((await admin.readState()).resources[created.id].parentId).toBe('tools');
@@ -58,15 +58,15 @@ describe('guardCommands', () => {
     const { repo } = await guarded();
 
     await expect(repo.createResource({
-      name: 'intruder', parentId: 'slack', movePolicy: 'normal', deletePolicy: 'revoke',
+      name: 'intruder', parentId: 'slack',
     })).rejects.toThrow('No write capability survives the complete grant chain.');
   });
 
   it('lets a token set what a grant below it reaches, but never its own grant', async () => {
     const { admin } = await guarded();
     const entry = [{
-      resourceId: 'tools', permissions: ['read' as const], descendants: false,
-      relocation: 'revoke_on_scope_exit' as const,
+      target: { type: 'resource' as const, resourceId: 'tools' },
+      permissions: ['read' as const], descendants: false,
     }];
     // The acting grant is delegated, not a root, so the own-grant rule is what refuses it.
     const acting = await admin.createGrant({
@@ -109,13 +109,13 @@ describe('guardCommands', () => {
     const { repo } = await guarded();
 
     await expect(repo.createResource({
-      name: 'root', parentId: null, movePolicy: 'normal', deletePolicy: 'revoke',
+      name: 'root', parentId: null,
     })).rejects.toThrow('administrative operation');
     await expect(repo.moveResource('tools', null)).rejects.toThrow('administrative operation');
     await expect(repo.reset()).rejects.toThrow('administrative operation');
     await expect(repo.createGrant({
       name: 'Root', subject: 'someone', parentId: null, expiresAt: null,
-      capabilities: [{ resourceId: 'drive', permissions: ['read'], descendants: false, relocation: 'deny_move' }],
+      capabilities: [{ target: { type: 'resource', resourceId: 'drive' }, permissions: ['read'], descendants: false }],
     })).rejects.toThrow('administrative operation');
   });
 
@@ -123,7 +123,7 @@ describe('guardCommands', () => {
     const { repo, admin, token } = await guarded();
     const child = await repo.createGrant({
       name: 'Reader', subject: 'sub-agent', parentId: 'owner', expiresAt: null,
-      capabilities: [{ resourceId: 'tools', permissions: ['read'], descendants: false, relocation: 'revoke_on_scope_exit' }],
+      capabilities: [{ target: { type: 'resource', resourceId: 'tools' }, permissions: ['read'], descendants: false }],
     });
 
     const issued = await repo.issueToken(child.id, 'reader token');
@@ -131,7 +131,7 @@ describe('guardCommands', () => {
 
     const outsider = await admin.createGrant({
       name: 'Outsider', subject: 'other', parentId: null, expiresAt: null,
-      capabilities: [{ resourceId: 'slack', permissions: ['read'], descendants: false, relocation: 'deny_move' }],
+      capabilities: [{ target: { type: 'resource', resourceId: 'slack' }, permissions: ['read'], descendants: false }],
     });
     await expect(repo.issueToken(outsider.id, 'nope')).rejects.toThrow('neither this token');
     await expect(repo.revokeGrant(outsider.id)).rejects.toThrow('neither this token');

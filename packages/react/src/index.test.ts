@@ -4,7 +4,7 @@ import { RgapClient } from './index';
 
 const state = (names: string[]): State => ({
   resources: Object.fromEntries(names.map((name) => [name, {
-    id: name, parentId: null, name, movePolicy: 'normal' as const, deletePolicy: 'revoke' as const, deletedAt: null,
+    id: name, parentId: null, name, deletedAt: null,
   }])),
   grants: {},
   tokens: {},
@@ -26,7 +26,7 @@ describe('RgapClient', () => {
     client.subscribe(listener);
 
     const created = await client.createResource({
-      name: 'created', parentId: null, movePolicy: 'normal', deletePolicy: 'revoke',
+      name: 'created', parentId: null,
     });
 
     expect(created.id).toBe('created');

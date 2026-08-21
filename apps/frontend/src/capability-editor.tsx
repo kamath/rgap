@@ -1,12 +1,19 @@
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { liveResources, type Capability, type Grant, type Permission, type RelocationPolicy } from '@rgap/core';
+import {
+  liveResources,
+  normalizePath,
+  type Capability,
+  type CapabilityTarget,
+  type Grant,
+  type Permission,
+} from '@rgap/core';
 import { useRgapClient, useRgapSnapshot } from '@rgap/react';
 import { boundsAt, uncovered, withPermission } from './capability-bounds';
 import { CapabilityResource } from './grant-listing';
 import { Action, Actions, Check, Execute, Form, Json, Pane, ResponseBlock, useOperation } from './panes';
 import { usePlane } from './shell';
-import { childrenOf, pathOf } from './tree';
+import { capabilityTarget, childrenOf, pathOf } from './tree';
 
 /**
  * The addressed grant's entries. Reading them and setting them are the same pane: a drawer exists so
@@ -45,15 +52,18 @@ function CapabilityTable({ grant }: { grant: Grant }) {
     <table>
       <thead>
         <tr>
-          <th>Resource</th>
+          <th>Target type</th>
+          <th>Target</th>
           <th>Permissions</th>
           <th>Descendants</th>
-          <th>Relocation</th>
         </tr>
       </thead>
       <tbody>
         {grant.capabilities.map((capability, index) => (
-          <tr key={`${capability.resourceId}-${index}`}>
+          <tr key={`${capability.target.type}-${capabilityTarget(snapshot.resources, capability).value}-${index}`}>
+            <td>
+              <code>{capability.target.type === 'resource' ? 'resource ID' : 'path'}</code>
+            </td>
             <td>
               <CapabilityResource resources={snapshot.resources} capability={capability} />
             </td>
@@ -62,9 +72,6 @@ function CapabilityTable({ grant }: { grant: Grant }) {
             </td>
             <td>
               <code>{capability.descendants ? 'include' : 'root only'}</code>
-            </td>
-            <td>
-              <code>{capability.relocation}</code>
             </td>
           </tr>
         ))}
@@ -80,36 +87,51 @@ function CapabilityEditor({ grant, onClose }: { grant: Grant; onClose: () => voi
   const { response, execute } = useOperation();
   const parent = grant.parentId ? snapshot.grants[grant.parentId] ?? null : null;
   const [draft, setDraft] = useState<Capability[]>(() => structuredClone(grant.capabilities));
-  const request = { method: 'setCapabilities', params: { grantId: grant.id, capabilities: draft } };
+  const [targetType, setTargetType] = useState<CapabilityTarget['type']>('resource');
+  const [pathTarget, setPathTarget] = useState('');
+  const normalizedDraft = draft.map((entry) =>
+    entry.target.type === 'path'
+      ? { ...entry, target: { type: 'path' as const, path: normalizePath(entry.target.path) } }
+      : entry,
+  );
+  const request = { method: 'setCapabilities', params: { grantId: grant.id, capabilities: normalizedDraft } };
 
   const submit = async () => {
-    const committed = await execute('setCapabilities', () => client.setCapabilities(grant.id, draft));
+    const committed = await execute('setCapabilities', () => client.setCapabilities(grant.id, normalizedDraft));
     if (committed) onClose();
   };
 
   const toggle = (resourceId: string) =>
     setDraft((held) => {
-      if (held.some((entry) => entry.resourceId === resourceId)) {
-        return held.filter((entry) => entry.resourceId !== resourceId);
+      if (held.some((entry) => entry.target.type === 'resource' && entry.target.resourceId === resourceId)) {
+        return held.filter((entry) => entry.target.type !== 'resource' || entry.target.resourceId !== resourceId);
       }
-      const bounds = boundsAt(parent, snapshot.resources, resourceId);
+      const target = { type: 'resource' as const, resourceId };
+      const bounds = boundsAt(parent, snapshot.resources, target);
       const hasChildren = childrenOf(snapshot.resources, resourceId).length > 0;
       return [
         ...held,
         {
-          resourceId,
+          target,
           permissions: [],
-          // Pointing at a path means everything under it, where the parent allows that.
           descendants: hasChildren && bounds.descendants,
-          relocation: bounds.relocations.includes('revoke_on_scope_exit')
-            ? 'revoke_on_scope_exit'
-            : bounds.relocations[bounds.relocations.length - 1] ?? 'deny_move',
         },
       ];
     });
 
-  const amend = (resourceId: string, change: Partial<Capability>) =>
-    setDraft((held) => held.map((entry) => (entry.resourceId === resourceId ? { ...entry, ...change } : entry)));
+  const addPath = () => {
+    const path = normalizePath(pathTarget);
+    if (!path) return;
+    setDraft((held) => [
+      ...held,
+      { target: { type: 'path', path }, permissions: [], descendants: false },
+    ]);
+    setPathTarget('');
+  };
+
+  const amend = (index: number, change: Partial<Capability>) =>
+    setDraft((held) => held.map((entry, entryIndex) => (entryIndex === index ? { ...entry, ...change } : entry)));
+  const remove = (index: number) => setDraft((held) => held.filter((_, entryIndex) => entryIndex !== index));
 
   return (
     <Pane
@@ -124,12 +146,38 @@ function CapabilityEditor({ grant, onClose }: { grant: Grant; onClose: () => voi
       meta={`${plane} plane · ${draft.length} entries`}
     >
       <Form onSubmit={submit}>
-        <ResourcePicker
-          selected={draft.map((entry) => entry.resourceId)}
-          parent={parent}
-          onToggle={toggle}
-        />
-        <DraftEntries draft={draft} parent={parent} onAmend={amend} onRemove={toggle} />
+        <label>
+          <span>target type</span>
+          <select value={targetType} onChange={(event) => setTargetType(event.target.value as CapabilityTarget['type'])}>
+            <option value="resource">resource ID</option>
+            <option value="path">path</option>
+          </select>
+        </label>
+        {targetType === 'resource' ? (
+          <ResourcePicker
+            selected={draft.flatMap((entry) => entry.target.type === 'resource' ? [entry.target.resourceId] : [])}
+            parent={parent}
+            onToggle={toggle}
+          />
+        ) : (
+          <div className="picker">
+            <label>
+              <span>normalized path</span>
+              <input
+                value={pathTarget}
+                onChange={(event) => setPathTarget(event.target.value)}
+                placeholder="projects/alpha/future"
+              />
+            </label>
+            <p className="field-note">
+              The location does not need to exist. Slashes and surrounding whitespace are normalized when added.
+            </p>
+            <button type="button" className="ghost" disabled={!normalizePath(pathTarget)} onClick={addPath}>
+              add path target
+            </button>
+          </div>
+        )}
+        <DraftEntries draft={draft} parent={parent} onAmend={amend} onRemove={remove} />
         <Json value={request} />
         <Execute label="Execute operation" />
         <ResponseBlock response={response} />
@@ -196,7 +244,7 @@ function ResourcePicker({
         </thead>
         <tbody>
           {rows.map(({ resource, path }) => {
-            const bounds = boundsAt(parent, snapshot.resources, resource.id);
+            const bounds = boundsAt(parent, snapshot.resources, { type: 'resource', resourceId: resource.id });
             const children = childrenOf(snapshot.resources, resource.id).length;
 
             return (
@@ -250,8 +298,8 @@ function DraftEntries({
 }: {
   draft: Capability[];
   parent: Grant | null;
-  onAmend: (resourceId: string, change: Partial<Capability>) => void;
-  onRemove: (resourceId: string) => void;
+  onAmend: (index: number, change: Partial<Capability>) => void;
+  onRemove: (index: number) => void;
 }) {
   const snapshot = useRgapSnapshot();
 
@@ -261,16 +309,36 @@ function DraftEntries({
 
   return (
     <div className="entry-list">
-      {draft.map((entry) => {
-        const bounds = boundsAt(parent, snapshot.resources, entry.resourceId);
+      {draft.map((entry, index) => {
+        const target = capabilityTarget(snapshot.resources, entry);
+        const bounds = boundsAt(parent, snapshot.resources, entry.target);
         const problem = uncovered(parent, snapshot.resources, entry);
 
         return (
-          <div key={entry.resourceId} className={problem ? 'entry denied' : 'entry'}>
+          <div key={index} className={problem ? 'entry denied' : 'entry'}>
             <div className="entry-head">
-              <code>{pathOf(snapshot.resources, entry.resourceId) || 'root'}</code>
+              <code>{entry.target.type === 'resource' ? 'resource ID' : 'path'}</code>
+              {entry.target.type === 'resource' ? (
+                <>
+                  <code>{entry.target.resourceId}</code>
+                  <code className="dim">{target.path}</code>
+                </>
+              ) : (
+                <input
+                  aria-label={`Path target ${index + 1}`}
+                  value={entry.target.path}
+                  onChange={(event) =>
+                    onAmend(index, { target: { type: 'path', path: event.target.value } })
+                  }
+                  onBlur={(event) =>
+                    onAmend(index, { target: { type: 'path', path: normalizePath(event.target.value) } })
+                  }
+                />
+              )}
+              {target.state === 'empty' ? <code className="denied">empty</code> : null}
+              {target.state === 'deleted' ? <code className="denied">deleted</code> : null}
               {problem ? <code className="denied">{problem}</code> : null}
-              <button type="button" className="ghost" onClick={() => onRemove(entry.resourceId)}>
+              <button type="button" className="ghost" onClick={() => onRemove(index)}>
                 remove
               </button>
             </div>
@@ -281,7 +349,7 @@ function DraftEntries({
                     type="checkbox"
                     checked={entry.permissions.includes(permission)}
                     onChange={(event) =>
-                      onAmend(entry.resourceId, {
+                      onAmend(index, {
                         permissions: withPermission(entry.permissions, permission, event.target.checked),
                       })
                     }
@@ -294,22 +362,10 @@ function DraftEntries({
                   type="checkbox"
                   checked={entry.descendants}
                   disabled={!bounds.descendants}
-                  onChange={(event) => onAmend(entry.resourceId, { descendants: event.target.checked })}
+                  onChange={(event) => onAmend(index, { descendants: event.target.checked })}
                 />
                 descendants
               </label>
-              <select
-                value={entry.relocation}
-                onChange={(event) =>
-                  onAmend(entry.resourceId, { relocation: event.target.value as RelocationPolicy })
-                }
-              >
-                {bounds.relocations.map((policy) => (
-                  <option key={policy} value={policy}>
-                    {policy}
-                  </option>
-                ))}
-              </select>
             </div>
           </div>
         );

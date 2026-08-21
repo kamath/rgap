@@ -167,8 +167,6 @@ export class SqliteRgapRepository implements RgapRepository {
         id: row.id,
         parentId: row.parentId,
         name: row.name,
-        movePolicy: row.movePolicy,
-        deletePolicy: row.deletePolicy,
         deletedAt: row.deletedAt,
       };
     });
@@ -200,12 +198,14 @@ export class SqliteRgapRepository implements RgapRepository {
       .all()
       .forEach((row) => {
         const carried = held.get(entryKey(row.grantId, row.position));
+        const target: Capability['target'] = row.targetType === 'resource'
+          ? { type: 'resource', resourceId: row.resourceId! }
+          : { type: 'path', path: row.path! };
         state.grants[row.grantId].capabilities.push({
-          resourceId: row.resourceId,
+          target,
           // An entry's permissions are a set, so they are read in the protocol's canonical order.
           permissions: canonicalPermissions.filter((permission) => carried?.has(permission)),
           descendants: row.descendants,
-          relocation: row.relocation,
         });
       });
 
@@ -260,9 +260,10 @@ export class SqliteRgapRepository implements RgapRepository {
         entries.push({
           grantId: grant.id,
           position,
-          resourceId: capability.resourceId,
+          targetType: capability.target.type,
+          resourceId: capability.target.type === 'resource' ? capability.target.resourceId : null,
+          path: capability.target.type === 'path' ? capability.target.path : null,
           descendants: capability.descendants,
-          relocation: capability.relocation,
         });
         capability.permissions.forEach((permission) => {
           carried.push({ grantId: grant.id, position, permission });

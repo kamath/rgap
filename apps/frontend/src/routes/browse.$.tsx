@@ -35,8 +35,6 @@ function Browse() {
         <ObjectLine
           id={current?.id ?? 'root'}
           fields={[
-            ['move', current?.movePolicy ?? '—'],
-            ['delete', current?.deletePolicy ?? '—'],
             ['permissions', current ? (authority ? granted(current.id) || 'none' : 'administrative') : '—'],
             ['children', listing.length],
           ]}
@@ -93,8 +91,6 @@ function Browse() {
                       </th>
                       <th>Name</th>
                       <th>Id</th>
-                      <th>Move</th>
-                      <th>Delete</th>
                       <th>Perm</th>
                     </tr>
                   </thead>
@@ -102,7 +98,7 @@ function Browse() {
                     {path ? (
                       <tr className="up">
                         <td />
-                        <td colSpan={5}>
+                        <td colSpan={3}>
                           <Link to="/browse/$" params={{ _splat: parentPath(path) }}>
                             ..
                           </Link>
@@ -133,12 +129,6 @@ function Browse() {
                         </td>
                         <td>
                           <code>{child.id}</code>
-                        </td>
-                        <td>
-                          <code>{child.movePolicy}</code>
-                        </td>
-                        <td>
-                          <code>{child.deletePolicy}</code>
                         </td>
                         <td>
                           <code>{authority ? granted(child.id) || 'none' : '—'}</code>

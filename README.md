@@ -21,7 +21,7 @@ Additional documents:
 
 Resources form a tree, like folders and files. Every resource has a stable ID; its path is only its current location.
 
-A resource record contains only its stable ID, parent resource ID, name, move policy, delete policy, and deletion marker. RGAP does not assign resource kinds such as organization, collection, server, folder, tool, or document. Applications may understand the objects referenced by resources, but that classification is not part of the resource hierarchy.
+A resource record contains only its stable ID, parent resource ID, name, and deletion marker. RGAP does not assign resource kinds such as organization, collection, server, folder, tool, or document. Applications may understand the objects referenced by resources, but that classification is not part of the resource hierarchy.
 
 ```text
 projects/
@@ -35,9 +35,11 @@ Renaming or moving a resource changes its position in the tree without changing 
 
 ### Grants
 
-A grant contains a set of capability entries. Each entry authorizes a set of operations over a resource or resource subtree. Multiple entries let one grant aggregate authority from several branches, such as tools exposed by different MCP servers. Grants may delegate authority to child grants.
+A grant contains a set of capability entries. Each entry authorizes a set of operations over a resource or resource subtree and chooses whether its target is a stable resource ID or a normalized path. Multiple entries let one grant aggregate authority from several branches, such as tools exposed by different MCP servers. Grants may delegate authority to child grants.
 
-A grant's identity, subject, parent, and expiry are fixed when it is created. Its capability set is not: entries are set afterwards, and the set may be empty, in which case the grant authorizes nothing yet. Creating a grant and deciding what it reaches are separate acts, so a delegation can be recorded before its authority is chosen.
+An ID target names an object. It follows that resource and its subtree when they move. A path target names a location. It remains attached to that path when the resource there moves or is deleted, authorizes nothing while the path is empty, and applies when a resource later occupies the path. Deleting an ID-targeted resource makes that entry permanently ineffective because resource IDs are never reused. In every case, other entries in the same grant continue to work.
+
+A grant's identity, parent, and expiry are fixed when it is created. Its capability set is not: entries are set afterwards, and the set may be empty, in which case the grant authorizes nothing yet. Creating a grant and deciding what it reaches are separate acts, so a delegation can be recorded before its authority is chosen.
 
 ```text
 Alice: read/write/delete projects/alpha
@@ -51,7 +53,6 @@ Delegation may only downscope authority, entry by entry, as [PROTOCOL.md](PROTOC
 - A root at or within the covering parent entry's authorized subtree
 - The same or fewer permissions for each entry
 - The same or an earlier expiration time
-- A relocation policy no more permissive than its parent allows
 - Constraints that are equal to or stricter than the covering parent entry
 
 Bob therefore cannot grant write access or grant access outside `projects/alpha/docs`. The same proof is required whenever a grant's entries are set, not only when it is created, so an amended grant is bounded by its parent exactly as a new one is. Setting a grant's entries revokes any grant delegated from it whose own entries the new set no longer covers.
@@ -63,6 +64,8 @@ Every constraint type defines how one value contains another so the issuer can p
 Tokens are opaque bearer credentials that reference grants. Store only a cryptographic hash of each token.
 
 Multiple tokens may reference one grant. Revoking a token disables only that credential; revoking a grant disables the grant and all grants delegated from it.
+
+RGAP does not assign a subject identity to a grant. Possession of a valid bearer token is what permits use of the referenced grant. A host that authenticates people, services, or agents may associate its own identity records with grants or tokens outside the RGAP protocol.
 
 ## Permissions
 
@@ -84,7 +87,7 @@ No permission implies another. `write` does not imply `read`, and `read` is not 
 
 RGAP decides; the host enforces.
 
-`authorize` is the decision function. It answers whether one token may exercise one permission on one resource, and it explains the answer. The repository's commands are an administrative plane: they express what a state change is and enforce the model's own invariants — downscoping, relocation policy, resource and grant ancestry — but they do not themselves demand a token. This keeps the model embeddable behind any transport, session model, or service identity a host already has.
+`authorize` is the decision function. It answers whether one token may exercise one permission on one resource, and it explains the answer. The repository's commands are an administrative plane: they express what a state change is and enforce the model's own invariants — downscoping and resource and grant ancestry — but they do not themselves demand a token. This keeps the model embeddable behind any transport, session model, or service identity a host already has.
 
 Because that boundary is easy to implement inconsistently, the reference implementation ships the enforced path rather than leaving each host to derive it. `guardCommands(repository, token)` wraps any `RgapRepository` and returns one with the same interface whose commands each check the authority above before delegating, and refuse with the decision's explanation otherwise.
 
@@ -94,19 +97,16 @@ Because that boundary is easy to implement inconsistently, the reference impleme
 
 > Authority may only stay the same or become narrower as it is delegated; it can never expand.
 
-Authorization must check the selected grant and every grant in its delegation ancestry. Each child capability entry must remain covered by a parent entry. If any ancestor is revoked, expired, or otherwise inactive, its descendants are inactive as well.
+Authorization checks the selected grant and every grant in its delegation ancestry against the requested live resource in the current tree. Each grant in the chain must contain a matching capability entry, so moving a target outside an ancestor's current scope makes the delegated authority ineffective without revoking the grant. Moving it back can make the authority effective again. If any ancestor is revoked, expired, or otherwise inactive, its descendants are inactive as well.
 
 ## Moves and renames
 
-Because grants reference stable resource IDs, renames require no authorization rewrite. Moves are governed by the relocation policy on each capability entry, which is checked against the delegating parent whenever entries are set.
+Moves and renames change the current resource tree without rewriting or revoking grants. Target type determines what an entry means:
 
-| Policy | Behavior when the grant root leaves its delegating scope |
+| Target | Behavior when a resource moves |
 | --- | --- |
-| `follow_resource` | The grant stays attached to the resource and follows it. |
-| `revoke_on_scope_exit` | The grant and its descendants are revoked. |
-| `deny_move` | The move is rejected while the grant is active. |
-
-The recommended default is `revoke_on_scope_exit`. It ensures delegated authority cannot survive somewhere the delegating parent no longer has access.
+| Stable resource ID | The entry follows the resource and, when descendants are included, its subtree. |
+| Normalized path | The entry stays at the same path and applies to whatever live resource occupies it. |
 
 For example, suppose `secret` moves:
 
@@ -116,23 +116,13 @@ projects/alpha/secret
 projects/private/secret
 ```
 
-- A grant rooted at `alpha` no longer covers `secret` after the move.
-- A direct grant rooted at `secret` follows it only when its relocation policy is `follow_resource`.
-- A delegated grant rooted at `secret` is revoked when configured with `revoke_on_scope_exit`.
-- The move fails when an applicable active grant uses `deny_move`.
-
-`follow_resource` must not be available to a child grant unless the parent explicitly permits authority to survive a scope exit. Otherwise, relocation could be used to escape the parent's authority.
+- An ID entry targeting `secret` follows it to `projects/private/secret`.
+- A path entry targeting `projects/alpha/secret` stays there and authorizes nothing until that path is occupied again.
+- A delegated entry is effective at the new location only when every grant in its lineage currently covers the requested resource there.
 
 ## Deletion
 
-Resources may also define an operation policy:
-
-```yaml
-move_policy: normal        # normal | deny_while_granted
-delete_policy: revoke      # revoke | deny_while_granted
-```
-
-Deleting a resource should revoke its grants rather than erase them. Retaining grant and revocation records preserves the audit trail.
+Deleting a resource does not revoke or rewrite grants. An ID entry targeting a deleted resource becomes permanently ineffective. A path entry remains attached to its normalized path, authorizes nothing while that path is empty, and applies to a different resource that later occupies the path. Entries targeting unaffected resources continue to authorize them.
 
 Deletion marks the resource and its descendants as deleted rather than erasing their records. A deleted resource is gone for every purpose an application can observe: it appears in no listing, no path resolves to it, no command targets it, and no request is authorized against it. Its record is retained so that its stable ID is never reissued to a different resource, which keeps every revoked grant and audit event that references the ID resolvable to what it actually meant.
 
@@ -140,16 +130,7 @@ Because a retained record is identified by ID rather than by path, a deleted nam
 
 ## Atomic resource operations
 
-A move or deletion executes as one atomic engine operation:
-
-1. Authorize the requested operation.
-2. Read the affected resource and grant records from one state snapshot.
-3. Identify grants affected by the operation.
-4. Reject the operation or revoke the applicable grant subtrees.
-5. Commit the resource-tree and grant changes together.
-6. Record audit events in the same commit.
-
-This prevents requests from observing a partially updated authorization state.
+A move or deletion commits the resource-tree change and its audit event atomically. Authorization always evaluates targets against one current tree snapshot, so a request never observes a partially moved or deleted subtree.
 
 ## Reference application
 
@@ -220,11 +201,11 @@ An operation over several records is several commands, one per selected record, 
 
 The explorer path is the canonical resource path, so `/browse/acme/drive` addresses `acme/drive` and the browser's back button walks back out of the tree. Leading, trailing, and repeated separators are ignored, so `/browse/acme`, `/browse/acme/`, and `/browse//acme//` address the same resource.
 
-The breadcrumb spells out the current path as `root / acme / mcp`, and every segment navigates to that ancestor. The line under it states the addressed resource's stable ID, move policy, delete policy, effective permissions under the active token, and child count.
+The breadcrumb spells out the current path as `root / acme / mcp`, and every segment navigates to that ancestor. The line under it states the addressed resource's stable ID, effective permissions under the active token, and child count.
 
-The listing has one row per live child of the current path, with the child's name, stable ID, move policy, delete policy, and permissions under the active token. Deleted resources appear in no listing. Clicking a name navigates into that child, replacing the listing with that child's contents. Because RGAP assigns no resource kinds, a resource with no children lists nothing.
+The listing has one row per live child of the current path, with the child's name, stable ID, and permissions under the active token. Deleted resources appear in no listing. Clicking a name navigates into that child, replacing the listing with that child's contents. Because RGAP assigns no resource kinds, a resource with no children lists nothing.
 
-The create drawer takes a name, a `move_policy`, and a `delete_policy`. It creates the resource in the location the listing shows: the parent is that location, stated as a read-only path rather than typed, so creating somewhere else means navigating there first. At the tree root the parent is no resource, so the drawer creates a root resource, which no token authorizes and which the guarded plane therefore refuses.
+The create drawer takes a name. It creates the resource in the location the listing shows: the parent is that location, stated as a read-only path rather than typed, so creating somewhere else means navigating there first. At the tree root the parent is no resource, so the drawer creates a root resource, which no token authorizes and which the guarded plane therefore refuses.
 
 The move drawer lists the checked resources as paths and takes one destination parent path, resolved against the current tree to the stable ID the commands send, where an empty path moves them to roots. The delete drawer lists the checked resources as paths and removes each together with its descendants.
 
@@ -238,11 +219,11 @@ Bearer values stay in transient interface memory. The active token never appears
 
 ### Grants
 
-Grants are explored the way resources are. `/grants` lists the root grants, `/grants/$grantId` lists the grants delegated from that grant, and clicking a grant's name navigates into it, replacing the listing with the grants delegated from it. A leading `..` row walks back out. The breadcrumb walks the delegation lineage as `grants / Acme admin / Drive read`, and every name navigates to that ancestor grant. The line under it states the addressed grant's stable ID, subject, expiration, status, and the number of grants delegated from it.
+Grants are explored the way resources are. `/grants` lists the root grants, `/grants/$grantId` lists the grants delegated from that grant, and clicking a grant's name navigates into it, replacing the listing with the grants delegated from it. A leading `..` row walks back out. The breadcrumb walks the delegation lineage as `grants / Acme admin / Drive read`, and every name navigates to that ancestor grant. The line under it states the addressed grant's stable ID, expiration, status, and the number of grants delegated from it.
 
-A grant row states the grant's name, subject, each capability entry as a resource path and permission set, expiration, and status. A revoked or expired grant is marked inactive, and so is every grant delegated beneath it, because an inactive ancestor disables its descendants. Status is therefore a property of a grant's lineage rather than of the grant record alone, and the listing reports it that way.
+A grant row states the grant's name, each capability entry as a resource path and permission set, expiration, and status. A revoked or expired grant is marked inactive, and so is every grant delegated beneath it, because an inactive ancestor disables its descendants. Status is therefore a property of a grant's lineage rather than of the grant record alone, and the listing reports it that way.
 
-The listing's action bar creates, revokes, and inspects. `Create` creates a grant inside the grant the route addresses, exactly as create makes a resource inside the addressed location in the explorer: at `/grants/$grantId` it delegates from that grant, and at `/grants` it creates a root grant, an administrative operation no token authorizes. Its form takes the name, subject, and optional expiration and nothing else. The new grant starts with no capability entries, because what a grant reaches is set from the grant itself, where the whole set is visible at once. `Revoke` revokes each checked grant together with the grants delegated from it, and its drawer lists those descendants under each target, so the extent of a revocation is stated before it runs.
+The listing's action bar creates, revokes, and inspects. `Create` creates a grant inside the grant the route addresses, exactly as create makes a resource inside the addressed location in the explorer: at `/grants/$grantId` it delegates from that grant, and at `/grants` it creates a root grant, an administrative operation no token authorizes. Its form takes the name and optional expiration and nothing else. The new grant starts with no capability entries, because what a grant reaches is set from the grant itself, where the whole set is visible at once. `Revoke` revokes each checked grant together with the grants delegated from it, and its drawer lists those descendants under each target, so the extent of a revocation is stated before it runs.
 
 `Inspect` is the one action bar entry that navigates rather than opening a drawer. It addresses the same grant the route addresses, so it is present wherever a grant is addressed and absent at `/grants`, where the route addresses no grant and a root grant is reached by navigating into it.
 
@@ -250,9 +231,9 @@ The listing's action bar creates, revokes, and inspects. `Create` creates a gran
 
 `/grants/$grantId/inspect` is one grant in full. Browsing a delegation branch and reading a grant's authority are different tasks, so they are different routes: the listing stays a listing, and everything a grant is sits behind one link from it. The breadcrumb walks back out to the grant's own listing and on up its lineage.
 
-Lineage is a read-only table of the delegation chain from the root grant down to the addressed grant, one row per capability entry, grouped under the grant that holds it. Reading down the table is reading the downscoping: resource roots descend, permission sets shrink, expirations move earlier, and relocation policy grows stricter. It is the view that answers whether a grant's authority survives everything above it.
+Lineage is a read-only table of the delegation chain from the root grant down to the addressed grant, one row per capability entry, grouped under the grant that holds it. Reading down the table is reading the downscoping: targets narrow, permission sets shrink, and expirations move earlier. It is the view that answers whether a grant's authority survives everything above it.
 
-Capabilities is the addressed grant's own entries: resource path, permissions, descendant behavior, and relocation policy. An entry whose resource has been deleted is marked deleted and still shows the path that resource held; an entry whose resource record is absent altogether has no path to show, so it is marked unresolved and shown by its stable ID. A state that retains its records as the model requires never contains the latter, and the view reports rather than fails when it does.
+Capabilities is the addressed grant's own entries: target type, stable ID or normalized path, permissions, and descendant behavior. An ID entry whose resource has been deleted is marked deleted and still shows the path that resource held. A path entry whose location is empty is marked empty and remains editable.
 
 Its action bar holds `Set capabilities`, the one operation that changes what a grant reaches. Setting replaces the whole set in one command, so the operation opens seeded with the entries the grant holds now and executes the set it is left in.
 
@@ -262,17 +243,13 @@ A token on the addressed grant itself is refused, because a grant does not amend
 
 This is the one operation that does not open in a drawer. A drawer exists so a form can sit beside content that stays useful while it is open, and here that content is the very table the form edits. So the pane becomes the form in place: the entries stay where they were, gain their controls, and the pane grows an execute button and a response. Until `Set capabilities` is pressed the pane is a reading pane, so the route still shows no form until one is asked for.
 
-### Choosing resources
+### Choosing targets
 
-An entry names a resource, so the editor picks resources the way the explorer browses them.
+Each entry explicitly selects `resource ID` or `path`. ID targets use the resource picker: a breadcrumb walks the current tree, rows select live resources, and a whole-path filter reaches deep resources directly. Path targets use a normalized path field and do not require the path to be occupied, so a grant can reserve authority for a location that is currently empty.
 
-A resource picker heads the form. A breadcrumb states the location it is showing and walks back out of it, and under that is one row per live child of that location. A row's name navigates into it, replacing the rows with that resource's children; a checkbox on the row selects the resource itself. Navigation and selection are independent: navigating neither selects nor clears anything, and the selection persists as the picker moves around the tree. A filter field above the rows matches against whole paths across the entire tree rather than the current location, so a deep resource is reachable without walking to it.
+Under the target controls is one row per entry, in order, stating its target type and value and carrying its descendant toggle and permission checkbox set. Permissions default to none, and the form marks an entry that has none, because an entry with no permission is not valid.
 
-Selecting a resource adds an entry rooted at it; clearing the checkbox removes that entry. A selected resource's entry defaults to `include`, covering the whole subtree, when the resource has live children, and to `root only` when it has none. Selecting a path therefore means everything under it, which is what a path stands for when a person points at one.
-
-Under the picker is one row per selected entry, in selection order, stating the entry's resource path and carrying its own controls: the descendant toggle, a permission checkbox set, and a relocation policy. Permissions default to none, and the form marks an entry that has none, because an entry with no permission is not a valid entry.
-
-For a child grant the picker still lists every resource, because a resource the parent grant does not reach is usually the way to one it does: an ancestor of a reachable resource is generally not reachable itself, and its row is how the picker walks through it. Selection is what the parent bounds. A row the parent reaches carries a live checkbox, a row it does not carries a disabled one, and a note under the picker names the parent grant that decides this. Each selected entry offers only the permissions and relocation policies its covering parent entries allow, taken as the union across every parent entry that reaches it. The form therefore cannot express a set the rules would reject. The domain check stays authoritative; the form only narrows what can be asked for. A root grant is bounded by nothing, so its picker spans the whole tree and offers every permission.
+For a child grant, available targets and permissions are bounded by the parent grant. A child ID target must currently resolve within a covering parent entry. A child path target may be delegated while empty when a parent path entry lexically covers it; otherwise it must currently resolve within a covering parent entry. The domain check remains authoritative, and authorization checks every grant in the lineage against the requested live resource so later moves cannot expand delegated authority.
 
 Tokens is a listing with its own checkboxes and action bar, holding one row per issued token with its label, status, and hash prefix. Its action bar issues and revokes. `Issue token` takes a label and issues a token for the grant the route addresses. Only a hash of that token is stored, so the bearer value the command returns is the only copy there will ever be: the drawer stays open after it commits, states the value on a line of its own, and offers a control that copies it. The value also becomes the active token immediately, so the header carries it until it is replaced or cleared, and the drawer says plainly that dismissing it is the last chance to read the value. `Revoke token` revokes each checked token, which disables that credential and leaves the grant intact.
 
@@ -322,13 +299,13 @@ import { SqliteRgapRepository } from '@rgap/sqlite';
 const repository = new SqliteRgapRepository({ url: 'rgap.db' });
 
 const acme = await repository.createResource({
-  name: 'acme', parentId: null, movePolicy: 'normal', deletePolicy: 'revoke',
+  name: 'acme', parentId: null,
 });
 const grant = await repository.createGrant({
-  name: 'Acme admin', subject: 'alice', parentId: null, capabilities: [], expiresAt: null,
+  name: 'Acme admin', parentId: null, capabilities: [], expiresAt: null,
 });
 await repository.setCapabilities(grant.id, [
-  { resourceId: acme.id, permissions: ['read', 'write'], descendants: true, relocation: 'revoke_on_scope_exit' },
+  { target: { type: 'resource', resourceId: acme.id }, permissions: ['read', 'write'], descendants: true },
 ]);
 
 const { value } = await repository.issueToken(grant.id, 'cli');
@@ -347,8 +324,8 @@ The store is normalized. Every record the protocol defines is a table, and every
 
 | Table | Holds |
 | --- | --- |
-| `resources` | One row per resource: stable ID, parent ID, name, move policy, delete policy, deletion marker. |
-| `grants` | One row per grant: stable ID, name, subject, parent grant ID, expiration, revocation. |
+| `resources` | One row per resource: stable ID, parent ID, name, deletion marker. |
+| `grants` | One row per grant: stable ID, name, parent grant ID, expiration, revocation. |
 | `capabilities` | One row per capability entry, keyed by its grant and its position in that grant's set. |
 | `capability_permissions` | One row per permission an entry carries, so a permission set is a relation SQL can query rather than an encoded value. |
 | `tokens` | One row per issued token: stable ID, grant ID, label, hash, expiration, revocation. |
@@ -378,7 +355,7 @@ The package's own suite runs against a `:memory:` database, so the tests exercis
 
 The package is self-covering: everything the threshold measures is exercised by tests inside `@rgap/core`, so the gate never depends on a downstream package's suite. `domain.test.ts` covers the pure rules, and `guard.test.ts` covers the enforced path by wrapping a stub repository that records the calls the guard forwards. The stub answers the guard's reads from a fixture state and returns a recorded result for each command, which isolates the guard's own decisions from any repository implementation.
 
-Reaching every path means the suite asserts each rejection, not only each success: an invalid name, a duplicate ID or path, a missing parent, an expiration or capability that expands past a parent, a move or delete a policy denies, and an amendment to a grant that is not active. It also asserts the structural guards. A cycle in the resource tree, a cycle in the grant tree, and a reference to a grant that does not exist are unreachable from the commands, because the commands maintain those properties; tests reach them by constructing such a state directly and calling the readers, which is what those guards exist to catch.
+Reaching every path means the suite asserts each rejection, not only each success: an invalid name, a duplicate ID or path, a missing parent, an expiration or capability that expands past a parent, and an amendment to a grant that is not active. It also asserts ID and path target behavior across moves, deletion, empty paths, and replacement resources, plus the structural guards. A cycle in the resource tree, a cycle in the grant tree, and a reference to a grant that does not exist are unreachable from the commands, because the commands maintain those properties; tests reach them by constructing such a state directly and calling the readers, which is what those guards exist to catch.
 
 `fixture.ts` holds the shared fixture state and the stub repository. It is test support rather than package surface, so the package entry point does not export it and coverage measurement excludes it along with the test files themselves.
 
@@ -388,10 +365,11 @@ Reaching every path means the suite asserts each rejection, not only each succes
 id: grant_bob_docs
 parent_grant_id: grant_alice_alpha
 capabilities:
-  - resource_id: resource_alpha_docs
+  - target:
+      type: path
+      path: projects/alpha/docs
     permissions: [read]
     descendant_policy: include
-    relocation_policy: revoke_on_scope_exit
 expires_at: 2026-12-31T23:59:59Z
 revoked_at: null
 ```

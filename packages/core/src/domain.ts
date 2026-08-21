@@ -1,23 +1,23 @@
 /** Permissions understood by the reference RGAP contract. */
 export const permissions = ['read', 'write', 'delete', 'move', 'invoke'] as const;
 export type Permission = (typeof permissions)[number];
-export type RelocationPolicy = 'follow_resource' | 'revoke_on_scope_exit' | 'deny_move';
 
 export type Resource = {
   id: string;
   parentId: string | null;
   name: string;
-  movePolicy: 'normal' | 'deny_while_granted';
-  deletePolicy: 'revoke' | 'deny_while_granted';
   /** Set when the resource is deleted. The record is retained so its stable ID is never reissued. */
   deletedAt: string | null;
 };
 
+export type CapabilityTarget =
+  | { type: 'resource'; resourceId: string }
+  | { type: 'path'; path: string };
+
 export type Capability = {
-  resourceId: string;
+  target: CapabilityTarget;
   permissions: Permission[];
   descendants: boolean;
-  relocation: RelocationPolicy;
 };
 
 export type Grant = {
@@ -136,8 +136,8 @@ export function stateIntegrity(state: State) {
       problems.push(`Grant ${grant.id} refers to missing parent ${grant.parentId}.`);
     }
     grant.capabilities.forEach((cap) => {
-      if (!state.resources[cap.resourceId]) {
-        problems.push(`Grant ${grant.id} refers to missing resource ${cap.resourceId}.`);
+      if (cap.target.type === 'resource' && !state.resources[cap.target.resourceId]) {
+        problems.push(`Grant ${grant.id} refers to missing resource ${cap.target.resourceId}.`);
       }
     });
   });
@@ -167,23 +167,57 @@ export function requireResourceId(resources: State['resources'], path: string) {
 
 export const normalizePath = (path: string) => pathParts(path).join('/');
 
-/**
- * Whether every request the child entry authorizes is also authorized by the parent entry.
- * Location containment is required in every case: relocation policy governs what happens to an
- * existing grant when its resource later moves, and never substitutes for containment at issue.
- */
+function targetResourceId(capability: Capability, resources: State['resources']) {
+  if (capability.target.type === 'path') return resourceIdAtPath(resources, capability.target.path);
+  return isLive(resources[capability.target.resourceId]) ? capability.target.resourceId : null;
+}
+
+/** Whether one entry authorizes a request against the current live resource tree. */
+export function capabilityAuthorizes(
+  capability: Capability,
+  resources: State['resources'],
+  resourceId: string,
+  permission: Permission,
+) {
+  if (!capability.permissions.includes(permission)) return false;
+  const rootId = targetResourceId(capability, resources);
+  return Boolean(rootId && (rootId === resourceId || (capability.descendants && isWithin(resources, resourceId, rootId))));
+}
+
+function pathContains(parent: Capability, child: Capability) {
+  if (parent.target.type !== 'path' || child.target.type !== 'path') return null;
+  const parentPath = normalizePath(parent.target.path);
+  const childPath = normalizePath(child.target.path);
+  if (!parent.descendants) return parentPath === childPath && !child.descendants;
+  const parentParts = pathParts(parentPath);
+  const childParts = pathParts(childPath);
+  return parentParts.every((part, index) => childParts[index] === part);
+}
+
+/** Whether every request the child entry currently authorizes is also authorized by the parent. */
 export function covers(parent: Capability, child: Capability, resources: State['resources']) {
-  const policyRank: Record<RelocationPolicy, number> = {
-    deny_move: 0,
-    revoke_on_scope_exit: 1,
-    follow_resource: 2,
-  };
-  const locationCovered = parent.descendants
-    ? isWithin(resources, child.resourceId, parent.resourceId)
-    : parent.resourceId === child.resourceId && !child.descendants;
-  return locationCovered &&
-    policyRank[child.relocation] <= policyRank[parent.relocation] &&
-    child.permissions.every((permission) => parent.permissions.includes(permission));
+  const lexicalCoverage = pathContains(parent, child);
+  const parentId = targetResourceId(parent, resources);
+  const childId = targetResourceId(child, resources);
+  const locationCovered = lexicalCoverage ?? Boolean(parentId && childId && (
+    parent.descendants ? isWithin(resources, childId, parentId) : parentId === childId && !child.descendants
+  ));
+  return locationCovered && child.permissions.every((permission) => parent.permissions.includes(permission));
+}
+
+function normalizeCapabilities(capabilities: Capability[], resources: State['resources']) {
+  return capabilities.map((capability) => {
+    if (!capability.permissions.length) throw new RgapError('invalid_capability', 'Select at least one permission.');
+    if (capability.target.type === 'resource') {
+      if (!isLive(resources[capability.target.resourceId])) {
+        throw new RgapError('missing_resource', 'Capability resource does not exist.');
+      }
+      return structuredClone(capability);
+    }
+    const path = normalizePath(capability.target.path);
+    if (!path) throw new RgapError('invalid_capability', 'Capability path is required.');
+    return { ...structuredClone(capability), target: { type: 'path' as const, path } };
+  });
 }
 
 function lineage(state: State, grantId: string) {
@@ -244,25 +278,8 @@ export function moveResource(state: State, id: string, parentId: string | null, 
   if (parentId === id || (parentId && isWithin(state.resources, parentId, id))) {
     throw new RgapError('resource_cycle', 'A resource cannot move inside itself.');
   }
-  const affected = Object.values(state.grants).filter((grant) =>
-    active(grant, at) && grant.capabilities.some((cap) => isWithin(state.resources, cap.resourceId, id)),
-  );
-  if (resource.movePolicy === 'deny_while_granted' && affected.length) {
-    throw new RgapError('move_denied', 'This resource cannot move while an active grant covers it.');
-  }
-
   const next = copy(state);
   next.resources[id].parentId = parentId;
-  for (const grant of affected.filter((item) => item.parentId)) {
-    const parent = next.grants[grant.parentId!];
-    const outside = grant.capabilities.filter((cap) =>
-      !parent.capabilities.some((parentCap) => covers(parentCap, cap, next.resources)),
-    );
-    if (outside.some((cap) => cap.relocation === 'deny_move')) {
-      throw new RgapError('move_denied', `Grant ${grant.name} prevents this move.`);
-    }
-    if (outside.some((cap) => cap.relocation === 'revoke_on_scope_exit')) revokeBranch(next, grant.id, at);
-  }
   audit(next, { at, action: 'resource.move', target: id, result: 'recorded', detail: `Moved ${resource.name}.` });
   return next;
 }
@@ -273,14 +290,7 @@ export function deleteResource(state: State, id: string, at: string) {
   const removed = liveResources(state.resources)
     .filter((candidate) => isWithin(state.resources, candidate.id, id))
     .map((candidate) => candidate.id);
-  const affected = Object.values(state.grants).filter((grant) =>
-    active(grant, at) && grant.capabilities.some((cap) => removed.includes(cap.resourceId)),
-  );
-  if (resource.deletePolicy === 'deny_while_granted' && affected.length) {
-    throw new RgapError('delete_denied', 'This resource cannot be deleted while an active grant covers it.');
-  }
   const next = copy(state);
-  affected.forEach((grant) => revokeBranch(next, grant.id, at));
   removed.forEach((removedId) => { next.resources[removedId].deletedAt = at; });
   audit(next, { at, action: 'resource.delete', target: id, result: 'recorded', detail: `Deleted ${resource.name} and its descendants.` });
   return next;
@@ -288,24 +298,23 @@ export function deleteResource(state: State, id: string, at: string) {
 
 export function createGrant(state: State, input: CreateGrantInput, id: string, at: string) {
   if (!input.name.trim() || !input.subject.trim()) throw new RgapError('invalid_grant', 'Grant name and subject are required.');
-  input.capabilities.forEach((cap) => {
-    if (!isLive(state.resources[cap.resourceId])) throw new RgapError('missing_resource', 'Capability resource does not exist.');
-    if (!cap.permissions.length) throw new RgapError('invalid_capability', 'Select at least one permission.');
-  });
+  const capabilities = normalizeCapabilities(input.capabilities, state.resources);
   if (input.parentId) {
     const parent = state.grants[input.parentId];
     if (!parent || !active(parent, at)) throw new RgapError('inactive_parent', 'Parent grant is missing or inactive.');
     if (parent.expiresAt && (!input.expiresAt || input.expiresAt > parent.expiresAt)) {
       throw new RgapError('expiration_expands', 'Child expiration must not exceed its parent.');
     }
-    input.capabilities.forEach((cap) => {
+    capabilities.forEach((cap) => {
       if (!parent.capabilities.some((parentCap) => covers(parentCap, cap, state.resources))) {
         throw new RgapError('authority_expands', 'Child capability is not covered by its parent.');
       }
     });
   }
   const next = copy(state);
-  next.grants[id] = { ...input, id, name: input.name.trim(), subject: input.subject.trim(), revokedAt: null };
+  next.grants[id] = {
+    ...input, capabilities, id, name: input.name.trim(), subject: input.subject.trim(), revokedAt: null,
+  };
   audit(next, { at, action: input.parentId ? 'grant.delegate' : 'grant.create', target: id, result: 'recorded', detail: `Created ${input.name}.` });
   return next;
 }
@@ -319,33 +328,30 @@ export function setCapabilities(state: State, grantId: string, capabilities: Cap
   const grant = state.grants[grantId];
   if (!grant) throw new RgapError('missing_grant', 'Grant does not exist.');
   if (!active(grant, at)) throw new RgapError('inactive_grant', 'A revoked or expired grant is not amended.');
-  capabilities.forEach((cap) => {
-    if (!isLive(state.resources[cap.resourceId])) throw new RgapError('missing_resource', 'Capability resource does not exist.');
-    if (!cap.permissions.length) throw new RgapError('invalid_capability', 'Select at least one permission.');
-  });
+  const normalized = normalizeCapabilities(capabilities, state.resources);
   if (grant.parentId) {
     const parent = state.grants[grant.parentId];
     if (!parent || !active(parent, at)) throw new RgapError('inactive_parent', 'Parent grant is missing or inactive.');
-    capabilities.forEach((cap) => {
+    normalized.forEach((cap) => {
       if (!parent.capabilities.some((parentCap) => covers(parentCap, cap, state.resources))) {
         throw new RgapError('authority_expands', 'Capability is not covered by the parent grant.');
       }
     });
   }
   const next = copy(state);
-  next.grants[grantId] = { ...grant, capabilities: structuredClone(capabilities) };
+  next.grants[grantId] = { ...grant, capabilities: normalized };
   // Only direct children are checked: a deeper grant is covered against its own parent, unchanged here.
   const orphaned = Object.values(state.grants).filter((child) =>
     child.parentId === grantId &&
     active(child, at) &&
-    child.capabilities.some((cap) => !capabilities.some((kept) => covers(kept, cap, state.resources))),
+    child.capabilities.some((cap) => !normalized.some((kept) => covers(kept, cap, state.resources))),
   );
   orphaned.forEach((child) => revokeBranch(next, child.id, at));
   audit(next, {
     at, action: 'grant.capabilities', target: grantId, result: 'recorded',
     detail: orphaned.length
-      ? `Set ${capabilities.length} entries on ${grant.name}, revoking ${orphaned.map((child) => child.name).join(', ')}.`
-      : `Set ${capabilities.length} entries on ${grant.name}.`,
+      ? `Set ${normalized.length} entries on ${grant.name}, revoking ${orphaned.map((child) => child.name).join(', ')}.`
+      : `Set ${normalized.length} entries on ${grant.name}.`,
   });
   return next;
 }
@@ -383,11 +389,9 @@ export function authorize(state: State, tokenHash: string, resourceId: string, p
   if (chain.some((grant) => !active(grant, at))) {
     return { allowed: false, detail: 'A grant in the delegation chain is expired or revoked.', grantId: token.grantId, lineage: chain.map((grant) => grant.id) };
   }
-  const leafCaps = chain[0].capabilities.filter((cap) => cap.permissions.includes(permission) &&
-    (cap.resourceId === resourceId || (cap.descendants && isWithin(state.resources, resourceId, cap.resourceId))));
-  const allowed = leafCaps.some((leaf) => chain.slice(1).every((grant) =>
-    grant.capabilities.some((cap) => covers(cap, leaf, state.resources)),
-  ));
+  const allowed = chain.every((grant) =>
+    grant.capabilities.some((capability) => capabilityAuthorizes(capability, state.resources, resourceId, permission)),
+  );
   return {
     allowed,
     detail: allowed ? `${permission} is covered by every grant in the chain.` : `No ${permission} capability survives the complete grant chain.`,

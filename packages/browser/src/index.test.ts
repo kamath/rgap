@@ -16,7 +16,7 @@ const memoryStorage = (): Storage => {
 
 const initialState = (): State => ({
   resources: {
-    acme: { id: 'acme', parentId: null, name: 'Acme', movePolicy: 'normal', deletePolicy: 'revoke', deletedAt: null },
+    acme: { id: 'acme', parentId: null, name: 'Acme', deletedAt: null },
   },
   grants: {},
   tokens: {},
@@ -30,7 +30,6 @@ describe('BrowserRgapRepository', () => {
     const repo = repository();
     const resource = await repo.createResource({
       name: 'New tool', parentId: 'acme',
-      movePolicy: 'deny_while_granted', deletePolicy: 'deny_while_granted',
     });
 
     const state = await repo.readState();
@@ -41,7 +40,7 @@ describe('BrowserRgapRepository', () => {
   it('moves a root resource under another parent', async () => {
     const repo = repository();
     const resource = await repo.createResource({
-      name: 'child', parentId: null, movePolicy: 'normal', deletePolicy: 'revoke',
+      name: 'child', parentId: null,
     });
 
     expect((await repo.moveResource(resource.id, 'acme')).parentId).toBe('acme');
@@ -51,12 +50,12 @@ describe('BrowserRgapRepository', () => {
   it('retains a deleted resource as a tombstone and never reissues its ID', async () => {
     const repo = repository();
     const first = await repo.createResource({
-      name: 'tools', parentId: 'acme', movePolicy: 'normal', deletePolicy: 'revoke',
+      name: 'tools', parentId: 'acme',
     });
     await repo.deleteResource(first.id);
 
     const replacement = await repo.createResource({
-      name: 'tools', parentId: 'acme', movePolicy: 'normal', deletePolicy: 'revoke',
+      name: 'tools', parentId: 'acme',
     });
     const state = await repo.readState();
 
@@ -69,14 +68,46 @@ describe('BrowserRgapRepository', () => {
     const repo = repository();
     const root = await repo.createGrant({
       name: 'Reader', subject: 'reader agent', parentId: null, expiresAt: null,
-      capabilities: [{ resourceId: 'acme', permissions: ['read'], descendants: true, relocation: 'revoke_on_scope_exit' }],
+      capabilities: [{ target: { type: 'resource', resourceId: 'acme' }, permissions: ['read'], descendants: true }],
     });
     const child = await repo.createGrant({
       name: 'Narrow reader', subject: 'sub-agent', parentId: root.id, expiresAt: null,
-      capabilities: [{ resourceId: 'acme', permissions: ['read'], descendants: false, relocation: 'deny_move' }],
+      capabilities: [{ target: { type: 'resource', resourceId: 'acme' }, permissions: ['read'], descendants: false }],
     });
 
     expect(child.parentId).toBe(root.id);
+  });
+
+  it('round-trips resource and path capability targets', async () => {
+    const storage = memoryStorage();
+    const seeded = new BrowserRgapRepository({ initialState: initialState(), storage });
+    const grant = await seeded.createGrant({
+      name: 'Mixed targets', subject: 'agent', parentId: null, expiresAt: null,
+      capabilities: [
+        { target: { type: 'resource', resourceId: 'acme' }, permissions: ['read'], descendants: true },
+        { target: { type: 'path', path: 'Acme/future' }, permissions: ['invoke'], descendants: false },
+      ],
+    });
+
+    const restored = await new BrowserRgapRepository({ initialState: initialState(), storage }).readState();
+    expect(restored.grants[grant.id].capabilities).toEqual(grant.capabilities);
+  });
+
+  it('does not revoke grants when resources move or are deleted', async () => {
+    const repo = repository();
+    const child = await repo.createResource({ name: 'child', parentId: 'acme' });
+    const grant = await repo.createGrant({
+      name: 'Reader', subject: 'agent', parentId: null, expiresAt: null,
+      capabilities: [
+        { target: { type: 'resource', resourceId: child.id }, permissions: ['read'], descendants: false },
+        { target: { type: 'path', path: 'Acme/child' }, permissions: ['read'], descendants: false },
+      ],
+    });
+
+    await repo.moveResource(child.id, null);
+    await repo.deleteResource(child.id);
+
+    expect((await repo.readState()).grants[grant.id].revokedAt).toBe(null);
   });
 
   it('discards stored state whose references no longer resolve', async () => {
@@ -84,7 +115,7 @@ describe('BrowserRgapRepository', () => {
     const seeded = new BrowserRgapRepository({ initialState: initialState(), storage });
     await seeded.createGrant({
       name: 'Owner', subject: 'owner', parentId: null, expiresAt: null,
-      capabilities: [{ resourceId: 'acme', permissions: ['read'], descendants: true, relocation: 'revoke_on_scope_exit' }],
+      capabilities: [{ target: { type: 'resource', resourceId: 'acme' }, permissions: ['read'], descendants: true }],
     });
     // The resource record the stored grant names, gone the way an older seed's records would be.
     const stored = JSON.parse(storage.getItem('rgap-state') as string);
@@ -101,7 +132,7 @@ describe('BrowserRgapRepository', () => {
     const storage = memoryStorage();
     const seeded = new BrowserRgapRepository({ initialState: initialState(), storage });
     const created = await seeded.createResource({
-      name: 'Tools', parentId: 'acme', movePolicy: 'normal', deletePolicy: 'revoke',
+      name: 'Tools', parentId: 'acme',
     });
 
     const state = await new BrowserRgapRepository({ initialState: initialState(), storage }).readState();
@@ -113,7 +144,7 @@ describe('BrowserRgapRepository', () => {
     const repo = repository();
     const grant = await repo.createGrant({
       name: 'Reader', subject: 'reader agent', parentId: null, expiresAt: null,
-      capabilities: [{ resourceId: 'acme', permissions: ['read'], descendants: false, relocation: 'revoke_on_scope_exit' }],
+      capabilities: [{ target: { type: 'resource', resourceId: 'acme' }, permissions: ['read'], descendants: false }],
     });
     const issued = await repo.issueToken(grant.id, 'reader token');
 

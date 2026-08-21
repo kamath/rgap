@@ -30,7 +30,7 @@ export function GrantBreadcrumb({ lineage, trailing }: { lineage: Grant[]; trail
   );
 }
 
-/** What a capability entry reaches. A resource that is gone still shows the path it held. */
+/** What a capability entry reaches. ID targets retain identity; path targets retain location. */
 export function CapabilityResource({
   resources,
   capability,
@@ -43,20 +43,27 @@ export function CapabilityResource({
   if (target.state === 'live') {
     return (
       <Link to="/browse/$" params={{ _splat: target.path }}>
-        {target.path || 'root'}
+        {target.value}
       </Link>
     );
   }
   if (target.state === 'deleted') {
     return (
       <>
-        <code>{target.path || 'root'}</code> <code className="denied">deleted</code>
+        <code>{target.value}</code> <code className="dim">{target.path}</code> <code className="denied">deleted</code>
+      </>
+    );
+  }
+  if (target.state === 'empty') {
+    return (
+      <>
+        <code>{target.value}</code> <code className="denied">empty</code>
       </>
     );
   }
   return (
     <>
-      <code>{capability.resourceId}</code> <code className="denied">unresolved</code>
+      <code>{target.value}</code> <code className="denied">unresolved</code>
     </>
   );
 }
@@ -171,7 +178,9 @@ export function GrantListing({
                 <td>
                   <div className="entries">
                     {grant.capabilities.map((capability, index) => (
-                      <code key={`${capability.resourceId}-${index}`}>{capabilityLabel(resources, capability)}</code>
+                      <code key={`${capability.target.type}-${capabilityTarget(resources, capability).value}-${index}`}>
+                        {capabilityLabel(resources, capability)}
+                      </code>
                     ))}
                   </div>
                 </td>
@@ -205,10 +214,10 @@ export function LineagePane({ lineage, resources }: { lineage: Grant[]; resource
           <tr>
             <th>Grant</th>
             <th>Subject</th>
-            <th>Resource</th>
+            <th>Target type</th>
+            <th>Target</th>
             <th>Permissions</th>
             <th>Descendants</th>
-            <th>Relocation</th>
             <th>Expires</th>
             <th>Status</th>
           </tr>
@@ -255,8 +264,11 @@ export function LineagePane({ lineage, resources }: { lineage: Grant[]; resource
             }
 
             return grant.capabilities.map((capability, index) => (
-              <tr key={`${grant.id}-${capability.resourceId}-${index}`}>
+              <tr key={`${grant.id}-${capability.target.type}-${capabilityTarget(resources, capability).value}-${index}`}>
                 {index === 0 ? facts : null}
+                <td>
+                  <code>{capability.target.type === 'resource' ? 'resource ID' : 'path'}</code>
+                </td>
                 <td>
                   <CapabilityResource resources={resources} capability={capability} />
                 </td>
@@ -265,9 +277,6 @@ export function LineagePane({ lineage, resources }: { lineage: Grant[]; resource
                 </td>
                 <td>
                   <code>{capability.descendants ? 'include' : 'root only'}</code>
-                </td>
-                <td>
-                  <code>{capability.relocation}</code>
                 </td>
                 {index === 0 ? trailing : null}
               </tr>

@@ -1,5 +1,6 @@
 import {
   isLive,
+  normalizePath,
   resourceIdAtPath,
   resourcePath,
   tryResourcePath,
@@ -58,16 +59,32 @@ export function lineageStatus(grants: State['grants'], grantId: string) {
 
 /** What a capability entry points at, which is readable even once the resource is gone. */
 export function capabilityTarget(resources: State['resources'], capability: Capability) {
-  const resource = resources[capability.resourceId];
-  const path = tryResourcePath(resources, capability.resourceId);
-  if (!resource || path === null) return { path: null, state: 'missing' as const };
-  return { path, state: isLive(resource) ? ('live' as const) : ('deleted' as const) };
+  if (capability.target.type === 'path') {
+    const path = normalizePath(capability.target.path);
+    return {
+      type: 'path' as const,
+      value: path,
+      path,
+      state: resourceIdAtPath(resources, path) ? ('live' as const) : ('empty' as const),
+    };
+  }
+  const resource = resources[capability.target.resourceId];
+  const path = tryResourcePath(resources, capability.target.resourceId);
+  if (!resource || path === null) {
+    return { type: 'resource' as const, value: capability.target.resourceId, path: null, state: 'missing' as const };
+  }
+  return {
+    type: 'resource' as const,
+    value: capability.target.resourceId,
+    path,
+    state: isLive(resource) ? ('live' as const) : ('deleted' as const),
+  };
 }
 
 /** A capability entry as one readable value: what it reaches, and what it may do there. */
 export function capabilityLabel(resources: State['resources'], capability: Capability) {
   const target = capabilityTarget(resources, capability);
-  const reach = target.path === null ? capability.resourceId : target.path || 'root';
+  const reach = target.path ?? target.value;
   return `${reach}${capability.descendants ? '/…' : ''} ${capability.permissions.join('+')}`;
 }
 
