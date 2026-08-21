@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useRgapAuthority, useRgapSnapshot } from '@rgap/react';
 import { GrantBreadcrumb, GrantListing } from '../grant-listing';
-import { DelegateDrawer, RevokeGrantsDrawer, type GrantOperation } from '../grant-ops';
+import { CreateGrantDrawer, RevokeGrantsDrawer, type GrantOperation } from '../grant-ops';
 import { PageTitle, useSelection } from '../panes';
 import { useShell } from '../shell';
 import { childGrants, visibleGrantIds } from '../tree';
@@ -18,7 +18,7 @@ function Grants() {
   const selection = useSelection('grants', listing);
   const [operation, setOperation] = useState<GrantOperation | null>(null);
   // Creating a root grant needs no selection; revoking has nothing to act on without one.
-  const drawer = operation === 'Delegate' || selection.targets.length ? operation : null;
+  const drawer = operation === 'Create' || selection.targets.length ? operation : null;
   const close = () => setOperation(null);
 
   return (
@@ -30,15 +30,17 @@ function Grants() {
           <GrantListing
             label="Root grants"
             meta={visible ? 'narrowed to the token lineage' : `${listing.length} grants`}
-            createLabel="Create"
             listing={listing}
+            grants={snapshot.grants}
+            resources={snapshot.resources}
             selection={selection}
+            inspect={null}
             open={drawer}
             onOpen={setOperation}
             empty="No root grants are visible."
           />
         </div>
-        {drawer === 'Delegate' ? <DelegateDrawer parent={null} onClose={close} /> : null}
+        {drawer === 'Create' ? <CreateGrantDrawer parent={null} onClose={close} /> : null}
         {drawer === 'Revoke' ? <RevokeGrantsDrawer targets={selection.targets} onClose={close} /> : null}
       </div>
     </>

@@ -33,7 +33,7 @@ apps/frontend/src/
 
 ## Boundary under test
 
-`@rgap/core` exports `RgapRepository`, which exposes an asynchronous state read and asynchronous methods for every query and command. Every method addresses resources by stable ID; path parsing, path rendering, and path resolution are pure helpers the caller applies first. It also exports the domain records and pure rules. The package has no framework, browser, persistence, or transport dependency.
+`@rgap/core` exports `RgapRepository`, which exposes an asynchronous state read and asynchronous methods for every query and command, including `setCapabilities(grantId, capabilities)`, the one command that changes an existing grant. Every method addresses resources by stable ID; path parsing, path rendering, and path resolution are pure helpers the caller applies first. It also exports the domain records and pure rules. The package has no framework, browser, persistence, or transport dependency.
 
 Repository commands are the administrative plane and take no token. `@rgap/core` also exports `guardCommands(repository, token)`, a decorator returning an `RgapRepository` whose commands each authorize the required permission before delegating and reject with the decision's explanation otherwise. It guards commands only; `inspectToken` remains the read-side lens.
 

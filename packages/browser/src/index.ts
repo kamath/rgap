@@ -10,7 +10,10 @@ import {
   moveResource as move,
   recordToken,
   revokeGrant as revokeGrantBranch,
+  stateIntegrity,
   revokeToken as revokeTokenRecord,
+  setCapabilities as amendCapabilities,
+  type Capability,
   type CreateGrantInput,
   type CreateResourceInput,
   type Permission,
@@ -33,7 +36,17 @@ export class BrowserRgapRepository implements RgapRepository {
     this.initialState = structuredClone(options.initialState);
     const creator = persist<State>(
       () => structuredClone(this.initialState),
-      { name: options.storageKey ?? 'rgap-state', storage: createJSONStorage(() => options.storage ?? localStorage) },
+      {
+        name: options.storageKey ?? 'rgap-state',
+        storage: createJSONStorage(() => options.storage ?? localStorage),
+        // Stored state whose references no longer resolve cannot be read at all, so it is discarded
+        // for the initial state rather than loaded into records that name resources that are gone.
+        merge: (persisted, initial) => {
+          const problems = persisted ? stateIntegrity(persisted as State) : ['No stored state.'];
+          if (!problems.length) return persisted as State;
+          return initial;
+        },
+      },
     );
     this.store = createStore(creator);
   }
@@ -61,6 +74,11 @@ export class BrowserRgapRepository implements RgapRepository {
     const id = crypto.randomUUID();
     this.commit(addGrant(this.currentState(), input, id, now()));
     return this.currentState().grants[id];
+  }
+
+  async setCapabilities(grantId: string, capabilities: Capability[]) {
+    this.commit(amendCapabilities(this.currentState(), grantId, capabilities, now()));
+    return this.currentState().grants[grantId];
   }
 
   async issueToken(grantId: string, label: string) {

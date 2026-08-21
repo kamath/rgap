@@ -62,6 +62,41 @@ describe('guardCommands', () => {
     })).rejects.toThrow('No write capability survives the complete grant chain.');
   });
 
+  it('lets a token set what a grant below it reaches, but never its own grant', async () => {
+    const { admin } = await guarded();
+    const entry = [{
+      resourceId: 'tools', permissions: ['read' as const], descendants: false,
+      relocation: 'revoke_on_scope_exit' as const,
+    }];
+    // The acting grant is delegated, not a root, so the own-grant rule is what refuses it.
+    const acting = await admin.createGrant({
+      name: 'Middle', subject: 'agent', parentId: 'owner', expiresAt: null, capabilities: entry,
+    });
+    const below = await admin.createGrant({
+      name: 'Below', subject: 'sub-agent', parentId: acting.id, expiresAt: null, capabilities: [],
+    });
+    const issued = await admin.issueToken(acting.id, 'middle token');
+    const repo = guardCommands(admin, issued.value);
+
+    expect((await repo.setCapabilities(below.id, entry)).capabilities).toHaveLength(1);
+
+    // Amending its own entries would let the holder widen itself to its parent's full authority.
+    await expect(repo.setCapabilities(acting.id, entry)).rejects.toThrow('its own grant');
+  });
+
+  it('refuses to set capabilities on a root grant or a grant outside the token', async () => {
+    const { repo, admin } = await guarded();
+    const beside = await admin.createGrant({
+      name: 'Beside', subject: 'other', parentId: null, expiresAt: null, capabilities: [],
+    });
+    const below = await admin.createGrant({
+      name: 'Below beside', subject: 'other', parentId: beside.id, expiresAt: null, capabilities: [],
+    });
+
+    await expect(repo.setCapabilities(beside.id, [])).rejects.toThrow('administrative operation');
+    await expect(repo.setCapabilities(below.id, [])).rejects.toThrow('neither this token\'s grant nor delegated from it');
+  });
+
   it('requires authority at both ends of a move', async () => {
     const { repo, admin } = await guarded();
 

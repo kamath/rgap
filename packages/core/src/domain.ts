@@ -108,6 +108,45 @@ export function resourcePath(resources: State['resources'], id: string) {
   return names.join('/');
 }
 
+/**
+ * The path of a resource whose record may be absent. A correct state retains every record so that
+ * every referenced ID resolves, so this returns null only for a state that broke that rule.
+ */
+export function tryResourcePath(resources: State['resources'], id: string) {
+  try {
+    return resourcePath(resources, id);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The referential integrity a state must have for its records to be readable: every ID a grant,
+ * token, or resource refers to resolves to a record. Returns one message per broken reference.
+ */
+export function stateIntegrity(state: State) {
+  const problems: string[] = [];
+  Object.values(state.resources).forEach((resource) => {
+    if (resource.parentId && !state.resources[resource.parentId]) {
+      problems.push(`Resource ${resource.id} refers to missing parent ${resource.parentId}.`);
+    }
+  });
+  Object.values(state.grants).forEach((grant) => {
+    if (grant.parentId && !state.grants[grant.parentId]) {
+      problems.push(`Grant ${grant.id} refers to missing parent ${grant.parentId}.`);
+    }
+    grant.capabilities.forEach((cap) => {
+      if (!state.resources[cap.resourceId]) {
+        problems.push(`Grant ${grant.id} refers to missing resource ${cap.resourceId}.`);
+      }
+    });
+  });
+  Object.values(state.tokens).forEach((token) => {
+    if (!state.grants[token.grantId]) problems.push(`Token ${token.id} refers to missing grant ${token.grantId}.`);
+  });
+  return problems;
+}
+
 /** Resolves a path to a stable resource ID. The root is not a resource, so an empty path resolves to null. */
 export function resourceIdAtPath(resources: State['resources'], path: string) {
   let parentId: string | null = null;
@@ -133,7 +172,7 @@ export const normalizePath = (path: string) => pathParts(path).join('/');
  * Location containment is required in every case: relocation policy governs what happens to an
  * existing grant when its resource later moves, and never substitutes for containment at issue.
  */
-function covers(parent: Capability, child: Capability, resources: State['resources']) {
+export function covers(parent: Capability, child: Capability, resources: State['resources']) {
   const policyRank: Record<RelocationPolicy, number> = {
     deny_move: 0,
     revoke_on_scope_exit: 1,
@@ -249,7 +288,6 @@ export function deleteResource(state: State, id: string, at: string) {
 
 export function createGrant(state: State, input: CreateGrantInput, id: string, at: string) {
   if (!input.name.trim() || !input.subject.trim()) throw new RgapError('invalid_grant', 'Grant name and subject are required.');
-  if (!input.capabilities.length) throw new RgapError('invalid_grant', 'At least one capability is required.');
   input.capabilities.forEach((cap) => {
     if (!isLive(state.resources[cap.resourceId])) throw new RgapError('missing_resource', 'Capability resource does not exist.');
     if (!cap.permissions.length) throw new RgapError('invalid_capability', 'Select at least one permission.');
@@ -269,6 +307,46 @@ export function createGrant(state: State, input: CreateGrantInput, id: string, a
   const next = copy(state);
   next.grants[id] = { ...input, id, name: input.name.trim(), subject: input.subject.trim(), revokedAt: null };
   audit(next, { at, action: input.parentId ? 'grant.delegate' : 'grant.create', target: id, result: 'recorded', detail: `Created ${input.name}.` });
+  return next;
+}
+
+/**
+ * Replaces a grant's whole capability set in one transition. Identity, subject, parent, and expiry
+ * are fixed at issue; what a grant reaches is not, so this runs the same downscoping proof as issue
+ * at the moment the set changes, and revokes any child the new set no longer covers.
+ */
+export function setCapabilities(state: State, grantId: string, capabilities: Capability[], at: string) {
+  const grant = state.grants[grantId];
+  if (!grant) throw new RgapError('missing_grant', 'Grant does not exist.');
+  if (!active(grant, at)) throw new RgapError('inactive_grant', 'A revoked or expired grant is not amended.');
+  capabilities.forEach((cap) => {
+    if (!isLive(state.resources[cap.resourceId])) throw new RgapError('missing_resource', 'Capability resource does not exist.');
+    if (!cap.permissions.length) throw new RgapError('invalid_capability', 'Select at least one permission.');
+  });
+  if (grant.parentId) {
+    const parent = state.grants[grant.parentId];
+    if (!parent || !active(parent, at)) throw new RgapError('inactive_parent', 'Parent grant is missing or inactive.');
+    capabilities.forEach((cap) => {
+      if (!parent.capabilities.some((parentCap) => covers(parentCap, cap, state.resources))) {
+        throw new RgapError('authority_expands', 'Capability is not covered by the parent grant.');
+      }
+    });
+  }
+  const next = copy(state);
+  next.grants[grantId] = { ...grant, capabilities: structuredClone(capabilities) };
+  // Only direct children are checked: a deeper grant is covered against its own parent, unchanged here.
+  const orphaned = Object.values(state.grants).filter((child) =>
+    child.parentId === grantId &&
+    active(child, at) &&
+    child.capabilities.some((cap) => !capabilities.some((kept) => covers(kept, cap, state.resources))),
+  );
+  orphaned.forEach((child) => revokeBranch(next, child.id, at));
+  audit(next, {
+    at, action: 'grant.capabilities', target: grantId, result: 'recorded',
+    detail: orphaned.length
+      ? `Set ${capabilities.length} entries on ${grant.name}, revoking ${orphaned.map((child) => child.name).join(', ')}.`
+      : `Set ${capabilities.length} entries on ${grant.name}.`,
+  });
   return next;
 }
 

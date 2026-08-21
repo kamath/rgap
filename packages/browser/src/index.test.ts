@@ -79,6 +79,36 @@ describe('BrowserRgapRepository', () => {
     expect(child.parentId).toBe(root.id);
   });
 
+  it('discards stored state whose references no longer resolve', async () => {
+    const storage = memoryStorage();
+    const seeded = new BrowserRgapRepository({ initialState: initialState(), storage });
+    await seeded.createGrant({
+      name: 'Owner', subject: 'owner', parentId: null, expiresAt: null,
+      capabilities: [{ resourceId: 'acme', permissions: ['read'], descendants: true, relocation: 'revoke_on_scope_exit' }],
+    });
+    // The resource record the stored grant names, gone the way an older seed's records would be.
+    const stored = JSON.parse(storage.getItem('rgap-state') as string);
+    delete stored.state.resources['acme'];
+    storage.setItem('rgap-state', JSON.stringify(stored));
+
+    const state = await new BrowserRgapRepository({ initialState: initialState(), storage }).readState();
+
+    expect(state.resources['acme']).toBeDefined();
+    expect(Object.keys(state.grants)).toEqual([]);
+  });
+
+  it('loads stored state that is referentially intact', async () => {
+    const storage = memoryStorage();
+    const seeded = new BrowserRgapRepository({ initialState: initialState(), storage });
+    const created = await seeded.createResource({
+      name: 'Tools', parentId: 'acme', movePolicy: 'normal', deletePolicy: 'revoke',
+    });
+
+    const state = await new BrowserRgapRepository({ initialState: initialState(), storage }).readState();
+
+    expect(resourceIdAtPath(state.resources, 'Acme/Tools')).toBe(created.id);
+  });
+
   it('issues tokens and inspects their effective authority', async () => {
     const repo = repository();
     const grant = await repo.createGrant({

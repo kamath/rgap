@@ -1,4 +1,4 @@
-import { RgapError, type CreateGrantInput, type CreateResourceInput, type Permission } from './domain';
+import { RgapError, type Capability, type CreateGrantInput, type CreateResourceInput, type Permission } from './domain';
 import type { RgapRepository } from './repository';
 
 /**
@@ -64,6 +64,22 @@ export function guardCommands(repository: RgapRepository, token: string): RgapRe
         throw new RgapError('unauthorized', 'A token may only delegate from the grant it references.');
       }
       return repository.createGrant(input);
+    },
+
+    /**
+     * A token sets what a grant below it reaches, never what its own grant reaches: amending its own
+     * entries would let a holder widen itself to its parent's full authority, which its issuer withheld.
+     */
+    async setCapabilities(grantId: string, capabilities: Capability[]) {
+      const { grants } = await repository.readState();
+      const grant = grants[grantId];
+      if (!grant) throw new RgapError('missing_grant', 'Grant does not exist.');
+      if (!grant.parentId) administrative("Setting a root grant's capabilities");
+      if (grantId === (await actingGrantId())) {
+        throw new RgapError('unauthorized', 'A token may not set the capabilities of its own grant.');
+      }
+      await withinActingGrant(grantId);
+      return repository.setCapabilities(grantId, capabilities);
     },
 
     async issueToken(grantId: string, label: string) {

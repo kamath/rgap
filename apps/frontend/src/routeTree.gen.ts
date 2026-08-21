@@ -14,7 +14,8 @@ import { Route as AuditRouteImport } from './routes/audit'
 import { Route as AuthorizeRouteImport } from './routes/authorize'
 import { Route as BrowseSplatRouteImport } from './routes/browse.$'
 import { Route as GrantsIndexRouteImport } from './routes/grants.index'
-import { Route as GrantsGrantIdRouteImport } from './routes/grants.$grantId'
+import { Route as GrantsGrantIdIndexRouteImport } from './routes/grants.$grantId.index'
+import { Route as GrantsGrantIdInspectRouteImport } from './routes/grants.$grantId.inspect'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -41,9 +42,14 @@ const GrantsIndexRoute = GrantsIndexRouteImport.update({
   path: '/grants/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const GrantsGrantIdRoute = GrantsGrantIdRouteImport.update({
-  id: '/grants/$grantId',
-  path: '/grants/$grantId',
+const GrantsGrantIdIndexRoute = GrantsGrantIdIndexRouteImport.update({
+  id: '/grants/$grantId/',
+  path: '/grants/$grantId/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GrantsGrantIdInspectRoute = GrantsGrantIdInspectRouteImport.update({
+  id: '/grants/$grantId/inspect',
+  path: '/grants/$grantId/inspect',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -52,16 +58,18 @@ export interface FileRoutesByFullPath {
   '/audit': typeof AuditRoute
   '/authorize': typeof AuthorizeRoute
   '/browse/$': typeof BrowseSplatRoute
-  '/grants/$grantId': typeof GrantsGrantIdRoute
   '/grants/': typeof GrantsIndexRoute
+  '/grants/$grantId/inspect': typeof GrantsGrantIdInspectRoute
+  '/grants/$grantId/': typeof GrantsGrantIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/audit': typeof AuditRoute
   '/authorize': typeof AuthorizeRoute
   '/browse/$': typeof BrowseSplatRoute
-  '/grants/$grantId': typeof GrantsGrantIdRoute
   '/grants': typeof GrantsIndexRoute
+  '/grants/$grantId/inspect': typeof GrantsGrantIdInspectRoute
+  '/grants/$grantId': typeof GrantsGrantIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -69,8 +77,9 @@ export interface FileRoutesById {
   '/audit': typeof AuditRoute
   '/authorize': typeof AuthorizeRoute
   '/browse/$': typeof BrowseSplatRoute
-  '/grants/$grantId': typeof GrantsGrantIdRoute
   '/grants/': typeof GrantsIndexRoute
+  '/grants/$grantId/inspect': typeof GrantsGrantIdInspectRoute
+  '/grants/$grantId/': typeof GrantsGrantIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -79,19 +88,27 @@ export interface FileRouteTypes {
     | '/audit'
     | '/authorize'
     | '/browse/$'
-    | '/grants/$grantId'
     | '/grants/'
+    | '/grants/$grantId/inspect'
+    | '/grants/$grantId/'
   fileRoutesByTo: FileRoutesByTo
   to:
-    '/' | '/audit' | '/authorize' | '/browse/$' | '/grants/$grantId' | '/grants'
+    | '/'
+    | '/audit'
+    | '/authorize'
+    | '/browse/$'
+    | '/grants'
+    | '/grants/$grantId/inspect'
+    | '/grants/$grantId'
   id:
     | '__root__'
     | '/'
     | '/audit'
     | '/authorize'
     | '/browse/$'
-    | '/grants/$grantId'
     | '/grants/'
+    | '/grants/$grantId/inspect'
+    | '/grants/$grantId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -99,8 +116,9 @@ export interface RootRouteChildren {
   AuditRoute: typeof AuditRoute
   AuthorizeRoute: typeof AuthorizeRoute
   BrowseSplatRoute: typeof BrowseSplatRoute
-  GrantsGrantIdRoute: typeof GrantsGrantIdRoute
   GrantsIndexRoute: typeof GrantsIndexRoute
+  GrantsGrantIdInspectRoute: typeof GrantsGrantIdInspectRoute
+  GrantsGrantIdIndexRoute: typeof GrantsGrantIdIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -140,11 +158,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GrantsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/grants/$grantId': {
-      id: '/grants/$grantId'
+    '/grants/$grantId/': {
+      id: '/grants/$grantId/'
       path: '/grants/$grantId'
-      fullPath: '/grants/$grantId'
-      preLoaderRoute: typeof GrantsGrantIdRouteImport
+      fullPath: '/grants/$grantId/'
+      preLoaderRoute: typeof GrantsGrantIdIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/grants/$grantId/inspect': {
+      id: '/grants/$grantId/inspect'
+      path: '/grants/$grantId/inspect'
+      fullPath: '/grants/$grantId/inspect'
+      preLoaderRoute: typeof GrantsGrantIdInspectRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -155,8 +180,9 @@ const rootRouteChildren: RootRouteChildren = {
   AuditRoute: AuditRoute,
   AuthorizeRoute: AuthorizeRoute,
   BrowseSplatRoute: BrowseSplatRoute,
-  GrantsGrantIdRoute: GrantsGrantIdRoute,
   GrantsIndexRoute: GrantsIndexRoute,
+  GrantsGrantIdInspectRoute: GrantsGrantIdInspectRoute,
+  GrantsGrantIdIndexRoute: GrantsGrantIdIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

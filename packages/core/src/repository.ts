@@ -1,5 +1,6 @@
 import type {
   AuthorityView,
+  Capability,
   CreateGrantInput,
   CreateResourceInput,
   Decision,
@@ -18,6 +19,7 @@ export interface RgapRepository {
   moveResource(id: string, parentId: string | null): Promise<Resource>;
   deleteResource(id: string): Promise<void>;
   createGrant(input: CreateGrantInput): Promise<Grant>;
+  setCapabilities(grantId: string, capabilities: Capability[]): Promise<Grant>;
   issueToken(grantId: string, label: string): Promise<IssuedToken>;
   revokeToken(id: string): Promise<void>;
   revokeGrant(id: string): Promise<void>;

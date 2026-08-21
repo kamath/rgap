@@ -31,6 +31,11 @@ export function seed(): State {
         capabilities: [cap('search-files'), cap('search-messages')],
         expiresAt: '2027-08-21T22:00:00.000Z', revokedAt: null,
       },
+      summarizer: {
+        id: 'summarizer', name: 'Summarizer', subject: 'summarizing sub-agent', parentId: 'researcher',
+        capabilities: [cap('search-files')],
+        expiresAt: '2027-08-21T21:00:00.000Z', revokedAt: null,
+      },
     },
     tokens: {
       demo: {

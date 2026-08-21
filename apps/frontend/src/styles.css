@@ -102,6 +102,8 @@ main { padding: 2rem; }
 .action:hover:not(:disabled) { color: #0a0a0a; background: var(--pale); border-color: var(--pale); }
 .action.open { color: #0a0a0a; background: var(--accent); border-color: var(--accent); }
 .action:disabled { color: var(--dim); background: transparent; border-color: var(--line); }
+a.action { border-bottom-color: #55554f; }
+a.action:hover { color: #0a0a0a; background: var(--pale); border-color: var(--pale); }
 
 /* A listing is the main view of its route, and one operation opens in a drawer beside it. */
 .view { display: grid; grid-template-columns: minmax(0, 1fr); border: 1px solid var(--line); }
@@ -141,7 +143,11 @@ main { padding: 2rem; }
 .breadcrumb a:last-of-type { color: var(--text); }
 .breadcrumb a:hover { color: var(--accent); }
 tr.up a { color: var(--dim); border: 0; }
-tr.up a:hover { color: var(--accent); }
+
+/* Listings */
+.entries { display: flex; flex-direction: column; gap: 0.2rem; }
+.extent { display: flex; flex-direction: column; gap: 0.2rem; }
+.extent code + code { padding-left: 0.8rem; }
 
 /* Records */
 dl { display: grid; grid-template-columns: 7rem minmax(0, 1fr); gap: 0.45rem 1rem; margin: 0 0 1.2rem; font-size: 0.85rem; }
@@ -158,6 +164,37 @@ th.check-cell, td.check-cell { width: 2.4rem; padding-right: 0; }
 .record { display: flex; align-items: center; gap: 1rem; padding: 0.6rem 0; border-bottom: 1px solid var(--line); }
 .record button { margin-left: auto; }
 .empty { padding: 2rem 0.5rem; color: var(--dim); text-align: center; }
+
+/* The capability picker: the resource tree, browsed inside the pane that sets entries. */
+.picker { margin-bottom: 1.1rem; border: 1px solid var(--line); padding: 0.9rem; }
+.picker .breadcrumb { margin-bottom: 0.7rem; }
+.picker table { margin-top: 0.7rem; }
+.picker .empty { padding: 1rem 0.5rem; }
+.crumb {
+  padding: 0;
+  color: var(--dim);
+  font: inherit;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.crumb:hover { color: var(--accent); border-color: var(--accent); }
+.picker tbody .crumb { color: var(--text); }
+.entry-list { display: flex; flex-direction: column; gap: 0.7rem; margin-bottom: 1.1rem; }
+.entry { padding: 0.7rem 0.9rem; border: 1px solid var(--line); }
+.entry.denied { border-color: var(--danger); }
+.entry-head { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 0.6rem; }
+.entry-head button { margin-left: auto; }
+.entry .checks { align-items: center; margin-bottom: 0; }
+.entry .checks select { width: auto; padding: 0.25rem 0.4rem; font-size: 0.78rem; }
+
+/* A one-time bearer value: the response is the artifact, so it reads as one. */
+.issued { margin-bottom: 1rem; padding: 0.8rem 0.9rem; border: 1px solid var(--accent); }
+.issued-head { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 0.5rem; }
+.issued-head .response-label { margin-bottom: 0; color: var(--accent); }
+.issued-head button { margin-left: auto; }
+.issued-value { display: block; font-size: 0.86rem; line-height: 1.6; overflow-wrap: anywhere; user-select: all; }
 
 /* Forms */
 form label { display: block; margin-bottom: 0.8rem; }

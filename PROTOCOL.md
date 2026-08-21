@@ -39,7 +39,7 @@ type Grant = {
   name: string;
   subject: string;                                   // opaque to the model
   parentId: string | null;                           // null for a root grant
-  capabilities: Capability[];                        // at least one
+  capabilities: Capability[];                        // a set; may be empty, which authorizes nothing
   expiresAt: string | null;                          // null never expires
   revokedAt: string | null;
 };
@@ -133,12 +133,13 @@ Each operation requires this authority:
 | Move a resource | `move` on the resource **and** `write` on the destination parent |
 | Delete a resource and its descendants | `delete` on the resource |
 | Delegate a child grant | The delegating grant is the grant the token references, and the child downscopes it |
+| Set a grant's capabilities | The grant is delegated from the acting token's grant, and the new set downscopes the grant's parent |
 | Issue or revoke a token | The token's grant is the acting token's grant or a grant delegated from it |
 | Revoke a grant | The grant is the acting token's own grant or one delegated from it |
 
 A move requires authority at both ends because relocation changes who reaches the resource. Without `write` on the destination, a move would place a resource inside a scope the mover does not hold.
 
-Creating a root resource, moving a resource to a root, and creating a root grant are administrative operations. No token authorizes them, because there is no resource or grant above them to derive authority from.
+Creating a root resource, moving a resource to a root, creating a root grant, and setting a root grant's capabilities are administrative operations. No token authorizes them, because there is no resource or grant above them to derive authority from.
 
 ## Capability algebra
 
@@ -187,12 +188,29 @@ Location containment is evaluated against the current tree, and it is required i
 A grant is created only when all of the following hold:
 
 1. `name` and `subject` are non-empty.
-2. `capabilities` has at least one entry, each with at least one permission and a `resourceId` naming a live resource.
+2. Every entry in `capabilities` has at least one permission and a `resourceId` naming a live resource. The set may be empty, in which case the grant authorizes nothing until its capabilities are set.
 3. If `parentId` is set, the parent grant exists and is active.
 4. If the parent has an `expiresAt`, the child has one and it is no later than the parent's.
 5. Every child capability entry is covered by at least one parent capability entry, by `covers` above.
 
 Rules 4 and 5 are the downscoping proof. A root grant, having no parent, is unconstrained by them and is therefore administrative.
+
+### Setting capabilities
+
+A grant's identity, subject, parent, and expiry are fixed at issue. Its capability set is not: `setCapabilities(state, grantId, capabilities, at)` replaces the whole set in one atomic transition.
+
+1. The grant exists and is active. A revoked or expired grant is not amended.
+2. Every entry has at least one permission and a `resourceId` naming a live resource.
+3. If the grant has a parent, every entry is covered by at least one entry of the parent grant, by `covers` above. A root grant's entries are unconstrained, so setting them is administrative.
+4. Let `orphaned` be the active grants delegated directly from this grant that hold an entry which no entry of the new set covers.
+5. Revoke each grant in `orphaned` together with everything delegated from it.
+6. Commit the new capability set, the revocations, and the audit event together.
+
+Rule 3 is the same downscoping proof as issue, applied at the moment the set changes, so an amended grant is bounded by its parent exactly as a newly issued one is. Rule 4 need only consider direct children: a deeper grant is covered against its own parent, which this operation does not change. It tests the full `covers`, so a child is orphaned by a parent narrowing a relocation policy or a permission set, not only by a parent giving up a resource.
+
+Rule 2 completes an invariant the other operations already maintain: **the entries of an active grant always name live resources.** Deletion revokes every active grant holding an entry rooted at a removed resource, and neither issue nor amendment accepts an entry naming one. An entry that no longer resolves therefore belongs only to a grant that is already revoked, which rule 1 refuses to amend.
+
+Narrowing a set takes effect on the next decision whether or not rule 5 runs, because `authorize` re-checks coverage against every grant in the lineage. Rule 5 exists so the consequence is a recorded revocation rather than a grant record that remains active while authorizing nothing.
 
 ### Activity
 
@@ -328,8 +346,8 @@ An implementation conforms when:
 2. Paths are derived from names, canonicalized as defined, and resolved by the caller before a command is issued.
 3. Permissions are compared as sets, with no implication between them.
 4. `covers` is implemented exactly as defined, including location containment in every case.
-5. A grant is created only when it satisfies every validity rule, so authority never widens through delegation.
+5. A grant is created, and its capabilities set, only when the result satisfies every validity rule, so authority never widens through delegation.
 6. `authorize` checks the complete lineage and allows only what survives every grant in it.
 7. Revocation cascades to delegated grants, and an inactive ancestor disables its descendants.
-8. Resource operations commit their resource changes, grant revocations, and audit events as one atomic transition.
+8. Resource operations and capability amendments commit their record changes, grant revocations, and audit events as one atomic transition.
 9. Deleted resources are retained as tombstones, excluded from every read, and their IDs stay permanently taken.

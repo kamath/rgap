@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type {
   AuthorityView,
+  Capability,
   CreateGrantInput,
   CreateResourceInput,
   Decision,
@@ -54,6 +55,10 @@ export class RgapClient {
 
   createGrant(input: CreateGrantInput): Promise<Grant> {
     return this.run(() => this.repository.createGrant(input));
+  }
+
+  setCapabilities(grantId: string, capabilities: Capability[]): Promise<Grant> {
+    return this.run(() => this.repository.setCapabilities(grantId, capabilities));
   }
 
   issueToken(grantId: string, label: string): Promise<IssuedToken> {

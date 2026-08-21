@@ -35,7 +35,9 @@ Renaming or moving a resource changes its position in the tree without changing 
 
 ### Grants
 
-A grant contains one or more capability entries. Each entry authorizes a set of operations over a resource or resource subtree. Multiple entries let one grant aggregate authority from several branches, such as tools exposed by different MCP servers. Grants may delegate authority to child grants.
+A grant contains a set of capability entries. Each entry authorizes a set of operations over a resource or resource subtree. Multiple entries let one grant aggregate authority from several branches, such as tools exposed by different MCP servers. Grants may delegate authority to child grants.
+
+A grant's identity, subject, parent, and expiry are fixed when it is created. Its capability set is not: entries are set afterwards, and the set may be empty, in which case the grant authorizes nothing yet. Creating a grant and deciding what it reaches are separate acts, so a delegation can be recorded before its authority is chosen.
 
 ```text
 Alice: read/write/delete projects/alpha
@@ -52,7 +54,7 @@ Delegation may only downscope authority, entry by entry, as [PROTOCOL.md](PROTOC
 - A relocation policy no more permissive than its parent allows
 - Constraints that are equal to or stricter than the covering parent entry
 
-Bob therefore cannot grant write access or grant access outside `projects/alpha/docs`.
+Bob therefore cannot grant write access or grant access outside `projects/alpha/docs`. The same proof is required whenever a grant's entries are set, not only when it is created, so an amended grant is bounded by its parent exactly as a new one is. Setting a grant's entries revokes any grant delegated from it whose own entries the new set no longer covers.
 
 Every constraint type defines how one value contains another so the issuer can prove downscoping. For example, a child channel allowlist must be a subset of its parent's allowlist, and a child result limit must be less than or equal to its parent's limit.
 
@@ -96,7 +98,7 @@ Authorization must check the selected grant and every grant in its delegation an
 
 ## Moves and renames
 
-Because grants reference stable resource IDs, renames require no authorization rewrite. Moves are governed by each grant's immutable relocation policy.
+Because grants reference stable resource IDs, renames require no authorization rewrite. Moves are governed by the relocation policy on each capability entry, which is checked against the delegating parent whenever entries are set.
 
 | Policy | Behavior when the grant root leaves its delegating scope |
 | --- | --- |
@@ -161,8 +163,9 @@ The interface is a protocol workbench. Every route states what it operates on, s
 | --- | --- |
 | `/` | Redirects to the resource explorer root. |
 | `/browse/$path` | Resource explorer for the resource at `$path`. An empty splat lists the tree roots. |
-| `/grants` | The root grants. |
-| `/grants/$grantId` | One grant: its capabilities, the grants delegated from it, and its tokens. |
+| `/grants` | Delegation explorer for the root grants. |
+| `/grants/$grantId` | Delegation explorer for the grants delegated from `$grantId`. |
+| `/grants/$grantId/inspect` | One grant in full: its lineage, capabilities, and tokens. |
 | `/authorize` | Authorization simulator. |
 | `/audit` | Audit events, newest first. |
 
@@ -194,7 +197,9 @@ Routes present their operations one of two ways. An operations pane sits beside 
 | --- | --- | --- |
 | `/browse/$path` | Create resource, Move, Delete | Drawer, one operation at a time |
 | `/grants` | Create root grant, Revoke grant | Drawer, one operation at a time |
-| `/grants/$grantId` | Delegate, Revoke grant, Issue token, Revoke token | Drawer, one operation at a time |
+| `/grants/$grantId` | Create grant, Revoke grant | Drawer, one operation at a time |
+| `/grants/$grantId/inspect` | Issue token, Revoke token | Drawer, one operation at a time |
+| `/grants/$grantId/inspect` | Set capabilities | The Capabilities pane, in place |
 | `/authorize` | Authorize | Operations pane |
 
 ### Listings and drawers
@@ -205,9 +210,9 @@ A listing is the route's main view. It shows one record's contents at a time, th
 
 Every listing row carries a checkbox, and clicking a row anywhere but its link checks it. A checkbox in the listing head checks and unchecks every row at once. A leading `..` row navigates to the parent. The selection covers only the location the listing shows: navigating clears it, because the listing is what the checkboxes describe. Reading the selection back out of the listing on every render drops whatever a committed command removed from it.
 
-An action bar in the listing head holds that listing's operations. One of them creates a record inside the record the route addresses and is always available. The rest act on the selection, name the count they would act on, as `Delete 3`, and are unavailable while nothing is checked.
+An action bar in the listing head holds that listing's operations. One of them creates a record inside the record the route addresses and is always available. The rest act on the selection, name the count they would act on, as `Delete 3`, and are unavailable while nothing is checked. An action bar may also hold a link rather than an operation, which navigates instead of opening a drawer.
 
-Each button opens its operation in a drawer, and one drawer is open at a time across the route, so asking for another operation replaces the open one. The listing stays live while a drawer is open: checking and unchecking rows retargets the operation, and the drawer's target list and request preview follow the selection. Losing the selection closes a drawer that acts on it. A drawer closes when its operation commits, from the close control in its head, and on `Escape`; a refused command leaves it open with the decision's explanation in its response so the form can be corrected.
+Each button opens its operation in a drawer, and one drawer is open at a time across the route, so asking for another operation replaces the open one. The listing stays live while a drawer is open: checking and unchecking rows retargets the operation, and the drawer's target list and request preview follow the selection. Losing the selection closes a drawer that acts on it. A drawer closes when its operation commits, from the close control in its head, and on `Escape`; a refused command leaves it open with the decision's explanation in its response so the form can be corrected. One operation is exempt: issuing a token returns a value that exists nowhere else, so its drawer stays open holding that value and only the close control or `Escape` dismisses it.
 
 An operation over several records is several commands, one per selected record, sent in listing order. The drawer reports one result per record in its response, so a selection where some commands are authorized and others are refused shows exactly which were applied.
 
@@ -233,15 +238,39 @@ Bearer values stay in transient interface memory. The active token never appears
 
 ### Grants
 
-Grants are walked the same way resources are. `/grants` lists the root grants, clicking a grant navigates into it, and a grant's page lists the grants delegated from it. The breadcrumb walks the delegation lineage as `grants / Acme admin / Drive read`, and every name navigates to that ancestor grant. The line under it states the addressed grant's stable ID, subject, expiration, status, and the number of grants delegated from it.
+Grants are explored the way resources are. `/grants` lists the root grants, `/grants/$grantId` lists the grants delegated from that grant, and clicking a grant's name navigates into it, replacing the listing with the grants delegated from it. A leading `..` row walks back out. The breadcrumb walks the delegation lineage as `grants / Acme admin / Drive read`, and every name navigates to that ancestor grant. The line under it states the addressed grant's stable ID, subject, expiration, status, and the number of grants delegated from it.
 
-A grant row carries the grant's name, subject, capability count, expiration, and status. Revoked and expired grants are marked as inactive.
+A grant row states the grant's name, subject, each capability entry as a resource path and permission set, expiration, and status. A revoked or expired grant is marked inactive, and so is every grant delegated beneath it, because an inactive ancestor disables its descendants. Status is therefore a property of a grant's lineage rather than of the grant record alone, and the listing reports it that way.
 
-A grant's page adds two panes to that listing. Capabilities is a read-only table of resource path, permissions, descendant behavior, and relocation policy, marking any capability whose resource has been deleted while still showing the path that resource held. Tokens is a second listing, with its own checkboxes and action bar, holding one row per issued token with its label, status, and hash prefix.
+The listing's action bar creates, revokes, and inspects. `Create` creates a grant inside the grant the route addresses, exactly as create makes a resource inside the addressed location in the explorer: at `/grants/$grantId` it delegates from that grant, and at `/grants` it creates a root grant, an administrative operation no token authorizes. Its form takes the name, subject, and optional expiration and nothing else. The new grant starts with no capability entries, because what a grant reaches is set from the grant itself, where the whole set is visible at once. `Revoke` revokes each checked grant together with the grants delegated from it, and its drawer lists those descendants under each target, so the extent of a revocation is stated before it runs.
 
-The delegated listing's action bar delegates and revokes. `Delegate` creates a child grant of the grant the page addresses, which is the same relationship create has to the location in the explorer; at `/grants` the equivalent button is `Create` and it creates a root grant, an administrative operation no token authorizes. The delegation form selects the name, subject, resource path, permissions, descendant behavior, relocation policy, and optional expiration; the domain rules reject any child that would expand authority and the drawer's response shows the reason. `Revoke` revokes each checked grant together with the grants delegated from it.
+`Inspect` is the one action bar entry that navigates rather than opening a drawer. It addresses the same grant the route addresses, so it is present wherever a grant is addressed and absent at `/grants`, where the route addresses no grant and a root grant is reached by navigating into it.
 
-The tokens listing's action bar issues and revokes. `Issue token` takes a label and issues a token for the grant the page addresses, and the issued bearer value becomes the active token immediately. `Revoke token` revokes each checked token, which disables that credential and leaves the grant intact.
+### Inspecting a grant
+
+`/grants/$grantId/inspect` is one grant in full. Browsing a delegation branch and reading a grant's authority are different tasks, so they are different routes: the listing stays a listing, and everything a grant is sits behind one link from it. The breadcrumb walks back out to the grant's own listing and on up its lineage.
+
+Lineage is a read-only table of the delegation chain from the root grant down to the addressed grant, one row per capability entry, grouped under the grant that holds it. Reading down the table is reading the downscoping: resource roots descend, permission sets shrink, expirations move earlier, and relocation policy grows stricter. It is the view that answers whether a grant's authority survives everything above it.
+
+Capabilities is the addressed grant's own entries: resource path, permissions, descendant behavior, and relocation policy. An entry whose resource has been deleted is marked deleted and still shows the path that resource held; an entry whose resource record is absent altogether has no path to show, so it is marked unresolved and shown by its stable ID. A state that retains its records as the model requires never contains the latter, and the view reports rather than fails when it does.
+
+Its action bar holds `Set capabilities`, the one operation that changes what a grant reaches. Setting replaces the whole set in one command, so the operation opens seeded with the entries the grant holds now and executes the set it is left in.
+
+This is the one operation that does not open in a drawer. A drawer exists so a form can sit beside content that stays useful while it is open, and here that content is the very table the form edits. So the pane becomes the form in place: the entries stay where they were, gain their controls, and the pane grows an execute button and a response. Until `Set capabilities` is pressed the pane is a reading pane, so the route still shows no form until one is asked for.
+
+### Choosing resources
+
+An entry names a resource, so the editor picks resources the way the explorer browses them.
+
+A resource picker heads the form. A breadcrumb states the location it is showing and walks back out of it, and under that is one row per live child of that location. A row's name navigates into it, replacing the rows with that resource's children; a checkbox on the row selects the resource itself. Navigation and selection are independent: navigating neither selects nor clears anything, and the selection persists as the picker moves around the tree. A filter field above the rows matches against whole paths across the entire tree rather than the current location, so a deep resource is reachable without walking to it.
+
+Selecting a resource adds an entry rooted at it; clearing the checkbox removes that entry. A selected resource's entry defaults to `include`, covering the whole subtree, when the resource has live children, and to `root only` when it has none. Selecting a path therefore means everything under it, which is what a path stands for when a person points at one.
+
+Under the picker is one row per selected entry, in selection order, stating the entry's resource path and carrying its own controls: the descendant toggle, a permission checkbox set, and a relocation policy. Permissions default to none, and the form marks an entry that has none, because an entry with no permission is not a valid entry.
+
+For a child grant the picker lists only resources that some entry of the parent grant reaches, and each selected entry offers only the permissions and relocation policies its covering parent entries allow, taken as the union across every parent entry that reaches it. The form therefore cannot express a set the rules would reject. The domain check stays authoritative; the form only narrows what can be asked for. A root grant is bounded by nothing, so its picker spans the whole tree and offers every permission.
+
+Tokens is a listing with its own checkboxes and action bar, holding one row per issued token with its label, status, and hash prefix. Its action bar issues and revokes. `Issue token` takes a label and issues a token for the grant the route addresses. Only a hash of that token is stored, so the bearer value the command returns is the only copy there will ever be: the drawer stays open after it commits, states the value on a line of its own, and offers a control that copies it. The value also becomes the active token immediately, so the header carries it until it is replaced or cleared, and the drawer says plainly that dismissing it is the last chance to read the value. `Revoke token` revokes each checked token, which disables that credential and leaves the grant intact.
 
 ### Authorization and audit
 
@@ -273,7 +302,7 @@ Every method of that contract addresses resources by stable ID. A resource path 
 
 `@rgap/react` provides an `RgapClient` that owns a cached snapshot, a client-local subscription, and the repository used to load and mutate state. It also provides a client context plus hooks for the current snapshot, repository commands, and token-derived authority. After a command completes, the client reloads the repository state and notifies its local subscribers. React components therefore retain reactive snapshots without requiring the repository or a remote backend to implement SSE, WebSockets, or another push protocol. The Vite application owns only its example seed, interface components, and styles.
 
-The store contains resources, grants, token records, and audit events in normalized collections. Repository snapshots contain only this serializable application data; Zustand actions and other functions remain private to the adapter and never cross into domain operations. Each command computes and commits its complete state change atomically. Local persistence, when enabled, serializes the same application-state schema to browser storage. Raw bearer-token values exist only in transient UI memory; persisted token records contain only token hashes.
+The store contains resources, grants, token records, and audit events in normalized collections. Repository snapshots contain only this serializable application data; Zustand actions and other functions remain private to the adapter and never cross into domain operations. Each command computes and commits its complete state change atomically. Local persistence, when enabled, serializes the same application-state schema to browser storage. Stored state is loaded only when every ID it refers to resolves to a record; state that refers to resources, grants, or tokens it does not contain cannot be read at all, so it is discarded for the example seed rather than loaded into records that name things that are gone. Raw bearer-token values exist only in transient UI memory; persisted token records contain only token hashes.
 
 The repository contract uses asynchronous methods and JSON-compatible inputs and outputs even though the browser implementation is local. An HTTP-backed repository implements ordinary request-response operations, including a state read, and can replace `BrowserRgapRepository` without changing pages, components, or domain types. Live updates from changes made by other clients are optional client behavior. A client may refresh on demand, on window focus, or on an interval, and may add a streaming transport when an application specifically needs one. Backend-specific concerns such as transport, durable storage, concurrent transactions, authentication, and secret management remain outside the browser implementation.
 
@@ -301,4 +330,4 @@ Grant tree    = where authority comes from
 Token         = credential used to exercise a grant
 ```
 
-Stable identities make renames and moves manageable. Immutable, downscoped grants make delegated authority understandable. Hierarchical revocation allows an entire delegation branch to be disabled without updating every descendant individually.
+Stable identities make renames and moves manageable. Strictly downscoped grants, proved at issue and again whenever entries are set, make delegated authority understandable. Hierarchical revocation allows an entire delegation branch to be disabled without updating every descendant individually.

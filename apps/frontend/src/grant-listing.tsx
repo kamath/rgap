@@ -1,14 +1,14 @@
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
-import type { Grant, Token } from '@rgap/core';
+import type { Capability, Grant, State, Token } from '@rgap/core';
 import type { GrantOperation } from './grant-ops';
 import { Action, Actions, Check, Pane, type useSelection } from './panes';
-import { grantStatus, isActive } from './tree';
+import { capabilityLabel, capabilityTarget, grantStatus, isActive, lineageStatus } from './tree';
 
 type Selection<T extends { id: string }> = ReturnType<typeof useSelection<T>>;
 
 /** The delegation lineage, walked the way the resource breadcrumb walks a path. */
-export function GrantBreadcrumb({ lineage }: { lineage: Grant[] }) {
+export function GrantBreadcrumb({ lineage, trailing }: { lineage: Grant[]; trailing?: string }) {
   return (
     <p className="breadcrumb">
       <Link to="/grants">grants</Link>
@@ -20,17 +20,59 @@ export function GrantBreadcrumb({ lineage }: { lineage: Grant[] }) {
           </Link>
         </span>
       ))}
+      {trailing ? (
+        <span>
+          <span className="dim"> / </span>
+          {trailing}
+        </span>
+      ) : null}
     </p>
   );
 }
 
-/** The grants delegated from the addressed grant, or the root grants at the grant list. */
+/** What a capability entry reaches. A resource that is gone still shows the path it held. */
+export function CapabilityResource({
+  resources,
+  capability,
+}: {
+  resources: State['resources'];
+  capability: Capability;
+}) {
+  const target = capabilityTarget(resources, capability);
+
+  if (target.state === 'live') {
+    return (
+      <Link to="/browse/$" params={{ _splat: target.path }}>
+        {target.path || 'root'}
+      </Link>
+    );
+  }
+  if (target.state === 'deleted') {
+    return (
+      <>
+        <code>{target.path || 'root'}</code> <code className="denied">deleted</code>
+      </>
+    );
+  }
+  return (
+    <>
+      <code>{capability.resourceId}</code> <code className="denied">unresolved</code>
+    </>
+  );
+}
+
+/**
+ * The grants delegated from the addressed grant, or the root grants at the grant list. It lists one
+ * record's contents the way the resource explorer does; a grant in full is one link away.
+ */
 export function GrantListing({
   label,
   meta,
-  createLabel,
   listing,
+  grants,
+  resources,
   selection,
+  inspect,
   open,
   onOpen,
   up,
@@ -38,9 +80,12 @@ export function GrantListing({
 }: {
   label: string;
   meta: string;
-  createLabel: 'Create' | 'Delegate';
   listing: Grant[];
+  grants: State['grants'];
+  resources: State['resources'];
   selection: Selection<Grant>;
+  /** The addressed grant, which `Inspect` navigates to. The grant list addresses none. */
+  inspect: string | null;
   open: GrantOperation | null;
   onOpen: (operation: GrantOperation) => void;
   up?: ReactNode;
@@ -54,7 +99,7 @@ export function GrantListing({
         <>
           <span className="pane-label">{label}</span>
           <Actions>
-            <Action label={createLabel} open={open === 'Delegate'} onClick={() => onOpen('Delegate')} />
+            <Action label="Create" open={open === 'Create'} onClick={() => onOpen('Create')} />
             <Action
               label="Revoke"
               count={targets.length}
@@ -62,6 +107,11 @@ export function GrantListing({
               disabled={!targets.length}
               onClick={() => onOpen('Revoke')}
             />
+            {inspect ? (
+              <Link to="/grants/$grantId/inspect" params={{ grantId: inspect }} className="action">
+                Inspect
+              </Link>
+            ) : null}
           </Actions>
         </>
       }
@@ -92,43 +142,139 @@ export function GrantListing({
               <td colSpan={5}>{up}</td>
             </tr>
           ) : null}
-          {listing.map((grant) => (
-            <tr
-              key={grant.id}
-              className={selection.isChecked(grant.id) ? 'selected' : undefined}
-              onClick={() => selection.toggle(grant.id)}
-            >
-              <td className="check-cell">
-                <Check
-                  label={`Select ${grant.name}`}
-                  checked={selection.isChecked(grant.id)}
-                  onChange={() => selection.toggle(grant.id)}
-                />
-              </td>
-              <td>
-                <Link
-                  to="/grants/$grantId"
-                  params={{ grantId: grant.id }}
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  {grant.name}
-                </Link>
-              </td>
-              <td>{grant.subject}</td>
-              <td>
-                <code>{grant.capabilities.length}</code>
-              </td>
-              <td>
-                <code>{grant.expiresAt ?? 'never'}</code>
-              </td>
-              <td className={grantStatus(grant) === 'active' ? 'allowed' : 'denied'}>
-                <code>{grantStatus(grant)}</code>
-              </td>
-            </tr>
-          ))}
+          {listing.map((grant) => {
+            const status = lineageStatus(grants, grant.id);
+
+            return (
+              <tr
+                key={grant.id}
+                className={selection.isChecked(grant.id) ? 'selected' : undefined}
+                onClick={() => selection.toggle(grant.id)}
+              >
+                <td className="check-cell">
+                  <Check
+                    label={`Select ${grant.name}`}
+                    checked={selection.isChecked(grant.id)}
+                    onChange={() => selection.toggle(grant.id)}
+                  />
+                </td>
+                <td>
+                  <Link
+                    to="/grants/$grantId"
+                    params={{ grantId: grant.id }}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {grant.name}
+                  </Link>
+                </td>
+                <td>{grant.subject}</td>
+                <td>
+                  <div className="entries">
+                    {grant.capabilities.map((capability, index) => (
+                      <code key={`${capability.resourceId}-${index}`}>{capabilityLabel(resources, capability)}</code>
+                    ))}
+                  </div>
+                </td>
+                <td>
+                  <code>{grant.expiresAt ?? 'never'}</code>
+                </td>
+                <td className={status === 'active' ? 'allowed' : 'denied'}>
+                  <code>{status}</code>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
       {listing.length ? null : <p className="empty">{empty}</p>}
+    </Pane>
+  );
+}
+
+/**
+ * The delegation chain above a grant, root first, one row per capability entry. Reading down the
+ * table is reading the downscoping, which is the only way to see whether authority survives it.
+ */
+export function LineagePane({ lineage, resources }: { lineage: Grant[]; resources: State['resources'] }) {
+  const addressed = lineage[lineage.length - 1];
+
+  return (
+    <Pane label="Lineage" meta={`${lineage.length} deep, root first`}>
+      <table>
+        <thead>
+          <tr>
+            <th>Grant</th>
+            <th>Subject</th>
+            <th>Resource</th>
+            <th>Permissions</th>
+            <th>Descendants</th>
+            <th>Relocation</th>
+            <th>Expires</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lineage.flatMap((grant) => {
+            const span = Math.max(grant.capabilities.length, 1);
+            const status = grantStatus(grant);
+            const facts = (
+              <>
+                <td rowSpan={span}>
+                  {grant.id === addressed?.id ? (
+                    grant.name
+                  ) : (
+                    <Link to="/grants/$grantId" params={{ grantId: grant.id }}>
+                      {grant.name}
+                    </Link>
+                  )}
+                </td>
+                <td rowSpan={span}>{grant.subject}</td>
+              </>
+            );
+            const trailing = (
+              <>
+                <td rowSpan={span}>
+                  <code>{grant.expiresAt ?? 'never'}</code>
+                </td>
+                <td rowSpan={span} className={status === 'active' ? 'allowed' : 'denied'}>
+                  <code>{status}</code>
+                </td>
+              </>
+            );
+
+            if (!grant.capabilities.length) {
+              return [
+                <tr key={grant.id}>
+                  {facts}
+                  <td colSpan={4} className="dim">
+                    no capability entries
+                  </td>
+                  {trailing}
+                </tr>,
+              ];
+            }
+
+            return grant.capabilities.map((capability, index) => (
+              <tr key={`${grant.id}-${capability.resourceId}-${index}`}>
+                {index === 0 ? facts : null}
+                <td>
+                  <CapabilityResource resources={resources} capability={capability} />
+                </td>
+                <td>
+                  <code>{capability.permissions.join(' ')}</code>
+                </td>
+                <td>
+                  <code>{capability.descendants ? 'include' : 'root only'}</code>
+                </td>
+                <td>
+                  <code>{capability.relocation}</code>
+                </td>
+                {index === 0 ? trailing : null}
+              </tr>
+            ));
+          })}
+        </tbody>
+      </table>
     </Pane>
   );
 }

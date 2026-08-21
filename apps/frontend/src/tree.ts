@@ -1,4 +1,14 @@
-import { isLive, resourceIdAtPath, resourcePath, type AuthorityView, type Grant, type Resource, type State } from '@rgap/core';
+import {
+  isLive,
+  resourceIdAtPath,
+  resourcePath,
+  tryResourcePath,
+  type AuthorityView,
+  type Capability,
+  type Grant,
+  type Resource,
+  type State,
+} from '@rgap/core';
 
 export const segments = (path: string) => path.split('/').map((part) => part.trim()).filter(Boolean);
 export const canonical = (path: string) => segments(path).join('/');
@@ -33,6 +43,38 @@ export const isActive = (record: { expiresAt: string | null; revokedAt: string |
 
 export const grantStatus = (grant: Grant) =>
   grant.revokedAt ? 'revoked' : isActive(grant) ? 'active' : 'expired';
+
+/**
+ * A grant's status within its lineage. An inactive ancestor disables everything beneath it, so a
+ * grant that is itself neither revoked nor expired is still inactive when an ancestor is.
+ */
+export function lineageStatus(grants: State['grants'], grantId: string) {
+  const chain = grantLineage(grants, grantId);
+  const grant = grants[grantId];
+  const own = grant ? grantStatus(grant) : 'missing';
+  if (own !== 'active') return own;
+  return chain.slice(0, -1).every((ancestor) => grantStatus(ancestor) === 'active') ? 'active' : 'inactive ancestor';
+}
+
+/** What a capability entry points at, which is readable even once the resource is gone. */
+export function capabilityTarget(resources: State['resources'], capability: Capability) {
+  const resource = resources[capability.resourceId];
+  const path = tryResourcePath(resources, capability.resourceId);
+  if (!resource || path === null) return { path: null, state: 'missing' as const };
+  return { path, state: isLive(resource) ? ('live' as const) : ('deleted' as const) };
+}
+
+/** A capability entry as one readable value: what it reaches, and what it may do there. */
+export function capabilityLabel(resources: State['resources'], capability: Capability) {
+  const target = capabilityTarget(resources, capability);
+  const reach = target.path === null ? capability.resourceId : target.path || 'root';
+  return `${reach}${capability.descendants ? '/…' : ''} ${capability.permissions.join('+')}`;
+}
+
+/** Every grant delegated from one grant, which is the extent revoking it would disable. */
+export function grantDescendants(grants: State['grants'], grantId: string): Grant[] {
+  return childGrants(grants, grantId).flatMap((child) => [child, ...grantDescendants(grants, child.id)]);
+}
 
 /** The grants delegated directly from one grant, or the root grants when no grant is given. */
 export function childGrants(grants: State['grants'], parentId: string | null): Grant[] {
