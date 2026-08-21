@@ -1,0 +1,8 @@
+node_modules/
+.DS_Store
+apps/web/.data/
+apps/web/.output/
+apps/web/dist/
+packages/rgap/dist/
+coverage/
+*.tsbuildinfo

@@ -1,0 +1,14 @@
+{
+  "name": "rgap",
+  "private": true,
+  "packageManager": "pnpm@11.10.0",
+  "scripts": {
+    "dev": "pnpm --filter @rgap/core build && pnpm --filter @rgap/web dev",
+    "build": "pnpm --filter @rgap/core build && pnpm --filter @rgap/web build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "pnpm --filter @rgap/web db:generate",
+    "db:migrate": "pnpm --filter @rgap/web db:migrate",
+    "db:studio": "pnpm --filter @rgap/web db:studio"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/rgap" },
+    { "path": "./apps/web" }
+  ]
+}

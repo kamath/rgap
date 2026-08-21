@@ -1,0 +1,41 @@
+{
+  "name": "@rgap/web",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#/*": "./src/*"
+  },
+  "scripts": {
+    "dev": "vite dev --port 3000",
+    "generate-routes": "tsr generate",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit --pretty false",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate-cli.ts",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.3.10",
+    "@rgap/core": "workspace:*",
+    "@tanstack/react-router": "latest",
+    "@tanstack/react-start": "latest",
+    "drizzle-orm": "^0.44.5",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@tanstack/router-cli": "^1.132.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "drizzle-kit": "^0.31.4",
+    "tsx": "^4.20.5",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.0",
+    "vitest": "^3.2.4"
+  }
+}
