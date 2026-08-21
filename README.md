@@ -308,6 +308,16 @@ The repository contract uses asynchronous methods and JSON-compatible inputs and
 
 The reference application does not expose a JSON API and is not a production authorization service. Browser state is appropriate for demonstrating the model, not for enforcing access between mutually untrusted parties.
 
+## Testing
+
+`@rgap/core` carries the RGAP rules, so its test suite covers all of it. The package measures coverage with Vitest's v8 provider and sets statement, branch, function, and line thresholds to 100 percent over `src`. `pnpm test` in the package runs the suite with coverage, so the threshold is a gate rather than a report, and the repository-wide `pnpm test` enforces it too. Coverage below the threshold fails the run.
+
+The package is self-covering: everything the threshold measures is exercised by tests inside `@rgap/core`, so the gate never depends on a downstream package's suite. `domain.test.ts` covers the pure rules, and `guard.test.ts` covers the enforced path by wrapping a stub repository that records the calls the guard forwards. The stub answers the guard's reads from a fixture state and returns a recorded result for each command, which isolates the guard's own decisions from any repository implementation.
+
+Reaching every path means the suite asserts each rejection, not only each success: an invalid name, a duplicate ID or path, a missing parent, an expiration or capability that expands past a parent, a move or delete a policy denies, and an amendment to a grant that is not active. It also asserts the structural guards. A cycle in the resource tree, a cycle in the grant tree, and a reference to a grant that does not exist are unreachable from the commands, because the commands maintain those properties; tests reach them by constructing such a state directly and calling the readers, which is what those guards exist to catch.
+
+`fixture.ts` holds the shared fixture state and the stub repository. It is test support rather than package surface, so the package entry point does not export it and coverage measurement excludes it along with the test files themselves.
+
 ## Example grant
 
 ```yaml

@@ -7,9 +7,10 @@
   "types": "./src/index.ts",
   "scripts": {
     "build": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --coverage"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.11",
     "typescript": "latest",
     "vitest": "latest"
   }
