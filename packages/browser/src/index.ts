@@ -39,55 +39,56 @@ export class BrowserRgapRepository implements RgapRepository {
     this.store = createStore(creator);
   }
 
-  getSnapshot = (): State => this.store.getState();
-  subscribe = (listener: () => void) => this.store.subscribe(listener);
+  async readState(): Promise<State> {
+    return structuredClone(this.currentState());
+  }
 
   async createResource(input: CreateResourceAtPathInput) {
-    const result = createResourceAtPath(this.getSnapshot(), input, now());
+    const result = createResourceAtPath(this.currentState(), input, now());
     this.commit(result.state);
-    return this.getSnapshot().resources[result.id];
+    return this.currentState().resources[result.id];
   }
 
   async moveResource(id: string, parentPath: string) {
     const path = normalizePath(parentPath);
-    const parentId = path ? findByPath(this.getSnapshot().resources, path) : null;
+    const parentId = path ? findByPath(this.currentState().resources, path) : null;
     if (path && !parentId) throw new Error('Destination path does not exist.');
-    this.commit(move(this.getSnapshot(), id, parentId, now()));
-    return this.getSnapshot().resources[id];
+    this.commit(move(this.currentState(), id, parentId, now()));
+    return this.currentState().resources[id];
   }
 
   async deleteResource(id: string) {
-    this.commit(removeResource(this.getSnapshot(), id, now()));
+    this.commit(removeResource(this.currentState(), id, now()));
   }
 
   async createGrant(input: CreateGrantInput) {
     const id = crypto.randomUUID();
-    this.commit(addGrant(this.getSnapshot(), input, id, now()));
-    return this.getSnapshot().grants[id];
+    this.commit(addGrant(this.currentState(), input, id, now()));
+    return this.currentState().grants[id];
   }
 
   async issueToken(grantId: string, label: string) {
     const value = `rgap_${crypto.randomUUID().replaceAll('-', '')}`;
     const record: Token = {
       id: crypto.randomUUID(), grantId, label: label.trim() || 'unnamed token',
-      hash: await hash(value), expiresAt: this.getSnapshot().grants[grantId]?.expiresAt ?? null, revokedAt: null,
+      hash: await hash(value), expiresAt: this.currentState().grants[grantId]?.expiresAt ?? null, revokedAt: null,
     };
-    this.commit(recordToken(this.getSnapshot(), record, now()));
+    this.commit(recordToken(this.currentState(), record, now()));
     return { record, value };
   }
 
   async revokeToken(id: string) {
-    this.commit(revokeTokenRecord(this.getSnapshot(), id, now()));
+    this.commit(revokeTokenRecord(this.currentState(), id, now()));
   }
 
   async revokeGrant(id: string) {
-    this.commit(revokeGrantBranch(this.getSnapshot(), id, now()));
+    this.commit(revokeGrantBranch(this.currentState(), id, now()));
   }
 
   async authorize(token: string, resourceId: string, permission: Permission) {
     const at = now();
-    const decision = decide(this.getSnapshot(), await hash(token), resourceId, permission, at);
-    const state = structuredClone(this.getSnapshot());
+    const decision = decide(this.currentState(), await hash(token), resourceId, permission, at);
+    const state = structuredClone(this.currentState());
     state.audit.unshift({
       id: crypto.randomUUID(), at, action: 'authorize', target: resourceId,
       result: decision.allowed ? 'allowed' : 'denied', detail: decision.detail,
@@ -97,7 +98,7 @@ export class BrowserRgapRepository implements RgapRepository {
   }
 
   async inspectToken(token: string) {
-    return inspectAuthority(this.getSnapshot(), await hash(token), now());
+    return inspectAuthority(this.currentState(), await hash(token), now());
   }
 
   async reset() {
@@ -106,6 +107,10 @@ export class BrowserRgapRepository implements RgapRepository {
 
   private commit(state: State) {
     this.store.setState(state, true);
+  }
+
+  private currentState() {
+    return this.store.getState();
   }
 }
 

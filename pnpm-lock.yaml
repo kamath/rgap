@@ -82,6 +82,9 @@ importers:
       typescript:
         specifier: latest
         version: 7.0.2
+      vitest:
+        specifier: latest
+        version: 4.1.11(vite@8.2.2)
 
 packages:
 

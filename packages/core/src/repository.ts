@@ -13,8 +13,7 @@ import type {
 export type IssuedToken = { record: Token; value: string };
 
 export interface RgapRepository {
-  getSnapshot(): State;
-  subscribe(listener: () => void): () => void;
+  readState(): Promise<State>;
   createResource(input: CreateResourceAtPathInput): Promise<Resource>;
   moveResource(id: string, parentPath: string): Promise<Resource>;
   deleteResource(id: string): Promise<void>;

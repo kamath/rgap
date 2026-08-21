@@ -33,8 +33,9 @@ describe('BrowserRgapRepository', () => {
       movePolicy: 'deny_while_granted', deletePolicy: 'deny_while_granted',
     });
 
-    expect(repo.getSnapshot().resources[resource.id]).toEqual(resource);
-    expect(Object.values(repo.getSnapshot()).some((value) => typeof value === 'function')).toBe(false);
+    const state = await repo.readState();
+    expect(state.resources[resource.id]).toEqual(resource);
+    expect(Object.values(state).some((value) => typeof value === 'function')).toBe(false);
   });
 
   it('moves a resource from a new root path into Acme with a canonical path', async () => {

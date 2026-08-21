@@ -151,22 +151,22 @@ React interface
       ↓
 @rgap/react hooks
       ↓
+RgapClient observable cache
+      ↓
 RgapRepository in @rgap/core
       ↓
-BrowserRgapRepository in @rgap/browser
-      ↓
-Zustand browser store + localStorage
+Browser storage or an HTTP API
 ```
 
-`@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, and asynchronous `RgapRepository` contract. It has no dependency on React, Zustand, browser storage, or a transport.
+`@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, and asynchronous `RgapRepository` contract. The repository is a request-response boundary: it reads the current state and exposes asynchronous query and command methods. It does not expose a subscription and does not require a streaming transport. The package has no dependency on React, Zustand, browser storage, or a transport.
 
-`@rgap/browser` implements `RgapRepository` over a vanilla Zustand store and local storage. It accepts initial state from its caller, so the package has no dependency on the reference application's example data.
+`@rgap/browser` implements `RgapRepository` over local storage. It accepts initial state from its caller, so the package has no dependency on the reference application's example data.
 
-`@rgap/react` provides a repository context plus hooks for the current snapshot, repository commands, and token-derived authority. React components use these hooks and do not access Zustand directly. The Vite application owns only its example seed, interface components, and styles.
+`@rgap/react` provides an `RgapClient` that owns a cached snapshot, a client-local subscription, and the repository used to load and mutate state. It also provides a client context plus hooks for the current snapshot, repository commands, and token-derived authority. After a command completes, the client reloads the repository state and notifies its local subscribers. React components therefore retain reactive snapshots without requiring the repository or a remote backend to implement SSE, WebSockets, or another push protocol. The Vite application owns only its example seed, interface components, and styles.
 
 The store contains resources, grants, token records, and audit events in normalized collections. Repository snapshots contain only this serializable application data; Zustand actions and other functions remain private to the adapter and never cross into domain operations. Each command computes and commits its complete state change atomically. Local persistence, when enabled, serializes the same application-state schema to browser storage. Raw bearer-token values exist only in transient UI memory; persisted token records contain only token hashes.
 
-The repository contract uses asynchronous methods and JSON-compatible inputs and outputs even though the browser implementation is local. A future HTTP-backed repository can therefore replace `BrowserRgapRepository` at the application boundary without changing pages, components, or domain types. Backend-specific concerns such as transport, durable storage, concurrent transactions, authentication, and secret management remain outside the browser implementation.
+The repository contract uses asynchronous methods and JSON-compatible inputs and outputs even though the browser implementation is local. An HTTP-backed repository implements ordinary request-response operations, including a state read, and can replace `BrowserRgapRepository` without changing pages, components, or domain types. Live updates from changes made by other clients are optional client behavior. A client may refresh on demand, on window focus, or on an interval, and may add a streaming transport when an application specifically needs one. Backend-specific concerns such as transport, durable storage, concurrent transactions, authentication, and secret management remain outside the browser implementation.
 
 The reference application does not expose a JSON API and is not a production authorization service. Browser state is appropriate for demonstrating the model, not for enforcing access between mutually untrusted parties.
 
