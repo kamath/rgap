@@ -300,7 +300,10 @@ describe('invocation orchestration', () => {
 
     state.executableRevisions[revisionId].inputSchema = true;
     state.executableRevisions[revisionId].outputSchema = true;
-    const validate = vi.fn(() => ({ valid: true as const }));
+    const validate = vi.fn((
+      _schema: Parameters<JsonSchemaValidator['validate']>[0],
+      _value: unknown,
+    ) => ({ valid: true as const }));
     await collect(invokeExecutable(services(state, {
       validate() {},
       async *invoke() {
