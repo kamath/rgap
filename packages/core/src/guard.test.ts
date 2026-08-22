@@ -32,6 +32,9 @@ function state(): State {
   base.tokens.sub = {
     id: tokenId('sub'), grantId: g('researcher'), label: 'sub', hash: tokenHash('sub-token-hash'), expiresAt: null, revokedAt: null,
   };
+  base.tokens.other = {
+    id: tokenId('other'), grantId: g('other'), label: 'other', hash: tokenHash('other-token-hash'), expiresAt: null, revokedAt: null,
+  };
   return base;
 }
 
@@ -46,14 +49,48 @@ describe('command guard', () => {
 
     expect((await guard.resources.list()).records.map(({ id }) => id))
       .toEqual(['acme', 'drive', 'read-file', 'search-files']);
+    expect((await guard.resources.list({ limit: 4 })).cursor).toBe('search-files');
     expect((await guard.grants.list()).records.map(({ id }) => id)).toEqual(['coordinator', 'researcher']);
+    expect((await guard.grants.list({ limit: 2 })).cursor).toBe(null);
     expect((await guard.tokens.list()).records.map(({ id }) => id)).toEqual(['demo', 'sub']);
     expect((await guard.audit.list()).records).toEqual([]);
     await expect(guard.resources.get(r('slack'))).rejects.toThrow('outside this token');
     await expect(guard.grants.get(g('other'))).rejects.toThrow('outside this token');
+    await expect(guard.tokens.get(tokenId('other'))).rejects.toThrow('outside this token');
     expect((await guard.authorize(bearer, r('search-files'), 'invoke')).allowed).toBe(true);
     expect((await guard.inspectToken(bearer)).grantId).toBe('coordinator');
     expect(calls).toEqual([]);
+  });
+
+  it('filters and paginates audit events by visible target type', async () => {
+    const initial = state();
+    initial.audit = [
+      { id: 'resource-visible', at, action: 'resource.move', target: r('search-files'), result: 'recorded', detail: '' },
+      { id: 'resource-hidden', at, action: 'authorize', target: r('slack'), result: 'denied', detail: '' },
+      { id: 'grant-visible', at, action: 'grant.revoke', target: g('researcher'), result: 'recorded', detail: '' },
+      { id: 'grant-hidden', at, action: 'grant.revoke', target: g('other'), result: 'recorded', detail: '' },
+      { id: 'token-visible', at, action: 'token.revoke', target: tokenId('demo'), result: 'recorded', detail: '' },
+      { id: 'unknown-action', at, action: 'other', target: r('drive'), result: 'recorded', detail: '' },
+    ];
+    const { commands } = stubCommands(initial, at);
+    const guard = guardCommands(repositoryFrom(commands), bearer);
+
+    expect((await guard.audit.list()).records.map(({ id }) => id))
+      .toEqual(['resource-visible', 'grant-visible', 'token-visible']);
+
+    initial.audit = Array.from({ length: 100 }, (_, index) => ({
+      id: `hidden-${index}`,
+      at,
+      action: 'other',
+      target: r('slack'),
+      result: 'recorded' as const,
+      detail: '',
+    }));
+    initial.audit.push({
+      id: 'visible-after-cursor', at, action: 'resource.move',
+      target: r('drive'), result: 'recorded', detail: '',
+    });
+    expect((await guard.audit.list({ limit: 1 })).records[0].id).toBe('visible-after-cursor');
   });
 
   it('refuses every command to a token it cannot resolve to a grant', async () => {
@@ -132,7 +169,7 @@ describe('command guard', () => {
     expect([...(await researcher.capabilities.set([])).capabilities]).toEqual([]);
     expect(calls).toEqual([{ method: 'setCapabilities', args: [g('researcher'), []] }]);
 
-    await expect(guard.grants.get(g('ghost'))).rejects.toThrow('Grant does not exist.');
+    await expect(guard.grants.get(g('ghost'))).rejects.toThrow('outside this token');
     await expect(guard.grants.get(g('other'))).rejects.toThrow('outside this token');
   });
 
@@ -141,6 +178,8 @@ describe('command guard', () => {
 
     await expect((await guard.grants.get(g('researcher'))).capabilities.set([]))
       .rejects.toThrow('A token may not set the capabilities of its own grant.');
+    await expect((await guard.grants.get(g('coordinator'))).tokens.create({ label: 'parent' }))
+      .rejects.toThrow('neither this token\'s grant nor delegated from it');
     expect(calls).toEqual([]);
   });
 
@@ -155,7 +194,7 @@ describe('command guard', () => {
     ]);
 
     await expect(guard.grants.get(g('other'))).rejects.toThrow('outside this token');
-    await expect(guard.tokens.get(tokenId('ghost'))).rejects.toThrow('Token does not exist.');
+    await expect(guard.tokens.get(tokenId('ghost'))).rejects.toThrow('outside this token');
   });
 
   it('revokes a grant within its own branch, including its own grant', async () => {
@@ -165,7 +204,6 @@ describe('command guard', () => {
     await (await guard.grants.get(g('researcher'))).revoke();
     expect(calls.map((call) => call.args[0])).toEqual([g('coordinator'), g('researcher')]);
 
-    // A grant that resolves to no record is refused at lookup rather than walking a missing lineage.
-    await expect(guard.grants.get(g('ghost'))).rejects.toThrow('Grant does not exist.');
+    await expect(guard.grants.get(g('ghost'))).rejects.toThrow('outside this token');
   });
 });

@@ -1,11 +1,30 @@
 import { describe, expect, it } from 'vitest';
 import { grantId, resourceId, tokenId, tokenValue } from './domain';
 import { fixture, stubCommands } from './fixture';
-import { repositoryFrom } from './repository';
+import { pageLimit, paginateRecords, repositoryFrom } from './repository';
 
 const at = '2026-08-22T00:00:00.000Z';
 
 describe('repositoryFrom', () => {
+  it('bounds page sizes and advances stable cursors', () => {
+    const records = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+
+    expect(pageLimit()).toBe(50);
+    expect(pageLimit(Number.NaN)).toBe(50);
+    expect(pageLimit(0)).toBe(1);
+    expect(pageLimit(1000)).toBe(100);
+    expect(pageLimit(2.9)).toBe(2);
+    expect(paginateRecords(records, { limit: 2 })).toEqual({
+      records: [{ id: 'a' }, { id: 'b' }],
+      cursor: 'b',
+    });
+    expect(paginateRecords(records, { cursor: 'b', limit: 2 })).toEqual({
+      records: [{ id: 'c' }],
+      cursor: null,
+    });
+    expect(() => paginateRecords(records, { cursor: 'missing' })).toThrow('cursor is unknown');
+  });
+
   it('creates roots on the repository collections and children on the parent handle', async () => {
     const { commands, calls } = stubCommands(fixture(), at);
     const repository = repositoryFrom(commands);

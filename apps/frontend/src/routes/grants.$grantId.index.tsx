@@ -4,9 +4,9 @@ import type { Grant } from '@rgap/core';
 import {
   useGrant,
   useGrantLineage,
-  useGrantList,
+  useAllGrants,
+  useAllResources,
   useGrantRecords,
-  useResourceList,
   useResourceRecords,
 } from '@rgap/react';
 import { GrantBreadcrumb, GrantListing } from '../grant-listing';
@@ -35,11 +35,11 @@ function GrantDetail() {
 function GrantView({ grant }: { grant: Grant }) {
   const grants = useGrantRecords();
   const resources = useResourceRecords();
-  useResourceList({ limit: 100 });
+  useAllResources();
   const { token } = useShell();
   const visible = Boolean(token.trim());
   const lineage = useGrantLineage(grant.id);
-  const { records: listing } = useGrantList({ parentId: grant.id, limit: 100 });
+  const { records: listing } = useAllGrants({ parentId: grant.id });
   const selection = useSelection(`grants:${grant.id}`, listing);
   const [operation, setOperation] = useState<GrantOperation | null>(null);
   // Delegating acts on the addressed grant; revoking has nothing to act on without a selection.

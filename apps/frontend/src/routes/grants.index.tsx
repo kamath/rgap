@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useGrantList, useGrantRecords, useResourceList, useResourceRecords } from '@rgap/react';
+import { useAllGrants, useAllResources, useGrantRecords, useResourceRecords } from '@rgap/react';
 import { GrantBreadcrumb, GrantListing } from '../grant-listing';
 import { CreateGrantDrawer, RevokeGrantsDrawer, type GrantOperation } from '../grant-ops';
 import { PageTitle, useSelection } from '../panes';
@@ -11,8 +11,8 @@ export const Route = createFileRoute('/grants/')({ component: Grants });
 function Grants() {
   const grants = useGrantRecords();
   const resources = useResourceRecords();
-  const { records: listing } = useGrantList({ parentId: null, limit: 100 });
-  useResourceList({ limit: 100 });
+  const { records: listing } = useAllGrants({ parentId: null });
+  useAllResources();
   const { token } = useShell();
   const visible = Boolean(token.trim());
   const selection = useSelection('grants', listing);

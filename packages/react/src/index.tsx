@@ -28,12 +28,17 @@ import {
 } from '@rgap/core';
 
 type Listener = () => void;
-type QueryKind = 'resources' | 'grants' | 'tokens' | 'audit';
+type CollectionKind = 'resources' | 'grants' | 'tokens' | 'audit';
+type QueryKind = CollectionKind | `${CollectionKind}-all`;
 const queryKey = (kind: QueryKind, query: object = {}) => `${kind}:${JSON.stringify(query)}`;
 
 export class RgapClient implements RgapRepository {
   private listeners = new Set<Listener>();
   private version = 0;
+  private repositoryGeneration = 0;
+  private collectionGeneration: Record<CollectionKind, number> = {
+    resources: 0, grants: 0, tokens: 0, audit: 0,
+  };
   private pages = new Map<string, Page<unknown>>();
   private pending = new Map<string, Promise<Page<unknown>>>();
   private resourceRecords: Record<string, Resource> = {};
@@ -53,6 +58,7 @@ export class RgapClient implements RgapRepository {
   /** Swaps the command plane and clears records that the new plane may not expose. */
   setRepository(repository: RgapRepository) {
     this.repository = repository;
+    this.repositoryGeneration += 1;
     this.invalidateAll(true);
   }
 
@@ -62,6 +68,8 @@ export class RgapClient implements RgapRepository {
   };
 
   invalidateAll(clearRecords = false) {
+    (Object.keys(this.collectionGeneration) as CollectionKind[])
+      .forEach((kind) => { this.collectionGeneration[kind] += 1; });
     this.pages.clear();
     this.pending.clear();
     if (clearRecords) {
@@ -78,14 +86,14 @@ export class RgapClient implements RgapRepository {
       ['resources', 'audit'],
     ),
     get: async (id: ResourceId) => {
+      const generation = this.repositoryGeneration;
       const resource = this.wrapResource(await this.repository.resources.get(id));
+      this.requireGeneration(generation);
       this.cacheResource(resource);
       return resource;
     },
     list: (query: ResourceListQuery = {}) => this.loadPage('resources', query, async () => {
-      const page = await this.repository.resources.list(query);
-      page.records.forEach((record) => this.cacheResource(record, false));
-      return page;
+      return this.repository.resources.list(query);
     }),
   };
 
@@ -95,27 +103,27 @@ export class RgapClient implements RgapRepository {
       ['grants', 'audit'],
     ),
     get: async (id: GrantId) => {
+      const generation = this.repositoryGeneration;
       const grant = this.wrapGrant(await this.repository.grants.get(id));
+      this.requireGeneration(generation);
       this.cacheGrant(grant);
       return grant;
     },
     list: (query: GrantListQuery = {}) => this.loadPage('grants', query, async () => {
-      const page = await this.repository.grants.list(query);
-      page.records.forEach((record) => this.cacheGrant(record, false));
-      return page;
+      return this.repository.grants.list(query);
     }),
   };
 
   tokens = {
     get: async (id: TokenHandle['id']) => {
+      const generation = this.repositoryGeneration;
       const record = this.wrapToken(await this.repository.tokens.get(id));
+      this.requireGeneration(generation);
       this.cacheToken(record);
       return record;
     },
     list: (query: TokenListQuery = {}) => this.loadPage('tokens', query, async () => {
-      const page = await this.repository.tokens.list(query);
-      page.records.forEach((record) => this.cacheToken(record, false));
-      return page;
+      return this.repository.tokens.list(query);
     }),
   };
 
@@ -140,6 +148,23 @@ export class RgapClient implements RgapRepository {
     return this.pages.get(queryKey(kind, query)) as Page<T> | undefined;
   }
 
+  loadAll<T extends { id: string }, Q extends { cursor?: string; limit?: number }>(
+    kind: CollectionKind,
+    query: Q,
+    load: (query: Q) => Promise<Page<T>>,
+  ) {
+    return this.loadPage(`${kind}-all`, query, async () => {
+      const records: T[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await load({ ...query, cursor, limit: 100 });
+        records.push(...page.records);
+        cursor = page.cursor ?? undefined;
+      } while (cursor);
+      return { records, cursor: null };
+    });
+  }
+
   private loadPage<T extends { id: string }>(
     kind: QueryKind,
     query: object,
@@ -150,13 +175,30 @@ export class RgapClient implements RgapRepository {
     if (cached) return Promise.resolve(cached);
     const existing = this.pending.get(key) as Promise<Page<T>> | undefined;
     if (existing) return existing;
-    const request = load().then((page) => {
+    const generation = this.repositoryGeneration;
+    const collection = kind.split('-')[0] as CollectionKind;
+    const queryGeneration = this.collectionGeneration[collection];
+    let request: Promise<Page<T>>;
+    request = load().then((page) => {
+      if (
+        generation !== this.repositoryGeneration
+        || queryGeneration !== this.collectionGeneration[collection]
+      ) {
+        throw new Error('The repository changed while the query was running.');
+      }
+      if (kind.startsWith('resources')) {
+        (page.records as unknown as Resource[]).forEach((record) => this.cacheResource(record, false));
+      } else if (kind.startsWith('grants')) {
+        (page.records as unknown as Grant[]).forEach((record) => this.cacheGrant(record, false));
+      } else if (kind.startsWith('tokens')) {
+        (page.records as unknown as Token[]).forEach((record) => this.cacheToken(record, false));
+      }
       this.pages.set(key, page);
       this.pending.delete(key);
       this.emit();
       return page;
-    }, (error) => {
-      this.pending.delete(key);
+    }).catch((error) => {
+      if (this.pending.get(key) === request) this.pending.delete(key);
       throw error;
     });
     this.pending.set(key, request);
@@ -232,8 +274,18 @@ export class RgapClient implements RgapRepository {
     if (emit) this.emit();
   }
 
-  private async run<T>(command: () => Promise<T>, kinds: QueryKind[], clearRecords = false) {
-    const result = await command();
+  private async run<T>(command: () => Promise<T>, kinds: CollectionKind[], clearRecords = false) {
+    let result: T;
+    const generation = this.repositoryGeneration;
+    try {
+      result = await command();
+      this.requireGeneration(generation);
+    } catch (error) {
+      this.invalidatePages(kinds);
+      this.emit();
+      throw error;
+    }
+    this.clearRecords(kinds);
     if (isResource(result)) this.cacheResource(result, false);
     if (isGrant(result)) this.cacheGrant(result, false);
     if (isToken(result)) this.cacheToken(result, false);
@@ -242,16 +294,36 @@ export class RgapClient implements RgapRepository {
       this.grantRecords = {};
       this.tokenRecords = {};
     }
-    for (const key of this.pages.keys()) {
-      if (kinds.some((kind) => key.startsWith(`${kind}:`))) this.pages.delete(key);
-    }
+    this.invalidatePages(kinds);
     this.emit();
     return result;
+  }
+
+  private invalidatePages(kinds: CollectionKind[]) {
+    kinds.forEach((kind) => { this.collectionGeneration[kind] += 1; });
+    for (const key of this.pages.keys()) {
+      if (kinds.some((kind) => key.startsWith(kind))) this.pages.delete(key);
+    }
+    for (const key of this.pending.keys()) {
+      if (kinds.some((kind) => key.startsWith(kind))) this.pending.delete(key);
+    }
+  }
+
+  private clearRecords(kinds: CollectionKind[]) {
+    if (kinds.includes('resources')) this.resourceRecords = {};
+    if (kinds.includes('grants')) this.grantRecords = {};
+    if (kinds.includes('tokens')) this.tokenRecords = {};
   }
 
   private emit() {
     this.version += 1;
     this.listeners.forEach((listener) => listener());
+  }
+
+  private requireGeneration(generation: number) {
+    if (generation !== this.repositoryGeneration) {
+      throw new Error('The repository changed while the query was running.');
+    }
   }
 }
 
@@ -291,9 +363,23 @@ function usePage<T extends { id: string }, Q extends object>(
   return { records: page?.records ?? [], cursor: page?.cursor ?? null, loading: !page };
 }
 
+function useAllPages<T extends { id: string }, Q extends { cursor?: string; limit?: number }>(
+  kind: CollectionKind,
+  query: Q,
+  load: (query: Q) => Promise<Page<T>>,
+) {
+  const client = useRgapClient();
+  return usePage<T, Q>(`${kind}-all`, query, (next) => client.loadAll(kind, next, load));
+}
+
 export function useResourceList(query: ResourceListQuery = {}) {
   const client = useRgapClient();
   return usePage('resources', query, client.resources.list);
+}
+
+export function useAllResources(query: ResourceListQuery = {}) {
+  const client = useRgapClient();
+  return useAllPages('resources', query, client.resources.list);
 }
 
 export function useGrantList(query: GrantListQuery = {}) {
@@ -301,14 +387,29 @@ export function useGrantList(query: GrantListQuery = {}) {
   return usePage('grants', query, client.grants.list);
 }
 
+export function useAllGrants(query: GrantListQuery = {}) {
+  const client = useRgapClient();
+  return useAllPages('grants', query, client.grants.list);
+}
+
 export function useTokenList(query: TokenListQuery = {}) {
   const client = useRgapClient();
   return usePage('tokens', query, client.tokens.list);
 }
 
+export function useAllTokens(query: TokenListQuery = {}) {
+  const client = useRgapClient();
+  return useAllPages('tokens', query, client.tokens.list);
+}
+
 export function useAudit(query: AuditListQuery = {}) {
   const client = useRgapClient();
   return usePage<AuditEvent, AuditListQuery>('audit', query, client.audit.list);
+}
+
+export function useAllAudit(query: AuditListQuery = {}) {
+  const client = useRgapClient();
+  return useAllPages<AuditEvent, AuditListQuery>('audit', query, client.audit.list);
 }
 
 export function useResourceRecords() {
@@ -372,8 +473,13 @@ export function useResolvedPath(path: string) {
     void (async () => {
       let parentId: ResourceId | null = null;
       for (const name of path.split('/').filter(Boolean)) {
-        const page = await client.resources.list({ parentId, limit: 100 });
-        const resource = page.records.find((record) => record.name === name);
+        let cursor: string | undefined;
+        let resource: Resource | undefined;
+        do {
+          const page = await client.resources.list({ parentId, cursor, limit: 100 });
+          resource = page.records.find((record) => record.name === name);
+          cursor = page.cursor ?? undefined;
+        } while (!resource && cursor);
         if (!resource) {
           if (current) setResult({ resourceId: null, missing: true });
           return;

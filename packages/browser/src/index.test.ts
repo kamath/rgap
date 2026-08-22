@@ -91,7 +91,7 @@ describe('BrowserRgapStore', () => {
     });
 
     const restored = new BrowserRgapStore({ initialState: initialState(), storage }).admin();
-    expect((await restored.grants.get(grant.id)).capabilities).toEqual([...grant.capabilities]);
+    expect([...(await restored.grants.get(grant.id)).capabilities]).toEqual([...grant.capabilities]);
   });
 
   it('does not revoke grants when resources move or are deleted', async () => {

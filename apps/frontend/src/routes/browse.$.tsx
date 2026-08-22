@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, createFileRoute } from '@tanstack/react-router';
-import { useRgapAuthority, useResolvedPath, useResourceList, useResourceRecords } from '@rgap/react';
+import { useAllResources, useRgapAuthority, useResolvedPath, useResourceRecords } from '@rgap/react';
 import { Action, Actions, Check, ObjectLine, Pane, PageTitle, useSelection } from '../panes';
 import { ResourceDrawer, type ResourceOperation } from '../resource-ops';
 import { useShell } from '../shell';
@@ -18,7 +18,7 @@ function Browse() {
   const currentId = resolved.resourceId;
   const current = currentId ? resources[currentId] : null;
   const missing = Boolean(path) && resolved.missing;
-  const { records: listing } = useResourceList({ parentId: currentId, limit: 100 });
+  const { records: listing } = useAllResources({ parentId: currentId });
   const visible = Boolean(token.trim());
   const granted = (id: string) => authority?.permissions[id]?.join(' ') ?? '';
 

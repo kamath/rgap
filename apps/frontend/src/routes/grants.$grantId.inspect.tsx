@@ -2,12 +2,12 @@ import { useState } from 'react';
 import { Link, createFileRoute } from '@tanstack/react-router';
 import type { Grant } from '@rgap/core';
 import {
+  useAllResources,
+  useAllTokens,
   useGrant,
   useGrantLineage,
   useGrantRecords,
-  useResourceList,
   useResourceRecords,
-  useTokenList,
 } from '@rgap/react';
 import { CapabilitiesPane } from '../capability-editor';
 import { GrantBreadcrumb, LineagePane, TokenListing } from '../grant-listing';
@@ -35,9 +35,9 @@ function InspectGrant() {
 function GrantInspection({ grant }: { grant: Grant }) {
   const grants = useGrantRecords();
   const resources = useResourceRecords();
-  useResourceList({ limit: 100 });
+  useAllResources();
   const lineage = useGrantLineage(grant.id);
-  const { records: tokens } = useTokenList({ grantId: grant.id, limit: 100 });
+  const { records: tokens } = useAllTokens({ grantId: grant.id });
   const credentials = useSelection(`tokens:${grant.id}`, tokens);
   const [operation, setOperation] = useState<GrantOperation | null>(null);
   // Issuing acts on the addressed grant; revoking has nothing to act on without a selection.

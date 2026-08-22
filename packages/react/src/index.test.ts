@@ -65,4 +65,26 @@ describe('RgapClient', () => {
     expect(listener).toHaveBeenCalledOnce();
     expect((await client.resources.list()).records.map(({ id }) => id)).toEqual(['external']);
   });
+
+  it('discards an in-flight page when the command plane changes', async () => {
+    let resolve!: (page: { records: State['resources'][string][]; cursor: null }) => void;
+    const pending = new Promise<{ records: State['resources'][string][]; cursor: null }>((done) => { resolve = done; });
+    const administrative = {
+      resources: { list: vi.fn(() => pending) },
+    } as unknown as RgapRepository;
+    const guarded = {
+      resources: {
+        list: vi.fn(async () => ({ records: Object.values(state(['visible']).resources), cursor: null })),
+      },
+    } as unknown as RgapRepository;
+    const client = await RgapClient.connect(administrative);
+
+    const oldPage = client.resources.list();
+    client.setRepository(guarded);
+    resolve({ records: Object.values(state(['secret']).resources), cursor: null });
+
+    await expect(oldPage).rejects.toThrow('repository changed');
+    expect(client.getResourceRecords()).toEqual({});
+    expect((await client.resources.list()).records.map(({ id }) => id)).toEqual(['visible']);
+  });
 });

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Grant, Token } from '@rgap/core';
-import { useGrantList, useGrantRecords, useRgapClient } from '@rgap/react';
+import { useAllGrants, useGrantRecords, useRgapClient } from '@rgap/react';
 import { GrantFields } from './grant-form';
 import { Drawer, Execute, Form, Json, ResponseBlock, Targets, plural, useOperation } from './panes';
 import { usePlane, useShell } from './shell';
@@ -29,7 +29,7 @@ export function CreateGrantDrawer({ parent, onClose }: { parent: Grant | null; o
 export function RevokeGrantsDrawer({ targets, onClose }: { targets: Grant[]; onClose: () => void }) {
   const client = useRgapClient();
   const grants = useGrantRecords();
-  useGrantList({ limit: 100 });
+  useAllGrants();
   const plane = usePlane();
   const { response, executeEach } = useOperation();
   const request = { method: 'revoke', calls: targets.map((target) => ({ grant: target.id })) };

@@ -10,8 +10,8 @@ import {
   type ResourceId,
 } from '@rgap/core';
 import {
+  useAllResources,
   useGrant,
-  useResourceList,
   useResourceRecords,
   useRgapClient,
 } from '@rgap/react';
@@ -49,7 +49,7 @@ export function CapabilitiesPane({ grant }: { grant: Grant }) {
 
 function CapabilityTable({ grant }: { grant: Grant }) {
   const resources = useResourceRecords();
-  useResourceList({ limit: 100 });
+  useAllResources();
 
   if (!grant.capabilities.length) {
     return <p className="empty">This grant holds no capability entries, so it authorizes nothing.</p>;
@@ -191,8 +191,8 @@ function ResourcePicker({
   const [location, setLocation] = useState<ResourceId | null>(null);
   const [filter, setFilter] = useState('');
   const term = filter.trim().toLowerCase();
-  const { records: children } = useResourceList({ parentId: location, limit: 100 });
-  useResourceList({ limit: 100 });
+  const { records: children } = useAllResources({ parentId: location });
+  useAllResources();
 
   // A filter searches whole paths across the tree, so a deep resource needs no walking to.
   const rows = term

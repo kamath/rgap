@@ -1,11 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useAudit } from '@rgap/react';
+import { useAllAudit } from '@rgap/react';
 import { Pane, PageTitle } from '../panes';
 
 export const Route = createFileRoute('/audit')({ component: Audit });
 
 function Audit() {
-  const { records: events } = useAudit({ limit: 100 });
+  const { records: events } = useAllAudit();
 
   return (
     <>
