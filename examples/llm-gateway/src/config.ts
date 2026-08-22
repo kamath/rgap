@@ -1,5 +1,4 @@
 import { SqliteRgapStore } from '@rgap/sqlite';
-import { EncryptedSqliteSecretStore, secretKey } from './secret-store';
 
 export function requiredEnvironment(name: string) {
   const value = process.env[name]?.trim();
@@ -20,5 +19,11 @@ export function serverPort() {
 }
 
 const url = databaseUrl();
-export const secrets = new EncryptedSqliteSecretStore(url, secretKey);
-export const store = new SqliteRgapStore({ url, secrets });
+export const store = new SqliteRgapStore({
+  url,
+  secretKey: () => {
+    const key = Buffer.from(requiredEnvironment('RGAP_SECRET_KEY'), 'base64');
+    if (key.length !== 32) throw new Error('RGAP_SECRET_KEY must be a base64-encoded 32-byte key.');
+    return key;
+  },
+});

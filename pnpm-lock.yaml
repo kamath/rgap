@@ -81,9 +81,6 @@ importers:
       '@rgap/sqlite':
         specifier: workspace:*
         version: link:../../packages/sqlite
-      better-sqlite3:
-        specifier: ^13.0.3
-        version: 13.0.3
       hono:
         specifier: ^4.13.3
         version: 4.13.3
@@ -91,9 +88,6 @@ importers:
         specifier: ^7.5.0
         version: 7.5.0(zod@4.4.3)
     devDependencies:
-      '@types/better-sqlite3':
-        specifier: ^9.6.0
-        version: 9.6.0
       '@types/node':
         specifier: latest
         version: 26.2.0

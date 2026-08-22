@@ -1,4 +1,4 @@
-import { requiredEnvironment, secrets, store } from './config';
+import { requiredEnvironment, store } from './config';
 
 try {
   const admin = store.admin();
@@ -13,5 +13,4 @@ try {
   console.log(`OPENAI_SECRET_ID=${openaiKey.id}`);
 } finally {
   store.close();
-  secrets.close();
 }

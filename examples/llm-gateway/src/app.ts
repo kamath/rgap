@@ -1,13 +1,11 @@
-import { tokenValue, type ResourceId, type RgapStore } from '@rgap/core';
+import { tokenValue, type ResourceId, type RgapStore, type SecretStore } from '@rgap/core';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import type { EncryptedSqliteSecretStore } from './secret-store';
 
 export type LlmGatewayOptions = {
-  store: RgapStore;
+  store: RgapStore & { secrets: Pick<SecretStore, 'resolve'> };
   openAiResourceId: ResourceId;
   openAiSecretId: ResourceId;
-  secrets: Pick<EncryptedSqliteSecretStore, 'read'>;
   upstreamOrigin?: string;
   fetch?: typeof globalThis.fetch;
 };
@@ -39,7 +37,7 @@ export function createLlmGateway(options: LlmGatewayOptions) {
     const incoming = new URL(c.req.url);
     const upstream = new URL(`${incoming.pathname}${incoming.search}`, upstreamOrigin);
     const headers = new Headers(c.req.raw.headers);
-    headers.set('authorization', `Bearer ${options.secrets.read(options.openAiSecretId)}`);
+    headers.set('authorization', `Bearer ${await options.store.secrets.resolve(options.openAiSecretId)}`);
     headers.delete('host');
 
     return upstreamFetch(upstream, {
