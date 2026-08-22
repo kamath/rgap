@@ -9,7 +9,17 @@
  * with `new HttpRgapStore(...)` to run the same walkthrough against the Hono API.
  */
 import { fileURLToPath } from 'node:url';
-import { resourceId, resourcePath, type Permission, type ResourceId, type TokenValue } from '@rgap/core';
+import Ajv, { type AnySchema } from 'ajv';
+import {
+  RgapError,
+  resourceId,
+  resourcePath,
+  type InvokeRuntime,
+  type JsonSchemaValidator,
+  type Permission,
+  type ResourceId,
+  type TokenValue,
+} from '@rgap/core';
 import { HttpRgapStore } from '@rgap/server';
 import { SqliteRgapStore } from '@rgap/sqlite';
 
@@ -17,7 +27,40 @@ type TreeNode<Id extends string> = { id: Id; parentId: Id | null; name: string }
 
 // To use Hono, replace the next line with:
 // const store = new HttpRgapStore({ baseUrl: 'http://localhost:3000', adminToken: process.env.RGAP_ADMIN_TOKEN ?? 'test' });
-const store = new SqliteRgapStore({ url: fileURLToPath(new URL('scratch.db', import.meta.url)) });
+const ajv = new Ajv();
+const validator: JsonSchemaValidator = {
+  validate(schema, value) {
+    const check = ajv.compile(schema as AnySchema);
+    return check(value)
+      ? { valid: true }
+      : { valid: false, errors: (check.errors ?? []).map((error) => `${error.instancePath} ${error.message}`) };
+  },
+};
+const echo: InvokeRuntime = {
+  validate(program) {
+    if (
+      !program
+      || typeof program !== 'object'
+      || typeof (program as { prefix?: unknown }).prefix !== 'string'
+    ) {
+      throw new RgapError('invalid_program', 'Echo programs require a prefix.');
+    }
+  },
+  async *invoke({ revision, input, bindings }) {
+    const { prefix } = revision.program as { prefix: string };
+    const { query } = input as { query: string };
+    yield {
+      type: 'data',
+      value: { message: `${prefix}${query}`, scope: bindings.scope.resourceId },
+    };
+    yield { type: 'done' };
+  },
+};
+const store = new SqliteRgapStore({
+  url: fileURLToPath(new URL('scratch.db', import.meta.url)),
+  runtimes: { echo },
+  validator,
+});
 const root = store.admin();
 
 // Every run starts from an empty store. Remove this to keep what the last run wrote.
@@ -28,7 +71,7 @@ const companyGrant = await root.grants.create({
   name: 'Company',
   capabilities: [{
     resourceId: acme.id,
-    permissions: ['read', 'write', 'delete', 'move', 'invoke'],
+    permissions: ['read', 'write', 'use', 'delete', 'move', 'invoke'],
   }],
   expiresAt: null,
 });
@@ -41,6 +84,29 @@ const docs = await platform.create({ name: 'docs' });
 const design = await docs.create({ name: 'design' });
 const tools = await platform.create({ name: 'tools' });
 const search = await tools.create({ name: 'search' });
+await search.executable.publish({
+  runtime: 'echo',
+  program: { prefix: 'result: ' },
+  inputSchema: {
+    type: 'object',
+    properties: { query: { type: 'string' } },
+    required: ['query'],
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      message: { type: 'string' },
+      scope: { type: 'string' },
+    },
+    required: ['message', 'scope'],
+    additionalProperties: false,
+  },
+  bindingSchema: {
+    scope: { kind: 'resource' },
+  },
+  limits: {},
+});
 const finance = await companyRoot.create({ name: 'finance' });
 const payroll = await finance.create({ name: 'payroll' });
 
@@ -122,6 +188,14 @@ for (const [label, token] of tokens) {
   Object.entries(authority.permissions).forEach(([id, held]) => {
     console.log(`  ${path(resourceId(id)).padEnd(26)} ${held.join(' ')}`);
   });
+}
+
+console.log('\nINVOKE');
+for await (const event of search.invoke({
+  input: { query: 'design' },
+  bindings: { scope: docs.id },
+})) {
+  console.log(event);
 }
 
 // console.log(await root.resources.list({ limit: 100 }));

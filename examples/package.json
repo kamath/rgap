@@ -11,7 +11,8 @@
   "dependencies": {
     "@rgap/core": "workspace:*",
     "@rgap/server": "workspace:*",
-    "@rgap/sqlite": "workspace:*"
+    "@rgap/sqlite": "workspace:*",
+    "ajv": "^8.20.0"
   },
   "devDependencies": {
     "@types/node": "latest",
