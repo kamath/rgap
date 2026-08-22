@@ -378,7 +378,7 @@ GET /tokens?grantId=…&cursor=…&limit=…
 GET /audit?cursor=…&limit=…
 ```
 
-Collection responses contain an ordered array of plain serializable records, a continuation cursor, and no handles. Queries accept a bounded page size. A missing `parentId` or `grantId` filter does not turn a collection endpoint into an unbounded state dump; it returns one page in stable ID order. Query-side tree and path helpers consume these record arrays directly, so callers do not reconstruct keyed state objects from responses. Handles remain the TypeScript command surface, and a handle method that returns a record returns an updated handle.
+Collection queries return an ordered array of plain serializable records directly, with no response envelope and no handles. Queries accept a bounded page size and an optional keyset cursor naming the last record from the previous page. A page shorter than the requested limit is complete; a full page may be followed by another request using its last record's ID as the cursor. A missing `parentId` or `grantId` filter does not turn a collection endpoint into an unbounded state dump; it returns one page in stable ID order. Query-side tree and path helpers consume these arrays directly, so callers use `await repository.resources.list(...)` without reading a `.records` property or reconstructing keyed state objects. Handles remain the TypeScript command surface, and a handle method that returns a record returns an updated handle.
 
 `authorize` and `inspectToken` remain repository queries about a presented bearer rather than methods on a token handle, because the caller often has only the secret, not a stored record.
 
