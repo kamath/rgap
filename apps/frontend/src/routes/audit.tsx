@@ -1,17 +1,17 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useRgapSnapshot } from '@rgap/react';
+import { useAudit } from '@rgap/react';
 import { Pane, PageTitle } from '../panes';
 
 export const Route = createFileRoute('/audit')({ component: Audit });
 
 function Audit() {
-  const snapshot = useRgapSnapshot();
+  const { records: events } = useAudit({ limit: 100 });
 
   return (
     <>
       <PageTitle title="Audit log" note="Every command and decision recorded in the same commit as its state change." />
       <div className="pane-row single">
-        <Pane label="Events" meta={`${snapshot.audit.length} recorded`}>
+        <Pane label="Events" meta={`${events.length} recorded`}>
           <table>
             <thead>
               <tr>
@@ -23,7 +23,7 @@ function Audit() {
               </tr>
             </thead>
             <tbody>
-              {snapshot.audit.map((event) => (
+              {events.map((event) => (
                 <tr key={event.id}>
                   <td>
                     <code className="dim">{event.at}</code>
@@ -42,7 +42,7 @@ function Audit() {
               ))}
             </tbody>
           </table>
-          {snapshot.audit.length ? null : <p className="empty">No events recorded yet.</p>}
+          {events.length ? null : <p className="empty">No events recorded yet.</p>}
         </Pane>
       </div>
     </>

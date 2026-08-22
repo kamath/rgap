@@ -2,7 +2,7 @@ import {
   authorize, inspectAuthority, grantId, resourceId, tokenHash, tokenId, tokenValue,
   type Capability, type Resource, type State,
 } from './domain';
-import { repositoryFrom, type RgapCommands } from './repository';
+import { paginateRecords, repositoryFrom, type RgapCommands } from './repository';
 
 export function fixture(): State {
   const resources = [
@@ -63,7 +63,28 @@ export function stubCommands(state: State, at: string) {
     ({ id, parentId, name: id, deletedAt: null });
 
   const commands: RgapCommands = {
-    readState: () => Promise.resolve(state),
+    getResource: (id) => Promise.resolve(state.resources[id]),
+    listResources: (query = {}) => Promise.resolve(paginateRecords(
+      Object.values(state.resources)
+        .filter((item) => !item.deletedAt && (query.parentId === undefined || item.parentId === query.parentId))
+        .sort((left, right) => left.id.localeCompare(right.id)),
+      query,
+    )),
+    getGrant: (id) => Promise.resolve(state.grants[id]),
+    listGrants: (query = {}) => Promise.resolve(paginateRecords(
+      Object.values(state.grants)
+        .filter((item) => query.parentId === undefined || item.parentId === query.parentId)
+        .sort((left, right) => left.id.localeCompare(right.id)),
+      query,
+    )),
+    getToken: (id) => Promise.resolve(state.tokens[id]),
+    listTokens: (query = {}) => Promise.resolve(paginateRecords(
+      Object.values(state.tokens)
+        .filter((item) => query.grantId === undefined || item.grantId === query.grantId)
+        .sort((left, right) => left.id.localeCompare(right.id)),
+      query,
+    )),
+    listAudit: (query = {}) => Promise.resolve(paginateRecords(state.audit, query)),
     // Tests treat the bearer as the stored hash, so the stub re-brands rather than hashing.
     authorize: (token, id, permission) => Promise.resolve(authorize(state, tokenHash(token), id, permission, at)),
     inspectToken: (token) => Promise.resolve(inspectAuthority(state, tokenHash(token), at)),

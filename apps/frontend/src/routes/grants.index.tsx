@@ -1,20 +1,20 @@
 import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useRgapAuthority, useRgapSnapshot } from '@rgap/react';
+import { useGrantList, useGrantRecords, useResourceList, useResourceRecords } from '@rgap/react';
 import { GrantBreadcrumb, GrantListing } from '../grant-listing';
 import { CreateGrantDrawer, RevokeGrantsDrawer, type GrantOperation } from '../grant-ops';
 import { PageTitle, useSelection } from '../panes';
 import { useShell } from '../shell';
-import { childGrants, visibleGrantIds } from '../tree';
 
 export const Route = createFileRoute('/grants/')({ component: Grants });
 
 function Grants() {
-  const snapshot = useRgapSnapshot();
+  const grants = useGrantRecords();
+  const resources = useResourceRecords();
+  const { records: listing } = useGrantList({ parentId: null, limit: 100 });
+  useResourceList({ limit: 100 });
   const { token } = useShell();
-  const { authority } = useRgapAuthority(token);
-  const visible = visibleGrantIds(snapshot.grants, authority);
-  const listing = childGrants(snapshot.grants, null).filter((grant) => !visible || visible.has(grant.id));
+  const visible = Boolean(token.trim());
   const selection = useSelection('grants', listing);
   const [operation, setOperation] = useState<GrantOperation | null>(null);
   // Creating a root grant needs no selection; revoking has nothing to act on without one.
@@ -31,8 +31,8 @@ function Grants() {
             label="Root grants"
             meta={visible ? 'narrowed to the token lineage' : `${listing.length} grants`}
             listing={listing}
-            grants={snapshot.grants}
-            resources={snapshot.resources}
+            grants={grants}
+            resources={resources}
             selection={selection}
             inspect={null}
             open={drawer}

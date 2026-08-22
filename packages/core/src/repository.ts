@@ -1,6 +1,7 @@
 import {
   isLive,
   RgapError,
+  type AuditEvent,
   type AuthorityView,
   type Capability,
   type Decision,
@@ -9,7 +10,6 @@ import {
   type Permission,
   type Resource,
   type ResourceId,
-  type State,
   type Token,
   type TokenId,
   type TokenValue,
@@ -18,6 +18,32 @@ import {
 export type ResourceWrite = { name: string };
 export type GrantWrite = { name: string; capabilities: Capability[]; expiresAt: string | null };
 export type TokenWrite = { label: string };
+
+export const defaultPageLimit = 50;
+export const maximumPageLimit = 100;
+
+export type Page<T> = { records: T[]; cursor: string | null };
+export type ListQuery = { cursor?: string; limit?: number };
+export type ResourceListQuery = ListQuery & { parentId?: ResourceId | null };
+export type GrantListQuery = ListQuery & { parentId?: GrantId | null };
+export type TokenListQuery = ListQuery & { grantId?: GrantId };
+export type AuditListQuery = ListQuery;
+
+export function pageLimit(limit?: number) {
+  const requested = Number.isFinite(limit) ? Math.floor(limit!) : defaultPageLimit;
+  return Math.min(maximumPageLimit, Math.max(1, requested));
+}
+
+export function paginateRecords<T extends { id: string }>(records: T[], query: ListQuery = {}): Page<T> {
+  const limit = pageLimit(query.limit);
+  const start = query.cursor ? records.findIndex((record) => record.id === query.cursor) + 1 : 0;
+  if (query.cursor && start === 0) throw new RgapError('invalid_cursor', 'The collection cursor is unknown.');
+  const page = records.slice(start, start + limit);
+  return {
+    records: page,
+    cursor: start + page.length < records.length ? page.at(-1)!.id : null,
+  };
+}
 
 export type ResourceHandle = Resource & {
   create(input: ResourceWrite): Promise<ResourceHandle>;
@@ -55,7 +81,13 @@ export interface RgapStore {
  * The ID-based command sink adapters implement. `repositoryFrom` turns it into the handle API.
  */
 export interface RgapCommands {
-  readState(): Promise<State>;
+  getResource(id: ResourceId): Promise<Resource | undefined>;
+  listResources(query?: ResourceListQuery): Promise<Page<Resource>>;
+  getGrant(id: GrantId): Promise<Grant | undefined>;
+  listGrants(query?: GrantListQuery): Promise<Page<Grant>>;
+  getToken(id: TokenId): Promise<Token | undefined>;
+  listTokens(query?: TokenListQuery): Promise<Page<Token>>;
+  listAudit(query?: AuditListQuery): Promise<Page<AuditEvent>>;
   createResource(input: ResourceWrite & { parentId: ResourceId | null }): Promise<Resource>;
   moveResource(id: ResourceId, parentId: ResourceId | null): Promise<Resource>;
   deleteResource(id: ResourceId): Promise<void>;
@@ -73,15 +105,20 @@ export interface RgapRepository {
   resources: {
     create(input: ResourceWrite): Promise<ResourceHandle>;
     get(id: ResourceId): Promise<ResourceHandle>;
+    list(query?: ResourceListQuery): Promise<Page<Resource>>;
   };
   grants: {
     create(input: GrantWrite): Promise<GrantHandle>;
     get(id: GrantId): Promise<GrantHandle>;
+    list(query?: GrantListQuery): Promise<Page<Grant>>;
   };
   tokens: {
     get(id: TokenId): Promise<TokenHandle>;
+    list(query?: TokenListQuery): Promise<Page<Token>>;
   };
-  readState(): Promise<State>;
+  audit: {
+    list(query?: AuditListQuery): Promise<Page<AuditEvent>>;
+  };
   authorize(token: TokenValue, resourceId: ResourceId, permission: Permission): Promise<Decision>;
   inspectToken(token: TokenValue): Promise<AuthorityView>;
   reset(): Promise<void>;
@@ -92,15 +129,20 @@ export function repositoryFrom(commands: RgapCommands): RgapRepository {
     resources: {
       create: async (input) => asResource(commands, await commands.createResource({ ...input, parentId: null })),
       get: async (id) => asResource(commands, await requireResource(commands, id)),
+      list: (query) => commands.listResources(query),
     },
     grants: {
       create: async (input) => asGrant(commands, await commands.createGrant({ ...input, parentId: null })),
       get: async (id) => asGrant(commands, await requireGrant(commands, id)),
+      list: (query) => commands.listGrants(query),
     },
     tokens: {
       get: async (id) => asToken(commands, await requireToken(commands, id)),
+      list: (query) => commands.listTokens(query),
     },
-    readState: () => commands.readState(),
+    audit: {
+      list: (query) => commands.listAudit(query),
+    },
     authorize: (token, resourceId, permission) => commands.authorize(token, resourceId, permission),
     inspectToken: (token) => commands.inspectToken(token),
     reset: () => commands.reset(),
@@ -108,19 +150,19 @@ export function repositoryFrom(commands: RgapCommands): RgapRepository {
 }
 
 async function requireResource(commands: RgapCommands, id: ResourceId) {
-  const resource = (await commands.readState()).resources[id];
+  const resource = await commands.getResource(id);
   if (!isLive(resource)) throw new RgapError('missing_resource', 'Resource does not exist.');
   return resource;
 }
 
 async function requireGrant(commands: RgapCommands, id: GrantId) {
-  const grant = (await commands.readState()).grants[id];
+  const grant = await commands.getGrant(id);
   if (!grant) throw new RgapError('missing_grant', 'Grant does not exist.');
   return grant;
 }
 
 async function requireToken(commands: RgapCommands, id: TokenId) {
-  const token = (await commands.readState()).tokens[id];
+  const token = await commands.getToken(id);
   if (!token) throw new RgapError('missing_token', 'Token does not exist.');
   return token;
 }

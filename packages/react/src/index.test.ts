@@ -13,11 +13,11 @@ const state = (names: string[]): State => ({
 });
 
 describe('RgapClient', () => {
-  it('loads an initial snapshot and notifies local subscribers after a command', async () => {
+  it('invalidates collection queries and patches returned records after a command', async () => {
     let current = state(['initial']);
     const repository = {
-      readState: vi.fn(async () => structuredClone(current)),
       resources: {
+        list: vi.fn(async () => ({ records: Object.values(structuredClone(current.resources)), cursor: null })),
         create: vi.fn(async () => {
           current = state(['initial', 'created']);
           return {
@@ -33,26 +33,36 @@ describe('RgapClient', () => {
     const client = await RgapClient.connect(repository);
     const listener = vi.fn();
     client.subscribe(listener);
+    await client.resources.list();
+    listener.mockClear();
 
     const created = await client.resources.create({ name: 'created' });
 
     expect(created.id).toBe('created');
-    expect(client.getSnapshot()).toEqual(current);
-    expect(repository.readState).toHaveBeenCalledTimes(2);
+    expect(client.getResourceRecords().created.name).toBe('created');
+    expect(repository.resources.list).toHaveBeenCalledOnce();
     expect(listener).toHaveBeenCalledOnce();
+    expect((await client.resources.list()).records.map(({ id }) => id)).toEqual(['initial', 'created']);
+    expect(repository.resources.list).toHaveBeenCalledTimes(2);
   });
 
-  it('refreshes explicitly without a streaming repository API', async () => {
+  it('invalidates cached queries explicitly without a streaming repository API', async () => {
     let current = state(['initial']);
-    const repository = { readState: vi.fn(async () => structuredClone(current)) } as unknown as RgapRepository;
+    const repository = {
+      resources: {
+        list: vi.fn(async () => ({ records: Object.values(structuredClone(current.resources)), cursor: null })),
+      },
+    } as unknown as RgapRepository;
     const client = await RgapClient.connect(repository);
     const listener = vi.fn();
     client.subscribe(listener);
+    await client.resources.list();
+    listener.mockClear();
     current = state(['external']);
 
-    await client.refresh();
+    client.invalidateAll(true);
 
-    expect(client.getSnapshot()).toEqual(current);
     expect(listener).toHaveBeenCalledOnce();
+    expect((await client.resources.list()).records.map(({ id }) => id)).toEqual(['external']);
   });
 });

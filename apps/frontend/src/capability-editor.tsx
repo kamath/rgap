@@ -9,7 +9,12 @@ import {
   type Permission,
   type ResourceId,
 } from '@rgap/core';
-import { useRgapClient, useRgapSnapshot } from '@rgap/react';
+import {
+  useGrant,
+  useResourceList,
+  useResourceRecords,
+  useRgapClient,
+} from '@rgap/react';
 import { boundsAt, uncovered, withPermission } from './capability-bounds';
 import { CapabilityResource } from './grant-listing';
 import { Action, Actions, Check, Execute, Form, Json, Pane, ResponseBlock, useOperation } from './panes';
@@ -43,7 +48,8 @@ export function CapabilitiesPane({ grant }: { grant: Grant }) {
 }
 
 function CapabilityTable({ grant }: { grant: Grant }) {
-  const snapshot = useRgapSnapshot();
+  const resources = useResourceRecords();
+  useResourceList({ limit: 100 });
 
   if (!grant.capabilities.length) {
     return <p className="empty">This grant holds no capability entries, so it authorizes nothing.</p>;
@@ -60,14 +66,14 @@ function CapabilityTable({ grant }: { grant: Grant }) {
       </thead>
       <tbody>
         {grant.capabilities.map((capability, index) => {
-          const target = capabilityTarget(snapshot.resources, capability);
+          const target = capabilityTarget(resources, capability);
           return (
             <tr key={`${target.type}-${target.value}-${index}`}>
               <td>
                 <code>{target.type === 'resource' ? 'resource ID' : 'path'}</code>
               </td>
               <td>
-                <CapabilityResource resources={snapshot.resources} capability={capability} />
+                <CapabilityResource resources={resources} capability={capability} />
               </td>
               <td>
                 <code>{capability.permissions.join(' ')}</code>
@@ -82,10 +88,9 @@ function CapabilityTable({ grant }: { grant: Grant }) {
 
 function CapabilityEditor({ grant, onClose }: { grant: Grant; onClose: () => void }) {
   const client = useRgapClient();
-  const snapshot = useRgapSnapshot();
   const plane = usePlane();
   const { response, execute } = useOperation();
-  const parent = grant.parentId ? snapshot.grants[grant.parentId] ?? null : null;
+  const parent = useGrant(grant.parentId);
   const [draft, setDraft] = useState<Capability[]>(() => structuredClone(grant.capabilities));
   const [targetType, setTargetType] = useState<'resource' | 'path'>('resource');
   const [pathTarget, setPathTarget] = useState('');
@@ -182,24 +187,26 @@ function ResourcePicker({
   parent: Grant | null;
   onToggle: (id: ResourceId) => void;
 }) {
-  const snapshot = useRgapSnapshot();
+  const resources = useResourceRecords();
   const [location, setLocation] = useState<ResourceId | null>(null);
   const [filter, setFilter] = useState('');
   const term = filter.trim().toLowerCase();
+  const { records: children } = useResourceList({ parentId: location, limit: 100 });
+  useResourceList({ limit: 100 });
 
   // A filter searches whole paths across the tree, so a deep resource needs no walking to.
   const rows = term
-    ? liveResources(snapshot.resources)
-        .map((resource) => ({ resource, path: pathOf(snapshot.resources, resource.id) }))
+    ? liveResources(resources)
+        .map((resource) => ({ resource, path: pathOf(resources, resource.id) }))
         .filter((row) => row.path.toLowerCase().includes(term))
         .sort((left, right) => left.path.localeCompare(right.path))
-    : childrenOf(snapshot.resources, location).map((resource) => ({
+    : children.map((resource) => ({
         resource,
-        path: pathOf(snapshot.resources, resource.id),
+        path: pathOf(resources, resource.id),
       }));
 
   const trail: ResourceId[] = [];
-  for (let id = location; id; id = snapshot.resources[id]?.parentId ?? null) trail.unshift(id);
+  for (let id = location; id; id = resources[id]?.parentId ?? null) trail.unshift(id);
 
   return (
     <div className="picker">
@@ -211,7 +218,7 @@ function ResourcePicker({
           <span key={id}>
             <span className="dim"> / </span>
             <button type="button" className="crumb" onClick={() => setLocation(id)}>
-              {snapshot.resources[id].name}
+              {resources[id].name}
             </button>
           </span>
         ))}
@@ -230,8 +237,8 @@ function ResourcePicker({
         </thead>
         <tbody>
           {rows.map(({ resource, path }) => {
-            const bounds = boundsAt(parent, snapshot.resources, { resourceId: resource.id });
-            const children = childrenOf(snapshot.resources, resource.id).length;
+            const bounds = boundsAt(parent, resources, { resourceId: resource.id });
+            const childCount = childrenOf(resources, resource.id).length;
 
             return (
               <tr key={resource.id}>
@@ -256,7 +263,7 @@ function ResourcePicker({
                   </button>
                 </td>
                 <td>
-                  <code className="dim">{children}</code>
+                  <code className="dim">{childCount}</code>
                 </td>
               </tr>
             );
@@ -287,7 +294,7 @@ function DraftEntries({
   onAmend: (index: number, change: Partial<Capability>) => void;
   onRemove: (index: number) => void;
 }) {
-  const snapshot = useRgapSnapshot();
+  const resources = useResourceRecords();
 
   if (!draft.length) {
     return <p className="empty">No entries selected. The grant will reach nothing.</p>;
@@ -296,13 +303,13 @@ function DraftEntries({
   return (
     <div className="entry-list">
       {draft.map((entry, index) => {
-        const target = capabilityTarget(snapshot.resources, entry);
+        const target = capabilityTarget(resources, entry);
         const bounds = boundsAt(
           parent,
-          snapshot.resources,
+          resources,
           isPathCapability(entry) ? { path: entry.path } : { resourceId: entry.resourceId },
         );
-        const problem = uncovered(parent, snapshot.resources, entry);
+        const problem = uncovered(parent, resources, entry);
 
         return (
           <div key={index} className={problem ? 'entry denied' : 'entry'}>

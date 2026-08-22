@@ -1,19 +1,25 @@
 import { useState } from 'react';
 import { Link, createFileRoute } from '@tanstack/react-router';
 import type { Grant } from '@rgap/core';
-import { useRgapAuthority, useRgapSnapshot } from '@rgap/react';
+import {
+  useGrant,
+  useGrantLineage,
+  useGrantList,
+  useGrantRecords,
+  useResourceList,
+  useResourceRecords,
+} from '@rgap/react';
 import { GrantBreadcrumb, GrantListing } from '../grant-listing';
 import { CreateGrantDrawer, RevokeGrantsDrawer, type GrantOperation } from '../grant-ops';
 import { ObjectLine, PageTitle, useSelection } from '../panes';
 import { useShell } from '../shell';
-import { childGrants, grantLineage, lineageStatus, visibleGrantIds } from '../tree';
+import { lineageStatus } from '../tree';
 
 export const Route = createFileRoute('/grants/$grantId/')({ component: GrantDetail });
 
 function GrantDetail() {
   const { grantId } = Route.useParams();
-  const snapshot = useRgapSnapshot();
-  const grant = snapshot.grants[grantId];
+  const grant = useGrant(grantId as Grant['id']);
 
   if (!grant) {
     return (
@@ -27,12 +33,13 @@ function GrantDetail() {
 }
 
 function GrantView({ grant }: { grant: Grant }) {
-  const snapshot = useRgapSnapshot();
+  const grants = useGrantRecords();
+  const resources = useResourceRecords();
+  useResourceList({ limit: 100 });
   const { token } = useShell();
-  const { authority } = useRgapAuthority(token);
-  const visible = visibleGrantIds(snapshot.grants, authority);
-  const lineage = grantLineage(snapshot.grants, grant.id);
-  const listing = childGrants(snapshot.grants, grant.id).filter((child) => !visible || visible.has(child.id));
+  const visible = Boolean(token.trim());
+  const lineage = useGrantLineage(grant.id);
+  const { records: listing } = useGrantList({ parentId: grant.id, limit: 100 });
   const selection = useSelection(`grants:${grant.id}`, listing);
   const [operation, setOperation] = useState<GrantOperation | null>(null);
   // Delegating acts on the addressed grant; revoking has nothing to act on without a selection.
@@ -47,7 +54,7 @@ function GrantView({ grant }: { grant: Grant }) {
         id={grant.id}
         fields={[
           ['expires', grant.expiresAt ?? 'never'],
-          ['status', lineageStatus(snapshot.grants, grant.id)],
+          ['status', lineageStatus(grants, grant.id)],
           ['delegated', listing.length],
         ]}
       />
@@ -57,8 +64,8 @@ function GrantView({ grant }: { grant: Grant }) {
             label="Delegated"
             meta={visible ? 'narrowed to the token lineage' : `${listing.length} grants`}
             listing={listing}
-            grants={snapshot.grants}
-            resources={snapshot.resources}
+            grants={grants}
+            resources={resources}
             selection={selection}
             inspect={grant.id}
             open={drawer}

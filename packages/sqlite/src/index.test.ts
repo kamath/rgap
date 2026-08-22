@@ -45,6 +45,30 @@ const resourceRecord = (resource: { id: string; parentId: string | null; name: s
 const rootGrant = (repository: RgapRepository) =>
   repository.grants.create({ name: 'Acme admin', capabilities: [], expiresAt: null });
 
+async function all<T>(list: (query: { cursor?: string; limit?: number }) => Promise<{ records: T[]; cursor: string | null }>) {
+  const records: T[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await list({ cursor, limit: 100 });
+    records.push(...page.records);
+    cursor = page.cursor ?? undefined;
+  } while (cursor);
+  return records;
+}
+
+async function queriedState(repository: RgapRepository): Promise<State> {
+  const resources = await all((query) => repository.resources.list(query));
+  const grants = await all((query) => repository.grants.list(query));
+  const tokens = await all((query) => repository.tokens.list(query));
+  const audit = await all((query) => repository.audit.list(query));
+  return {
+    resources: Object.fromEntries(resources.map((record) => [record.id, record])),
+    grants: Object.fromEntries(grants.map((record) => [record.id, record])),
+    tokens: Object.fromEntries(tokens.map((record) => [record.id, record])),
+    audit,
+  };
+}
+
 describe('SqliteRgapStore', () => {
   it('exposes command planes and close rather than repository commands', () => {
     const store = open();
@@ -61,7 +85,7 @@ describe('SqliteRgapStore', () => {
     ]);
     const issued = await grant.tokens.create({ label: 'cli' });
 
-    const state = await repository.readState();
+    const state = await queriedState(repository);
     expect(state.resources.drive.parentId).toBe('acme');
     expect(state.grants[grant.id].capabilities).toEqual([
       { resourceId: resourceId('acme'), permissions: ['read', 'write'] },
@@ -112,7 +136,7 @@ describe('SqliteRgapStore', () => {
     const second = open({
       url, initialState: { resources: {}, grants: {}, tokens: {}, audit: [] },
     }).admin();
-    const state = await second.readState();
+    const state = await queriedState(second);
     expect(state.resources[created.id]).toEqual(resourceRecord(created));
     expect(Object.keys(state.resources)).toContain('acme');
   });
@@ -121,12 +145,12 @@ describe('SqliteRgapStore', () => {
     const repository = open({ initialState: acme() }).admin();
     await (await repository.resources.get(resourceId('acme'))).create({ name: 'mcp' });
     await repository.reset();
-    expect(await repository.readState()).toEqual(acme());
+    expect(await queriedState(repository)).toEqual(acme());
   });
 
   it('opens an empty store with no initial state at all', async () => {
     const repository = open().admin();
-    expect(await repository.readState()).toEqual({ resources: {}, grants: {}, tokens: {}, audit: [] });
+    expect(await queriedState(repository)).toEqual({ resources: {}, grants: {}, tokens: {}, audit: [] });
   });
 
   it('writes nothing when a command is refused', async () => {
@@ -138,7 +162,7 @@ describe('SqliteRgapStore', () => {
     const child = await parent.create({
       name: 'Drive read', capabilities: [], expiresAt: null,
     });
-    const before = await repository.readState();
+    const before = await queriedState(repository);
 
     await expect(
       child.capabilities.set([
@@ -146,7 +170,7 @@ describe('SqliteRgapStore', () => {
       ]),
     ).rejects.toThrow(RgapError);
 
-    expect(await repository.readState()).toEqual(before);
+    expect(await queriedState(repository)).toEqual(before);
   });
 
   it('records an authorization decision in the audit log, newest first', async () => {
@@ -160,7 +184,7 @@ describe('SqliteRgapStore', () => {
     expect((await repository.authorize(value, resourceId('drive'), 'read')).allowed).toBe(true);
     expect((await repository.authorize(value, resourceId('drive'), 'write')).allowed).toBe(false);
 
-    const { audit } = await repository.readState();
+    const { records: audit } = await repository.audit.list();
     expect(audit.slice(0, 2).map((event) => event.result)).toEqual(['denied', 'allowed']);
     expect(audit.every((event) => event.action.length > 0)).toBe(true);
   });
@@ -190,10 +214,9 @@ describe('SqliteRgapStore', () => {
     await grant.revoke();
     await (await repository.resources.get(resourceId('acme'))).delete();
 
-    const state = await repository.readState();
-    expect(state.resources.acme.deletedAt).not.toBe(null);
-    expect(state.grants[grant.id].revokedAt).not.toBe(null);
-    expect(state.tokens[issued.id].revokedAt).not.toBe(null);
+    await expect(repository.resources.get(resourceId('acme'))).rejects.toThrow('Resource does not exist');
+    expect((await repository.grants.get(grant.id)).revokedAt).not.toBe(null);
+    expect((await repository.tokens.get(issued.id)).revokedAt).not.toBe(null);
   });
 
   it('does not revoke grants when resources move or are deleted', async () => {
@@ -207,7 +230,7 @@ describe('SqliteRgapStore', () => {
     await (await repository.resources.get(resourceId('drive'))).move(null);
     await (await repository.resources.get(resourceId('drive'))).delete();
 
-    expect((await repository.readState()).grants[grant.id].revokedAt).toBe(null);
+    expect((await repository.grants.get(grant.id)).revokedAt).toBe(null);
   });
 
   it('runs guarded commands against the store', async () => {
@@ -238,7 +261,7 @@ describe('SqliteRgapStore', () => {
       };
     }
     const repository = open({ initialState }).admin();
-    const state = await repository.readState();
+    const state = await queriedState(repository);
     expect(Object.keys(state.resources)).toHaveLength(250);
     expect(state.resources['resource-249'].parentId).toBe('resource-248');
   });

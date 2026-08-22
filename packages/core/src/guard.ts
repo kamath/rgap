@@ -1,13 +1,34 @@
-import { RgapError, type Capability, type GrantId, type Permission, type ResourceId, type TokenValue } from './domain';
-import type { GrantHandle, GrantWrite, IssuedToken, ResourceHandle, RgapRepository, TokenHandle } from './repository';
+import {
+  RgapError,
+  grantId,
+  resourceId,
+  tokenId,
+  type AuditEvent,
+  type Capability,
+  type GrantId,
+  type Permission,
+  type ResourceId,
+  type TokenValue,
+} from './domain';
+import {
+  maximumPageLimit,
+  pageLimit,
+  type GrantHandle,
+  type GrantWrite,
+  type IssuedToken,
+  type ListQuery,
+  type Page,
+  type ResourceHandle,
+  type RgapRepository,
+  type TokenHandle,
+} from './repository';
 
 /**
  * Wraps a repository so each command authorizes the token before it runs.
  *
  * RGAP decides and the host enforces, so repository commands themselves take no token. This guard is
- * the enforced path, stated once here rather than re-derived by every host. It guards commands only:
- * reads pass straight through, and `inspectToken` remains the read-side lens. Handles it returns
- * inherit the same checks.
+ * the enforced path, stated once here rather than re-derived by every host. Collection reads expose
+ * only records in the acting token's resource and delegation views. Handles inherit the same checks.
  */
 export function guardCommands(repository: RgapRepository, token: TokenValue): RgapRepository {
   const actingGrantId = async () => {
@@ -24,9 +45,9 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
   /** Tokens reach their own grant and everything delegated from it, and nothing above or beside it. */
   const withinActingGrant = async (id: GrantId) => {
     const acting = await actingGrantId();
-    const { grants } = await repository.readState();
-    for (let current: GrantId | null = id; current; current = grants[current]?.parentId ?? null) {
+    for (let current: GrantId | null = id; current;) {
       if (current === acting) return;
+      current = (await repository.grants.get(current)).parentId;
     }
     throw new RgapError('unauthorized', 'That grant is neither this token\'s grant nor delegated from it.');
   };
@@ -100,14 +121,81 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
     value: issued.value,
   });
 
+  const visibleResourceIds = async () => {
+    const view = await repository.inspectToken(token);
+    if (!view.valid) return new Set<string>();
+    const visible = new Set<string>();
+    for (const reached of Object.keys(view.permissions)) {
+      for (let current: ResourceId | null = resourceId(reached); current;) {
+        if (visible.has(current)) break;
+        visible.add(current);
+        current = (await repository.resources.get(current)).parentId;
+      }
+    }
+    return visible;
+  };
+
+  const grantIsVisible = async (id: GrantId) => {
+    const view = await repository.inspectToken(token);
+    if (!view.valid || !view.grantId) return false;
+    if (view.lineage.includes(id)) return true;
+    for (let current: GrantId | null = id; current;) {
+      if (current === view.grantId) return true;
+      current = (await repository.grants.get(current)).parentId;
+    }
+    return false;
+  };
+
+  const tokenIsVisible = async (id: TokenHandle['id']) => {
+    const record = await repository.tokens.get(id);
+    return grantIsVisible(record.grantId);
+  };
+
+  const auditIsVisible = async (event: AuditEvent) => {
+    if (event.action === 'authorize' || event.action.startsWith('resource.')) {
+      return (await visibleResourceIds()).has(event.target);
+    }
+    if (event.action.startsWith('grant.')) return grantIsVisible(grantId(event.target));
+    if (event.action.startsWith('token.')) return tokenIsVisible(tokenId(event.target));
+    return false;
+  };
+
+  const filtered = async <T extends { id: string }, Q extends ListQuery>(
+    query: Q | undefined,
+    load: (query: Q) => Promise<Page<T>>,
+    allowed: (record: T) => Promise<boolean>,
+  ): Promise<Page<T>> => {
+    const limit = pageLimit(query?.limit);
+    const records: T[] = [];
+    let cursor = query?.cursor;
+    while (records.length < limit) {
+      const page = await load({ ...query, cursor, limit: maximumPageLimit } as Q);
+      for (let index = 0; index < page.records.length; index += 1) {
+        const record = page.records[index];
+        if (await allowed(record)) records.push(record);
+        if (records.length === limit) {
+          const more = index < page.records.length - 1 || page.cursor !== null;
+          return { records, cursor: more ? record.id : null };
+        }
+      }
+      if (!page.cursor) return { records, cursor: null };
+      cursor = page.cursor;
+    }
+    return { records, cursor: cursor ?? null };
+  };
+
   return {
     resources: {
       async create() {
         administrative('Creating a root resource');
       },
       async get(id) {
-        return wrapResource(await repository.resources.get(id));
+        const resource = await repository.resources.get(id);
+        if (!(await visibleResourceIds()).has(id)) throw new RgapError('unauthorized', 'That resource is outside this token\'s view.');
+        return wrapResource(resource);
       },
+      list: (query) => filtered(query, (page) => repository.resources.list(page), async (resource) =>
+        (await visibleResourceIds()).has(resource.id)),
     },
     grants: {
       async create(input) {
@@ -115,15 +203,23 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
         return parent.create(input);
       },
       async get(id) {
-        return wrapGrant(await repository.grants.get(id));
+        const grant = await repository.grants.get(id);
+        if (!(await grantIsVisible(id))) throw new RgapError('unauthorized', 'That grant is outside this token\'s view.');
+        return wrapGrant(grant);
       },
+      list: (query) => filtered(query, (page) => repository.grants.list(page), (grant) => grantIsVisible(grant.id)),
     },
     tokens: {
       async get(id) {
-        return wrapToken(await repository.tokens.get(id));
+        const record = await repository.tokens.get(id);
+        if (!(await grantIsVisible(record.grantId))) throw new RgapError('unauthorized', 'That token is outside this token\'s view.');
+        return wrapToken(record);
       },
+      list: (query) => filtered(query, (page) => repository.tokens.list(page), (record) => grantIsVisible(record.grantId)),
     },
-    readState: () => repository.readState(),
+    audit: {
+      list: (query) => filtered(query, (page) => repository.audit.list(page), auditIsVisible),
+    },
     authorize: (bearer, resourceId, permission) => repository.authorize(bearer, resourceId, permission),
     inspectToken: (bearer) => repository.inspectToken(bearer),
     async reset() {

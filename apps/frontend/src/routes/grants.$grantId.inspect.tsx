@@ -1,19 +1,25 @@
 import { useState } from 'react';
 import { Link, createFileRoute } from '@tanstack/react-router';
 import type { Grant } from '@rgap/core';
-import { useRgapSnapshot } from '@rgap/react';
+import {
+  useGrant,
+  useGrantLineage,
+  useGrantRecords,
+  useResourceList,
+  useResourceRecords,
+  useTokenList,
+} from '@rgap/react';
 import { CapabilitiesPane } from '../capability-editor';
 import { GrantBreadcrumb, LineagePane, TokenListing } from '../grant-listing';
 import { IssueTokenDrawer, RevokeTokensDrawer, type GrantOperation } from '../grant-ops';
 import { ObjectLine, PageTitle, useSelection } from '../panes';
-import { grantLineage, lineageStatus } from '../tree';
+import { lineageStatus } from '../tree';
 
 export const Route = createFileRoute('/grants/$grantId/inspect')({ component: InspectGrant });
 
 function InspectGrant() {
   const { grantId } = Route.useParams();
-  const snapshot = useRgapSnapshot();
-  const grant = snapshot.grants[grantId];
+  const grant = useGrant(grantId as Grant['id']);
 
   if (!grant) {
     return (
@@ -27,9 +33,11 @@ function InspectGrant() {
 }
 
 function GrantInspection({ grant }: { grant: Grant }) {
-  const snapshot = useRgapSnapshot();
-  const lineage = grantLineage(snapshot.grants, grant.id);
-  const tokens = Object.values(snapshot.tokens).filter((record) => record.grantId === grant.id);
+  const grants = useGrantRecords();
+  const resources = useResourceRecords();
+  useResourceList({ limit: 100 });
+  const lineage = useGrantLineage(grant.id);
+  const { records: tokens } = useTokenList({ grantId: grant.id, limit: 100 });
   const credentials = useSelection(`tokens:${grant.id}`, tokens);
   const [operation, setOperation] = useState<GrantOperation | null>(null);
   // Issuing acts on the addressed grant; revoking has nothing to act on without a selection.
@@ -44,13 +52,13 @@ function GrantInspection({ grant }: { grant: Grant }) {
         id={grant.id}
         fields={[
           ['expires', grant.expiresAt ?? 'never'],
-          ['status', lineageStatus(snapshot.grants, grant.id)],
+          ['status', lineageStatus(grants, grant.id)],
           ['capabilities', grant.capabilities.length],
         ]}
       />
       <div className={drawer ? 'view open' : 'view'}>
         <div className="stack">
-          <LineagePane lineage={lineage} resources={snapshot.resources} />
+          <LineagePane lineage={lineage} resources={resources} />
           <CapabilitiesPane grant={grant} />
           <TokenListing tokens={tokens} selection={credentials} open={drawer} onOpen={setOperation} />
         </div>

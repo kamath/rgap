@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
-import { asc } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull } from 'drizzle-orm';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type { SQLiteTable } from 'drizzle-orm/sqlite-core';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
@@ -16,6 +16,7 @@ import {
   inspectAuthority,
   isPathCapability,
   moveResource as move,
+  pageLimit,
   permissions as canonicalPermissions,
   recordToken,
   resourceId,
@@ -32,15 +33,19 @@ import {
   type CreateResourceInput,
   type GrantId,
   type Permission,
+  type AuditListQuery,
   type RecordId,
   type ResourceId,
+  type ResourceListQuery,
   type RgapCommands,
   type RgapRepository,
   type RgapStore,
   type State,
   type Token,
   type TokenId,
+  type TokenListQuery,
   type TokenValue,
+  type GrantListQuery,
 } from '@rgap/core';
 import * as schema from './schema';
 
@@ -91,8 +96,67 @@ class SqliteBackingRepository implements RgapCommands {
     });
   }
 
-  async readState(): Promise<State> {
-    return this.read();
+  async getResource(id: ResourceId) {
+    const row = this.db.select().from(schema.resources).where(eq(schema.resources.id, id)).get();
+    return row ? resourceRecord(row) : undefined;
+  }
+
+  async listResources(query: ResourceListQuery = {}) {
+    const limit = pageLimit(query.limit);
+    const parent = query.parentId === undefined
+      ? undefined
+      : query.parentId === null ? isNull(schema.resources.parentId) : eq(schema.resources.parentId, query.parentId);
+    const rows = this.db.select().from(schema.resources)
+      .where(and(parent, isNull(schema.resources.deletedAt), query.cursor ? gt(schema.resources.id, query.cursor) : undefined))
+      .orderBy(asc(schema.resources.id)).limit(limit + 1).all();
+    return sqlPage(rows.map(resourceRecord), limit);
+  }
+
+  async getGrant(id: GrantId) {
+    const row = this.db.select().from(schema.grants).where(eq(schema.grants.id, id)).get();
+    return row ? this.grantRecord(row) : undefined;
+  }
+
+  async listGrants(query: GrantListQuery = {}) {
+    const limit = pageLimit(query.limit);
+    const parent = query.parentId === undefined
+      ? undefined
+      : query.parentId === null ? isNull(schema.grants.parentId) : eq(schema.grants.parentId, query.parentId);
+    const rows = this.db.select().from(schema.grants)
+      .where(and(parent, query.cursor ? gt(schema.grants.id, query.cursor) : undefined))
+      .orderBy(asc(schema.grants.id)).limit(limit + 1).all();
+    return sqlPage(rows.map((row) => this.grantRecord(row)), limit);
+  }
+
+  async getToken(id: TokenId) {
+    const row = this.db.select().from(schema.tokens).where(eq(schema.tokens.id, id)).get();
+    return row ? tokenRecord(row) : undefined;
+  }
+
+  async listTokens(query: TokenListQuery = {}) {
+    const limit = pageLimit(query.limit);
+    const rows = this.db.select().from(schema.tokens)
+      .where(and(
+        query.grantId === undefined ? undefined : eq(schema.tokens.grantId, query.grantId),
+        query.cursor ? gt(schema.tokens.id, query.cursor) : undefined,
+      ))
+      .orderBy(asc(schema.tokens.id)).limit(limit + 1).all();
+    return sqlPage(rows.map(tokenRecord), limit);
+  }
+
+  async listAudit(query: AuditListQuery = {}) {
+    const limit = pageLimit(query.limit);
+    let after: number | undefined;
+    if (query.cursor) {
+      const cursor = this.db.select({ seq: schema.audit.seq }).from(schema.audit)
+        .where(eq(schema.audit.id, query.cursor)).get();
+      if (!cursor) throw new RgapError('invalid_cursor', 'The collection cursor is unknown.');
+      after = cursor.seq;
+    }
+    const rows = this.db.select().from(schema.audit)
+      .where(after === undefined ? undefined : gt(schema.audit.seq, after))
+      .orderBy(asc(schema.audit.seq)).limit(limit + 1).all();
+    return sqlPage(rows.map(auditRecord), limit);
   }
 
   async createResource(input: CreateResourceInput) {
@@ -181,6 +245,34 @@ class SqliteBackingRepository implements RgapCommands {
   /** Releases the connection. A `:memory:` database ceases to exist with it. */
   close() {
     this.connection.close();
+  }
+
+  private grantRecord(row: typeof schema.grants.$inferSelect) {
+    const permissionRows = this.db.select().from(schema.capabilityPermissions)
+      .where(eq(schema.capabilityPermissions.grantId, row.id)).all();
+    const held = new Map<number, Set<Permission>>();
+    permissionRows.forEach(({ position, permission }) => {
+      const set = held.get(position) ?? new Set<Permission>();
+      set.add(permission);
+      held.set(position, set);
+    });
+    const capabilities: Capability[] = this.db.select().from(schema.capabilities)
+      .where(eq(schema.capabilities.grantId, row.id))
+      .orderBy(asc(schema.capabilities.position)).all()
+      .map((entry) => {
+        const permissions = canonicalPermissions.filter((permission) => held.get(entry.position)?.has(permission));
+        return entry.path !== null
+          ? { path: entry.path, permissions }
+          : { resourceId: resourceId(entry.resourceId!), permissions };
+      });
+    return {
+      id: grantId(row.id),
+      name: row.name,
+      parentId: row.parentId ? grantId(row.parentId) : null,
+      capabilities,
+      expiresAt: row.expiresAt,
+      revokedAt: row.revokedAt,
+    };
   }
 
   /**
@@ -319,6 +411,32 @@ const now = () => new Date().toISOString();
 const entryKey = (grantId: string, position: number) => `${grantId}:${position}`;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const digest = (value: string) => tokenHash(hash(value));
+const resourceRecord = (row: typeof schema.resources.$inferSelect) => ({
+  id: resourceId(row.id),
+  parentId: row.parentId ? resourceId(row.parentId) : null,
+  name: row.name,
+  deletedAt: row.deletedAt,
+});
+const tokenRecord = (row: typeof schema.tokens.$inferSelect) => ({
+  id: tokenId(row.id),
+  grantId: grantId(row.grantId),
+  label: row.label,
+  hash: tokenHash(row.hash),
+  expiresAt: row.expiresAt,
+  revokedAt: row.revokedAt,
+});
+const auditRecord = (row: typeof schema.audit.$inferSelect) => ({
+  id: row.id,
+  at: row.at,
+  action: row.action,
+  target: row.target as RecordId,
+  result: row.result,
+  detail: row.detail,
+});
+const sqlPage = <T extends { id: string }>(records: T[], limit: number) => ({
+  records: records.slice(0, limit),
+  cursor: records.length > limit ? records[limit - 1].id : null,
+});
 
 /**
  * Records ordered so that every parent precedes its children, which is what lets the foreign keys

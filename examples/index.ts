@@ -40,7 +40,9 @@ const search = await tools.create({ name: 'search' });
 const finance = await companyRoot.create({ name: 'finance' });
 const payroll = await finance.create({ name: 'payroll' });
 
-const { resources: companyResources } = await company.readState();
+const companyResources = Object.fromEntries(
+  (await company.resources.list({ limit: 100 })).records.map((record) => [record.id, record]),
+);
 
 function printPaths<Id extends string>(
   nodes: Record<string, TreeNode<Id>>,
@@ -92,7 +94,12 @@ const subagentGrant = await agent.grants.create({
 });
 const subagentToken = await subagentGrant.tokens.create({ label: 'subagent' });
 
-const { resources, grants } = await company.readState();
+const resources = Object.fromEntries(
+  (await company.resources.list({ limit: 100 })).records.map((record) => [record.id, record]),
+);
+const grants = Object.fromEntries(
+  (await company.grants.list({ limit: 100 })).records.map((record) => [record.id, record]),
+);
 const path = (id: ResourceId) => resourcePath(resources, id);
 
 console.log("GRANT PATHS");
@@ -134,6 +141,6 @@ for (const [label, token] of tokens) {
   });
 }
 
-// console.log(await root.readState());
+// console.log(await root.resources.list({ limit: 100 }));
 
 store.close();

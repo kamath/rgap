@@ -35,13 +35,13 @@ describe('BrowserRgapStore', () => {
     expect(store).not.toHaveProperty('resources');
   });
 
-  it('keeps actions outside serializable snapshots', async () => {
+  it('keeps actions outside serializable query records', async () => {
     const repo = repository();
     const resource = await (await repo.resources.get(resourceId('acme'))).create({ name: 'New tool' });
 
-    const state = await repo.readState();
-    expect(state.resources[resource.id]).toEqual(resourceRecord(resource));
-    expect(Object.values(state).some((value) => typeof value === 'function')).toBe(false);
+    const record = (await repo.resources.list()).records.find(({ id }) => id === resource.id);
+    expect(record).toEqual(resourceRecord(resource));
+    expect(Object.values(record!).some((value) => typeof value === 'function')).toBe(false);
   });
 
   it('moves a root resource under another parent', async () => {
@@ -58,11 +58,11 @@ describe('BrowserRgapStore', () => {
     await first.delete();
 
     const replacement = await (await repo.resources.get(resourceId('acme'))).create({ name: 'tools' });
-    const state = await repo.readState();
 
     expect(replacement.id).not.toBe(first.id);
-    expect(state.resources[first.id].deletedAt).not.toBe(null);
-    expect(resourceIdAtPath(state.resources, 'Acme/tools')).toBe(replacement.id);
+    await expect(repo.resources.get(first.id)).rejects.toThrow('Resource does not exist');
+    const resources = Object.fromEntries((await repo.resources.list()).records.map((record) => [record.id, record]));
+    expect(resourceIdAtPath(resources, 'Acme/tools')).toBe(replacement.id);
   });
 
   it('creates root and delegated grants', async () => {
@@ -90,8 +90,8 @@ describe('BrowserRgapStore', () => {
       ],
     });
 
-    const restored = await new BrowserRgapStore({ initialState: initialState(), storage }).admin().readState();
-    expect(restored.grants[grant.id].capabilities).toEqual([...grant.capabilities]);
+    const restored = new BrowserRgapStore({ initialState: initialState(), storage }).admin();
+    expect((await restored.grants.get(grant.id)).capabilities).toEqual([...grant.capabilities]);
   });
 
   it('does not revoke grants when resources move or are deleted', async () => {
@@ -108,7 +108,7 @@ describe('BrowserRgapStore', () => {
     await child.move(null);
     await child.delete();
 
-    expect((await repo.readState()).grants[grant.id].revokedAt).toBe(null);
+    expect((await repo.grants.get(grant.id)).revokedAt).toBe(null);
   });
 
   it('discards stored state whose references no longer resolve', async () => {
@@ -123,10 +123,10 @@ describe('BrowserRgapStore', () => {
     delete stored.state.resources['acme'];
     storage.setItem('rgap-state', JSON.stringify(stored));
 
-    const state = await new BrowserRgapStore({ initialState: initialState(), storage }).admin().readState();
+    const restored = new BrowserRgapStore({ initialState: initialState(), storage }).admin();
 
-    expect(state.resources['acme']).toBeDefined();
-    expect(Object.keys(state.grants)).toEqual([]);
+    expect(await restored.resources.get(resourceId('acme'))).toBeDefined();
+    expect((await restored.grants.list()).records).toEqual([]);
   });
 
   it('loads stored state that is referentially intact', async () => {
@@ -134,9 +134,10 @@ describe('BrowserRgapStore', () => {
     const seeded = new BrowserRgapStore({ initialState: initialState(), storage }).admin();
     const created = await (await seeded.resources.get(resourceId('acme'))).create({ name: 'Tools' });
 
-    const state = await new BrowserRgapStore({ initialState: initialState(), storage }).admin().readState();
+    const restored = new BrowserRgapStore({ initialState: initialState(), storage }).admin();
+    const resources = Object.fromEntries((await restored.resources.list()).records.map((record) => [record.id, record]));
 
-    expect(resourceIdAtPath(state.resources, 'Acme/Tools')).toBe(created.id);
+    expect(resourceIdAtPath(resources, 'Acme/Tools')).toBe(created.id);
   });
 
   it('issues tokens and inspects their effective authority', async () => {
