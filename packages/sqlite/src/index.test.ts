@@ -97,9 +97,12 @@ const validator: JsonSchemaValidator = {
     : { valid: true },
 };
 
+const secretKey = () => new Uint8Array(32).fill(7);
+
 class FakeSecrets implements SecretStore {
   readonly values = new Map<string, string>();
   readonly deleted: string[] = [];
+  readonly handled: string[] = [];
   rejectWrites = false;
 
   async write(id: ResourceId, value: string) {
@@ -114,7 +117,14 @@ class FakeSecrets implements SecretStore {
   }
 
   async handle(id: ResourceId) {
+    this.handled.push(id);
     return { kind: 'secret' as const, resourceId: id };
+  }
+
+  async resolve(id: ResourceId) {
+    const value = this.values.get(id);
+    if (value === undefined) throw new Error('missing fake secret');
+    return value;
   }
 }
 
@@ -174,9 +184,11 @@ const collect = async <T>(iterable: AsyncIterable<T>) => {
 
 describe('SqliteRgapStore', () => {
   it('exposes command planes and close rather than repository commands', () => {
-    const store = open();
+    const store = open({ secretKey });
     expectTypeOf<Extract<keyof SqliteRgapStore, keyof RgapRepository>>().toEqualTypeOf<never>();
     expect(store).not.toHaveProperty('resources');
+    expect(store.secrets.resolve).toBeTypeOf('function');
+    expect(store.admin().secrets).not.toHaveProperty('resolve');
   });
 
   it('round-trips a complete state through SQL', async () => {
@@ -265,6 +277,150 @@ describe('SqliteRgapStore', () => {
     connection.close();
     expect(persisted).not.toContain(plaintext);
     expect(persisted).not.toContain('rejected-plaintext');
+  });
+
+  it('encrypts internal secrets at rest, rotates versions, and resolves only through the store', async () => {
+    const url = file();
+    const store = open({ url, initialState: acme(), secretKey });
+    const repository = store.admin();
+    const first = await repository.secrets.write(resourceId('drive'), 'first-plaintext');
+    expect(await store.secrets.resolve(resourceId('drive'))).toBe('first-plaintext');
+    expect(await store.secrets.handle(resourceId('drive'))).toEqual({
+      kind: 'secret',
+      resourceId: resourceId('drive'),
+    });
+
+    const second = await store.secrets.write(resourceId('drive'), 'rotated-plaintext');
+    expect(second.version).not.toBe(first.version);
+    expect(await repository.secrets.metadata(resourceId('drive'))).toEqual(second);
+    expect(await store.secrets.resolve(resourceId('drive'))).toBe('rotated-plaintext');
+
+    const connection = new Database(url, { readonly: true });
+    const row = connection.prepare('select * from secret_envelopes where resource_id = ?').get('drive');
+    connection.close();
+    const persisted = JSON.stringify(row);
+    expect(persisted).not.toContain('first-plaintext');
+    expect(persisted).not.toContain('rotated-plaintext');
+    expect(row).toMatchObject({
+      resource_id: 'drive',
+      ciphertext: expect.any(String),
+      nonce: expect.any(String),
+      tag: expect.any(String),
+      version: second.version,
+      updated_at: second.updatedAt,
+    });
+  });
+
+  it('rolls metadata back when an internal envelope write cannot commit', async () => {
+    const url = file();
+    const store = open({ url, initialState: acme(), secretKey });
+    const repository = store.admin();
+    const first = await repository.secrets.write(resourceId('drive'), 'first');
+    const connection = new Database(url);
+    connection.exec(`
+      create trigger reject_secret_rotation before update on secret_envelopes
+      begin select raise(abort, 'rejected envelope'); end
+    `);
+    connection.close();
+
+    await expect(repository.secrets.write(resourceId('drive'), 'second'))
+      .rejects.toThrow('rejected envelope');
+    expect(await repository.secrets.metadata(resourceId('drive'))).toEqual(first);
+    expect(await store.secrets.resolve(resourceId('drive'))).toBe('first');
+  });
+
+  it('fails safely for tampered envelopes and the wrong key', async () => {
+    const url = file();
+    const first = open({ url, initialState: acme(), secretKey });
+    await first.admin().secrets.write(resourceId('drive'), 'protected');
+    first.close();
+
+    const wrongKey = open({ url, secretKey: () => new Uint8Array(32).fill(8) });
+    await expect(wrongKey.secrets.resolve(resourceId('drive')))
+      .rejects.toMatchObject({ code: 'invalid_secret_envelope' });
+    wrongKey.close();
+
+    const connection = new Database(url);
+    connection.prepare("update secret_envelopes set ciphertext = 'AA==' where resource_id = ?").run('drive');
+    connection.close();
+    const tampered = open({ url, secretKey });
+    await expect(tampered.secrets.resolve(resourceId('drive')))
+      .rejects.toMatchObject({
+        code: 'invalid_secret_envelope',
+        message: 'Secret envelope authentication failed.',
+      });
+  });
+
+  it('keeps secret-key access lazy and requires it only for internal cryptography', async () => {
+    const provider = vi.fn(secretKey);
+    const store = open({ initialState: acme(), secretKey: provider });
+    const repository = store.admin();
+    await repository.resources.list();
+    await rootGrant(repository);
+    expect(provider).not.toHaveBeenCalled();
+
+    await repository.secrets.write(resourceId('drive'), 'protected');
+    expect(provider).toHaveBeenCalledTimes(1);
+    await store.secrets.resolve(resourceId('drive'));
+    expect(provider).toHaveBeenCalledTimes(2);
+    await store.secrets.delete(resourceId('drive'));
+    expect(provider).toHaveBeenCalledTimes(2);
+    await expect(store.secrets.resolve(resourceId('drive')))
+      .rejects.toMatchObject({ code: 'missing_secret' });
+    expect(provider).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails clearly when internal secret cryptography has no configured key', async () => {
+    const store = open({ initialState: acme() });
+    await expect(store.admin().secrets.write(resourceId('drive'), 'protected'))
+      .rejects.toMatchObject({
+        code: 'service_unavailable',
+        message: 'Secret key is not configured.',
+      });
+  });
+
+  it('accepts an asynchronous CryptoKey provider', async () => {
+    const cryptoKey = await crypto.subtle.generateKey(
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt'],
+    );
+    const store = open({
+      initialState: acme(),
+      secretKey: async () => cryptoKey,
+    });
+    await store.admin().secrets.write(resourceId('drive'), 'crypto-key-value');
+    expect(await store.secrets.resolve(resourceId('drive'))).toBe('crypto-key-value');
+  });
+
+  it('keeps external SecretStore compatibility on repository, trusted, and runtime surfaces', async () => {
+    const secrets = new FakeSecrets();
+    let resolved: string | undefined;
+    const runtime: InvokeRuntime = {
+      validate() {},
+      async *invoke(context) {
+        resolved = await secrets.resolve(context.bindings.token.secret!.resourceId);
+        yield { type: 'done' };
+      },
+    };
+    const store = open({
+      initialState: acme(),
+      secrets,
+      runtimes: { test: runtime },
+      validator,
+    });
+    const repository = store.admin();
+    await repository.secrets.write(resourceId('acme'), 'external-value');
+    expect(await store.secrets.resolve(resourceId('acme'))).toBe('external-value');
+    await repository.executables.publish(resourceId('drive'), publication({
+      token: { kind: 'secret', access: 'use' },
+    }));
+    await collect(repository.invoke(resourceId('drive'), {
+      input: {},
+      bindings: { token: resourceId('acme') },
+    }));
+    expect(resolved).toBe('external-value');
+    expect(secrets.handled).toContain('acme');
   });
 
   it('synchronizes runtime-owned credential metadata and records audit-safe invoke facts', async () => {
@@ -438,10 +594,18 @@ describe('SqliteRgapStore', () => {
   });
 
   it('restores the initial state on reset', async () => {
-    const repository = open({ initialState: acme() }).admin();
+    const url = file();
+    const store = open({ url, initialState: acme(), secretKey });
+    const repository = store.admin();
     await (await repository.resources.get(resourceId('acme'))).create({ name: 'mcp' });
+    await repository.secrets.write(resourceId('drive'), 'removed-by-reset');
     await repository.reset();
     expect(await queriedState(repository)).toEqual(acme());
+    await expect(store.secrets.resolve(resourceId('drive')))
+      .rejects.toMatchObject({ code: 'missing_secret' });
+    const connection = new Database(url, { readonly: true });
+    expect(connection.prepare('select count(*) as count from secret_envelopes').get()).toEqual({ count: 0 });
+    connection.close();
   });
 
   it('opens an empty store with no initial state at all', async () => {

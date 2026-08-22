@@ -82,9 +82,22 @@ export const executables = sqliteTable('executables', {
   deletedAt: text('deleted_at'),
 });
 
-/** Only public metadata is persisted; secret and runtime-private values never enter SQLite. */
+/** Public metadata is safe to expose through repository command planes. */
 export const secretMetadata = sqliteTable('secret_metadata', {
   resourceId: text('resource_id').primaryKey().references(() => resources.id),
+  version: text('version').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+/**
+ * Internal ciphertext deliberately has no resource foreign key: whole-state replacement rewrites
+ * resource rows while leaving envelopes untouched.
+ */
+export const secretEnvelopes = sqliteTable('secret_envelopes', {
+  resourceId: text('resource_id').primaryKey(),
+  ciphertext: text('ciphertext').notNull(),
+  nonce: text('nonce').notNull(),
+  tag: text('tag').notNull(),
   version: text('version').notNull(),
   updatedAt: text('updated_at').notNull(),
 });

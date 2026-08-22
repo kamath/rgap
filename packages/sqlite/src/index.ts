@@ -11,9 +11,11 @@ import {
   availableId,
   createGrant as addGrant,
   createResource as addResource,
+  decryptSecret,
   deleteExecutable as removeExecutable,
   deleteResource as removeResource,
   deleteSecretMetadata,
+  encryptSecret,
   executableRevisionId,
   grantId,
   getAuthorizedLineage,
@@ -59,6 +61,8 @@ import {
   type RgapRepository,
   type RgapStore,
   type RuntimeCredentialStore,
+  type SecretEnvelope,
+  type SecretKey,
   type SecretStore,
   type State,
   type Token,
@@ -82,7 +86,9 @@ export type SqliteRgapStoreOptions = {
   validator?: JsonSchemaValidator;
   /** Per-runtime host ceilings. An omitted runtime has no configured ceilings. */
   runtimeLimits?: Readonly<Record<string, ExecutionLimits>> | ((runtime: string) => ExecutionLimits);
-  /** Protected-value persistence. SQLite receives only the metadata it returns. */
+  /** Lazy AES-256-GCM key access for SQLite's internal encrypted secret store. */
+  secretKey?: () => SecretKey | Promise<SecretKey>;
+  /** Optional external vault-compatible protected-value persistence. */
   secrets?: SecretStore;
   /** Runtime-private persistence. SQLite receives only synchronized public metadata. */
   credentials?: RuntimeCredentialStore;
@@ -90,9 +96,12 @@ export type SqliteRgapStoreOptions = {
 
 export class SqliteRgapStore implements RgapStore {
   private readonly repository: SqliteBackingRepository;
+  /** Trusted secret operations, including plaintext resolution. Never exposed by command planes. */
+  readonly secrets: SecretStore;
 
   constructor(options: SqliteRgapStoreOptions = {}) {
     this.repository = new SqliteBackingRepository(options);
+    this.secrets = this.repository.secrets;
   }
 
   admin(): RgapRepository {
@@ -116,7 +125,9 @@ class SqliteBackingRepository implements RgapCommands {
   private readonly runtimes: RuntimeRegistry;
   private readonly validator: JsonSchemaValidator;
   private readonly runtimeLimits: (runtime: string) => ExecutionLimits;
-  private readonly secrets: SecretStore;
+  readonly secrets: SecretStore;
+  private readonly internalSecrets: boolean;
+  private readonly externalSecrets?: SecretStore;
   private readonly credentials: RuntimeCredentialStore;
 
   constructor(options: SqliteRgapStoreOptions = {}) {
@@ -129,12 +140,14 @@ class SqliteBackingRepository implements RgapCommands {
     this.runtimeLimits = typeof configuredLimits === 'function'
       ? configuredLimits
       : (runtime) => structuredClone(configuredLimits?.[runtime] ?? {});
-    this.secrets = options.secrets ?? unavailableSecrets;
     this.credentials = options.credentials ?? unavailableCredentials;
     this.connection = new Database(options.url ?? ':memory:');
     this.connection.pragma('foreign_keys = ON');
     this.db = drizzle(this.connection);
     migrate(this.db, { migrationsFolder: fileURLToPath(new URL('../drizzle', import.meta.url)) });
+    this.internalSecrets = !options.secrets;
+    this.externalSecrets = options.secrets;
+    this.secrets = this.synchronizedSecrets(options.secrets, options.secretKey);
     // A database that already holds records is opened as it stands; an empty one takes the initial state.
     this.db.transaction(() => {
       if (this.isEmpty()) this.replace(this.initialState);
@@ -268,21 +281,11 @@ class SqliteBackingRepository implements RgapCommands {
   }
 
   async writeSecret(id: ResourceId, value: string) {
-    this.requireLiveResource(id);
-    const metadata = await this.secrets.write(id, value);
-    if (metadata.resourceId !== id) {
-      throw new RgapError('invalid_secret_metadata', 'Secret store returned metadata for another resource.');
-    }
-    return this.commit((state) => ({
-      state: recordSecretMetadata(state, metadata),
-      pick: (committed) => committed.secretMetadata[id],
-    }));
+    return this.secrets.write(id, value);
   }
 
   async deleteSecret(id: ResourceId) {
-    this.requireLiveResource(id);
     await this.secrets.delete(id);
-    this.commit((state) => ({ state: deleteSecretMetadata(state, id), pick: () => undefined }));
   }
 
   async getRuntimePrivateMetadata(runtime: string, id: ResourceId) {
@@ -384,11 +387,18 @@ class SqliteBackingRepository implements RgapCommands {
 
   async reset() {
     const state = this.read();
-    await Promise.allSettled([
-      ...Object.values(state.secretMetadata).map(({ resourceId }) => this.secrets.delete(resourceId)),
-      ...Object.values(state.runtimePrivateMetadata)
-        .map(({ runtime, resourceId }) => this.credentials.delete(runtime, resourceId)),
-    ]);
+    await Promise.allSettled(Object.values(state.runtimePrivateMetadata)
+      .map(({ runtime, resourceId }) => this.credentials.delete(runtime, resourceId)));
+    if (this.internalSecrets) {
+      this.db.transaction(() => {
+        this.replace(structuredClone(this.initialState));
+        this.db.delete(schema.secretEnvelopes).run();
+      });
+      return;
+    }
+    await Promise.allSettled(
+      Object.values(state.secretMetadata).map(({ resourceId }) => this.externalSecrets!.delete(resourceId)),
+    );
     this.commit(() => ({ state: structuredClone(this.initialState), pick: () => undefined }));
   }
 
@@ -400,6 +410,89 @@ class SqliteBackingRepository implements RgapCommands {
   private requireLiveResource(id: ResourceId) {
     const resource = this.read().resources[id];
     if (!resource || resource.deletedAt) throw new RgapError('missing_resource', 'Resource does not exist.');
+  }
+
+  /**
+   * Synchronizes public metadata with either an external vault or SQLite's internal envelope rows.
+   * Internal encryption finishes before the transaction that commits both records.
+   */
+  private synchronizedSecrets(
+    external: SecretStore | undefined,
+    keyProvider: SqliteRgapStoreOptions['secretKey'],
+  ): SecretStore {
+    if (external) {
+      return {
+        write: async (id, value) => {
+          this.requireLiveResource(id);
+          const metadata = await external.write(id, value);
+          this.validateSecretMetadata(id, metadata.resourceId);
+          return this.commit((state) => ({
+            state: recordSecretMetadata(state, metadata),
+            pick: (committed) => committed.secretMetadata[id],
+          }));
+        },
+        delete: async (id) => {
+          this.requireLiveResource(id);
+          await external.delete(id);
+          this.commit((state) => ({ state: deleteSecretMetadata(state, id), pick: () => undefined }));
+        },
+        handle: (id) => external.handle(id),
+        resolve: (id) => external.resolve(id),
+      };
+    }
+
+    const key = async () => keyProvider ? keyProvider() : unavailable('Secret key');
+    return {
+      write: async (id, value) => {
+        this.requireLiveResource(id);
+        const version = randomUUID();
+        const envelope = await encryptSecret(await key(), id, version, value);
+        return this.db.transaction(() => {
+          const state = recordSecretMetadata(this.read(), {
+            resourceId: id,
+            version: envelope.version,
+            updatedAt: envelope.updatedAt,
+          });
+          this.replace(state);
+          this.writeSecretEnvelope(id, envelope);
+          return state.secretMetadata[id];
+        });
+      },
+      delete: async (id) => {
+        this.requireLiveResource(id);
+        this.db.transaction(() => {
+          this.replace(deleteSecretMetadata(this.read(), id));
+          this.db.delete(schema.secretEnvelopes).where(eq(schema.secretEnvelopes.resourceId, id)).run();
+        });
+      },
+      handle: async (id) => ({ kind: 'secret', resourceId: id }),
+      resolve: async (id) => {
+        const row = this.db.select().from(schema.secretEnvelopes)
+          .where(eq(schema.secretEnvelopes.resourceId, id)).get();
+        if (!row) throw new RgapError('missing_secret', 'Secret does not exist.');
+        return decryptSecret(await key(), id, {
+          ciphertext: row.ciphertext,
+          nonce: row.nonce,
+          tag: row.tag,
+          version: row.version,
+          updatedAt: row.updatedAt,
+        });
+      },
+    };
+  }
+
+  private validateSecretMetadata(expected: ResourceId, actual: ResourceId) {
+    if (actual !== expected) {
+      throw new RgapError('invalid_secret_metadata', 'Secret store returned metadata for another resource.');
+    }
+  }
+
+  private writeSecretEnvelope(id: ResourceId, envelope: SecretEnvelope) {
+    this.db.insert(schema.secretEnvelopes).values({ resourceId: id, ...envelope })
+      .onConflictDoUpdate({
+        target: schema.secretEnvelopes.resourceId,
+        set: envelope,
+      }).run();
   }
 
   /**
@@ -741,11 +834,6 @@ const unavailable = (service: string): never => {
 };
 const unavailableValidator: JsonSchemaValidator = {
   validate: () => unavailable('JSON Schema validator'),
-};
-const unavailableSecrets: SecretStore = {
-  write: async () => unavailable('Secret store'),
-  delete: async () => unavailable('Secret store'),
-  handle: async () => unavailable('Secret store'),
 };
 const unavailableCredentials: RuntimeCredentialStore = {
   metadata: async () => undefined,

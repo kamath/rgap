@@ -15,6 +15,13 @@
       "when": 1787386043758,
       "tag": "0001_black_dagger",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787392794716,
+      "tag": "0002_dear_phantom_reporter",
+      "breakpoints": true
     }
   ]
 }
