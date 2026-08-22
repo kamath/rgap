@@ -1,4 +1,5 @@
 import { SqliteRgapStore } from '@rgap/sqlite';
+import { EncryptedSqliteSecretStore, secretKey } from './secret-store';
 
 export function requiredEnvironment(name: string) {
   const value = process.env[name]?.trim();
@@ -18,4 +19,6 @@ export function serverPort() {
   return value;
 }
 
-export const store = new SqliteRgapStore({ url: databaseUrl() });
+const url = databaseUrl();
+export const secrets = new EncryptedSqliteSecretStore(url, secretKey);
+export const store = new SqliteRgapStore({ url, secrets });

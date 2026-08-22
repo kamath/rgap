@@ -1,11 +1,13 @@
 import { tokenValue, type ResourceId, type RgapStore } from '@rgap/core';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import type { EncryptedSqliteSecretStore } from './secret-store';
 
 export type LlmGatewayOptions = {
   store: RgapStore;
   openAiResourceId: ResourceId;
-  openAiApiKey: string;
+  openAiSecretId: ResourceId;
+  secrets: Pick<EncryptedSqliteSecretStore, 'read'>;
   upstreamOrigin?: string;
   fetch?: typeof globalThis.fetch;
 };
@@ -25,8 +27,11 @@ export function createLlmGateway(options: LlmGatewayOptions) {
     if (!bearer) throw new HTTPException(401);
 
     const token = tokenValue(bearer);
-    const decision = await options.store.as(token).authorize(token, options.openAiResourceId, 'invoke');
-    if (!decision.allowed) throw new HTTPException(decision.grantId === null ? 401 : 403);
+    const repository = options.store.as(token);
+    const invoke = await repository.authorize(token, options.openAiResourceId, 'invoke');
+    const use = await repository.authorize(token, options.openAiSecretId, 'use');
+    const denied = !invoke.allowed ? invoke : !use.allowed ? use : null;
+    if (denied) throw new HTTPException(denied.grantId === null ? 401 : 403);
     await next();
   });
 
@@ -34,7 +39,7 @@ export function createLlmGateway(options: LlmGatewayOptions) {
     const incoming = new URL(c.req.url);
     const upstream = new URL(`${incoming.pathname}${incoming.search}`, upstreamOrigin);
     const headers = new Headers(c.req.raw.headers);
-    headers.set('authorization', `Bearer ${options.openAiApiKey}`);
+    headers.set('authorization', `Bearer ${options.secrets.read(options.openAiSecretId)}`);
     headers.delete('host');
 
     return upstreamFetch(upstream, {

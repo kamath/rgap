@@ -7,10 +7,16 @@ const employee = process.env.EMPLOYEE_NAME?.trim() || 'employee';
 try {
   const grant = await store.admin().grants.create({
     name: `${employee} OpenAI gateway`,
-    capabilities: [{
-      resourceId: resourceId(requiredEnvironment('OPENAI_RESOURCE_ID')),
-      permissions: ['invoke'],
-    }],
+    capabilities: [
+      {
+        resourceId: resourceId(requiredEnvironment('OPENAI_RESOURCE_ID')),
+        permissions: ['invoke'],
+      },
+      {
+        resourceId: resourceId(requiredEnvironment('OPENAI_SECRET_ID')),
+        permissions: ['use'],
+      },
+    ],
     expiresAt: null,
   });
   const { value } = await grant.tokens.create({ label: employee });

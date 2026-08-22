@@ -14,10 +14,12 @@
     "@hono/node-server": "^2.1.1",
     "@rgap/core": "workspace:*",
     "@rgap/sqlite": "workspace:*",
+    "better-sqlite3": "^13.0.3",
     "hono": "^4.13.3",
     "openai": "^7.5.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "latest",
     "tsx": "latest",
     "typescript": "latest"

@@ -1,23 +1,17 @@
-import type { ResourceHandle, RgapRepository } from '@rgap/core';
-import { store } from './config';
+import { requiredEnvironment, secrets, store } from './config';
 
 try {
   const admin = store.admin();
-  const llm = await child(admin, null, 'llm');
-  const openai = await child(admin, llm, 'openai');
+  await admin.reset();
+  const llm = await admin.resources.create({ name: 'llm' });
+  const openai = await llm.create({ name: 'openai' });
+  const protectedValues = await admin.resources.create({ name: 'secrets' });
+  const openaiKey = await protectedValues.create({ name: 'openai-key' });
+  await openaiKey.secret.write(requiredEnvironment('OPENAI_API_KEY'));
 
   console.log(`OPENAI_RESOURCE_ID=${openai.id}`);
+  console.log(`OPENAI_SECRET_ID=${openaiKey.id}`);
 } finally {
   store.close();
-}
-
-async function child(
-  repository: RgapRepository,
-  parent: ResourceHandle | null,
-  name: string,
-) {
-  const records = await repository.resources.list({ parentId: parent?.id ?? null, limit: 100 });
-  const existing = records.find((record) => record.name === name);
-  if (existing) return repository.resources.get(existing.id);
-  return parent ? parent.create({ name }) : repository.resources.create({ name });
+  secrets.close();
 }
