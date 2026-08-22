@@ -1,0 +1,33 @@
+{
+  "name": "@rgap/server",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client/generated/index.ts"
+  },
+  "scripts": {
+    "build": "pnpm generate:check && tsc --noEmit",
+    "dev": "tsx watch src/server.ts",
+    "generate": "tsx scripts/generate-openapi.ts && openapi-ts",
+    "generate:check": "pnpm generate && git diff --exit-code -- openapi.json src/client/generated",
+    "start": "tsx src/server.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "@hono/zod-openapi": "^1.6.1",
+    "@rgap/core": "workspace:*",
+    "@rgap/sqlite": "workspace:*",
+    "hono": "^4.13.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "^0.99.0",
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.11"
+  }
+}
