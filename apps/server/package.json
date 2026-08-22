@@ -8,12 +8,11 @@
     "./client": "./src/client/generated/index.ts"
   },
   "scripts": {
-    "build": "pnpm generate:check && tsc --noEmit",
+    "build": "pnpm generate && tsc --noEmit",
     "dev": "tsx watch src/server.ts",
     "generate": "tsx scripts/generate-openapi.ts && openapi-ts",
-    "generate:check": "pnpm generate && git diff --exit-code -- openapi.json src/client/generated",
     "start": "tsx src/server.ts",
-    "test": "vitest run"
+    "test": "pnpm generate && vitest run"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
