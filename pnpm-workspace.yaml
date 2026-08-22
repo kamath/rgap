@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - examples
+  - examples/*
   - packages/*
 
 # better-sqlite3 ships a prebuilt binding for every platform it supports, so it needs no build step.

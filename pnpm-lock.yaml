@@ -70,6 +70,34 @@ importers:
         specifier: latest
         version: 7.0.2
 
+  examples/llm-gateway:
+    dependencies:
+      '@hono/node-server':
+        specifier: ^2.1.1
+        version: 2.1.1(hono@4.13.3)
+      '@rgap/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@rgap/sqlite':
+        specifier: workspace:*
+        version: link:../../packages/sqlite
+      hono:
+        specifier: ^4.13.3
+        version: 4.13.3
+    devDependencies:
+      '@types/node':
+        specifier: latest
+        version: 26.2.0
+      tsx:
+        specifier: latest
+        version: 4.23.12
+      typescript:
+        specifier: latest
+        version: 7.0.2
+      vitest:
+        specifier: latest
+        version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.11)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
   packages/core:
     devDependencies:
       '@vitest/coverage-v8':
