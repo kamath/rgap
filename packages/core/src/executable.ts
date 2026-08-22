@@ -183,7 +183,7 @@ export function effectiveExecutionLimits(ceiling: ExecutionLimits, requested: Ex
     throw new RgapError('limit_expands', 'Network origins exceed the runtime ceiling.');
   }
   if (requestedOrigins || hostOrigins) {
-    result.network = { allowedOrigins: [...(requestedOrigins ?? hostOrigins ?? [])] };
+    result.network = { allowedOrigins: [...(requestedOrigins ?? hostOrigins!)] };
   }
   return result;
 }

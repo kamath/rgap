@@ -82,11 +82,40 @@ describe('RGAP domain', () => {
       version: 'one',
       updatedAt: at,
     };
+    state.executables['missing-definition-resource'] = {
+      resourceId: r('missing-definition-resource'),
+      activeRevisionId: null,
+      deletedAt: null,
+    };
+    state.executables.drive = {
+      resourceId: r('drive'),
+      activeRevisionId: executableRevisionId('missing-active-revision'),
+      deletedAt: null,
+    };
+    state.executableRevisions.cross = {
+      id: executableRevisionId('cross'),
+      resourceId: r('read-file'),
+      runtime: 'test',
+      program: {},
+      inputSchema: true,
+      outputSchema: null,
+      bindingSchema: {},
+      limits: {},
+      createdAt: at,
+    };
+    state.executables['create-issue'] = {
+      resourceId: r('create-issue'),
+      activeRevisionId: executableRevisionId('cross'),
+      deletedAt: null,
+    };
 
     expect(stateIntegrity(state)).toEqual([
       'Grant researcher refers to missing parent coordinator.',
       'Grant researcher refers to missing resource search-files.',
       'Token demo refers to missing grant coordinator.',
+      'Executable missing-definition-resource refers to a missing resource.',
+      'Executable drive refers to missing revision missing-active-revision.',
+      'Executable create-issue selects a revision from another resource.',
       'Executable revision orphan refers to missing resource missing-executable-resource.',
       'Secret metadata refers to missing resource missing-secret-resource.',
       'Runtime-private metadata refers to missing resource missing-private-resource.',
