@@ -21,7 +21,7 @@ export function createLlmGateway(options: LlmGatewayOptions) {
   app.get('/health', (c) => c.json({ ok: true }));
 
   app.use('/v1/*', async (c, next) => {
-    const bearer = bearerToken(c.req.header('authorization'));
+    const bearer = c.req.header('authorization')?.match(/^Bearer (\S+)$/)?.[1];
     if (!bearer) throw new HTTPException(401);
 
     const token = tokenValue(bearer);
@@ -47,8 +47,4 @@ export function createLlmGateway(options: LlmGatewayOptions) {
   });
 
   return app;
-}
-
-function bearerToken(authorization: string | undefined) {
-  return authorization?.match(/^Bearer (\S+)$/)?.[1];
 }
