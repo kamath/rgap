@@ -12,7 +12,7 @@ Additional documents:
 
 - [PROTOCOL.md](PROTOCOL.md) is the normative specification: records, permission algebra, delegation rules, and the decision procedure.
 - [EXAMPLES.md](EXAMPLES.md) shows MCP server governance, tool aggregation, and sub-agent downscoping.
-- [IMPLEMENTATION.md](IMPLEMENTATION.md) defines the repository contract and Vite reference application.
+- [IMPLEMENTATION.md](IMPLEMENTATION.md) defines the repository contract and SQLite implementation.
 - [LANDSCAPE.md](LANDSCAPE.md) compares RGAP with existing capability, authorization, and agent-access systems.
 
 ## Core model
@@ -169,150 +169,15 @@ Because a retained record is identified by ID rather than by path, a deleted nam
 
 A move or deletion commits the resource-tree change and its audit event atomically. Authorization always evaluates targets against one current tree snapshot, so a request never observes a partially moved or deleted subtree.
 
-## Reference application
+## Repository architecture
 
-The repository contains a React, TypeScript, and Vite application at `apps/frontend`, routed by TanStack Router. It is a local, browser-only demonstrator for exercising RGAP and inspecting how authorization decisions are made. It requires no application server, database, authentication system, or external service.
+The repository contains three workspace packages:
 
-The interface is a protocol workbench. Every route states what it operates on, shows the current state in a reading pane, and executes repository calls from an operations surface that displays the request it sends and the response it receives. Resources browse like an object store: the URL holds the current resource path, a breadcrumb shows where that path sits, and the explorer lists one location at a time as the full width of the route. Its operations open one at a time in a drawer beside the listing, so the listing is what the route shows when no operation is in progress.
+- `@rgap/core` defines the protocol records, pure authorization rules, and store and repository contracts.
+- `@rgap/sqlite` provides durable SQLite persistence.
+- `@rgap/examples` is an executable scratchpad for exploring the model.
 
-### Routes
-
-| Route | View |
-| --- | --- |
-| `/` | Redirects to the resource explorer root. |
-| `/browse/$path` | Resource explorer for the resource at `$path`. An empty splat lists the tree roots. |
-| `/grants` | Delegation explorer for the root grants. |
-| `/grants/$grantId` | Delegation explorer for the grants delegated from `$grantId`. |
-| `/grants/$grantId/inspect` | One grant in full: its lineage, capabilities, and tokens. |
-| `/authorize` | Authorization simulator. |
-| `/audit` | Audit events, newest first. |
-
-The header is present on every route. It holds the route links, the active-token control, and a button that resets the store to the deterministic example state.
-
-### Interface
-
-The application is dark, typographic, and flat. Structure comes from hairline rules rather than shadows, rounding, or fills.
-
-- Near-black surfaces, hairline borders, and one accent colour. The accent marks the selected tab, an active status, and an allowed decision; a red tone marks a denied decision, an inactive grant, and a rejected command.
-- Monospace for every protocol value: paths, stable IDs, permissions, policies, token hashes, timestamps, and JSON. Proportional type only for page titles and prose.
-- Uppercase monospace eyebrows label the workbench and each pane. Each route opens with a large title and a one-line note about what backs it.
-- Route navigation is a tab strip of bordered cells. The selected route fills with the accent colour.
-- Panes are bordered cells in a grid: a pane label on the left of its head, dim monospace metadata on the right.
-- A command runs from one pale full-width execute button per operations surface, and its result appears as monospace JSON in the same surface.
-- A drawer is a pane in a column at the right edge of the route, separated from the content beside it by a hairline. It carries the same head, label, and metadata as any other pane, and the content beside it stays visible and usable while it is open.
-- Action bar buttons are bordered cells in the text colour, bright enough to read as controls rather than metadata. The button whose drawer is open fills with the accent colour, and a button with nothing to act on dims to the metadata colour.
-- The status line under the header reports the active token's authority. Command outcomes are not reported there; they belong to the surface the command was sent from.
-
-### Operations surfaces
-
-Every command runs through the same request-and-response pair. The request holds the form and, under it, the exact call the form will make as monospace JSON: a collection method on the repository, a method on a resource, grant, or token handle, or `grant.tokens.create`. The response holds the returned record, decision, or error as monospace JSON. The request preview is a read-only rendering of the form, not a JSON editor, so the domain rules always receive typed input.
-
-Every command names resources by stable ID, never by path. A handle is that ID plus the collections and methods that act on it. Forms still accept a path, because a path is what a person can read and type; the interface resolves it against the current tree and looks up the handle, and the request preview shows that ID. A path that resolves to nothing has no ID to show, so the request preview omits it and the form marks it; executing anyway reports it in the response before any command is sent.
-
-Routes present their operations one of two ways. An operations pane sits beside a response pane and is always open, which suits the simulator, whose whole purpose is the form. A drawer holds one operation, opens from a named button in an action bar, and closes when that operation is finished or abandoned, so a route with drawers shows no form until one is asked for.
-
-| Route | Operations | Presentation |
-| --- | --- | --- |
-| `/browse/$path` | Create resource, Move, Delete | Drawer, one operation at a time |
-| `/grants` | Create root grant, Revoke grant | Drawer, one operation at a time |
-| `/grants/$grantId` | Create grant, Revoke grant | Drawer, one operation at a time |
-| `/grants/$grantId/inspect` | Issue token, Revoke token | Drawer, one operation at a time |
-| `/grants/$grantId/inspect` | Set capabilities | The Capabilities pane, in place |
-| `/authorize` | Authorize | Operations pane |
-
-### Listings and drawers
-
-Two routes are built the same way, so browsing resources and walking grants read as one interface.
-
-A listing is the route's main view. It shows one record's contents at a time, the way a file viewer does, and spans the full width of the route. A breadcrumb above it walks back out of the tree, and under the breadcrumb one monospace line states the facts of the record the route addresses.
-
-Every listing row carries a checkbox, and clicking a row anywhere but its link checks it. A checkbox in the listing head checks and unchecks every row at once. A leading `..` row navigates to the parent. The selection covers only the location the listing shows: navigating clears it, because the listing is what the checkboxes describe. Reading the selection back out of the listing on every render drops whatever a committed command removed from it.
-
-An action bar in the listing head holds that listing's operations. One of them creates a record inside the record the route addresses and is always available. The rest act on the selection, name the count they would act on, as `Delete 3`, and are unavailable while nothing is checked. An action bar may also hold a link rather than an operation, which navigates instead of opening a drawer.
-
-Each button opens its operation in a drawer, and one drawer is open at a time across the route, so asking for another operation replaces the open one. The listing stays live while a drawer is open: checking and unchecking rows retargets the operation, and the drawer's target list and request preview follow the selection. Losing the selection closes a drawer that acts on it. A drawer closes when its operation commits, from the close control in its head, and on `Escape`; a refused command leaves it open with the decision's explanation in its response so the form can be corrected. One operation is exempt: issuing a token returns a value that exists nowhere else, so its drawer stays open holding that value and only the close control or `Escape` dismisses it.
-
-An operation over several records is several commands, one per selected record, sent in listing order. The drawer reports one result per record in its response, so a selection where some commands are authorized and others are refused shows exactly which were applied.
-
-### Resource explorer
-
-The explorer path is the canonical resource path, so `/browse/acme/drive` addresses `acme/drive` and the browser's back button walks back out of the tree. Leading, trailing, and repeated separators are ignored, so `/browse/acme`, `/browse/acme/`, and `/browse//acme//` address the same resource.
-
-The breadcrumb spells out the current path as `root / acme / mcp`, and every segment navigates to that ancestor. The line under it states the addressed resource's stable ID, effective permissions under the active token, and child count.
-
-The listing has one row per live child of the current path, with the child's name, stable ID, and permissions under the active token. Deleted resources appear in no listing. Clicking a name navigates into that child, replacing the listing with that child's contents. Because RGAP assigns no resource kinds, a resource with no children lists nothing.
-
-The create drawer takes a name. It creates the resource on the handle the listing shows: a child via `resource.create` when a resource is addressed, and a root via `resources.create` at the tree root, which no token authorizes and which the guarded plane therefore refuses. The parent is that location, stated as a read-only path rather than typed, so creating somewhere else means navigating there first.
-
-The move drawer lists the checked resources as paths and takes one destination parent path, resolved against the current tree to the stable ID the commands send, where an empty path moves them to roots. The delete drawer lists the checked resources as paths and removes each together with its descendants.
-
-### Active token
-
-One active-token control in the header applies to every route. An empty token selects the unrestricted administrative view. A valid bearer token narrows every listing to the resources that token reaches plus the ancestors needed to understand their paths, annotates those resources with effective permissions, and focuses the grant view on the token's delegation lineage. An unknown, expired, or revoked token shows no authority and explains why. Issuing a token makes its bearer value active immediately; the user can then replace or clear that value to inspect another authority view.
-
-The active token also selects which plane commands run on. With no token, operations use `store.admin()`. With a valid token, operations use `store.as(token)`, so an operation that token does not authorize is refused with the decision's explanation in the response pane, and the operations pane names the plane it is sending to.
-
-Bearer values stay in transient interface memory. The active token never appears in a route path, a search parameter, or browser storage.
-
-### Grants
-
-Grants are explored the way resources are. `/grants` lists the root grants, `/grants/$grantId` lists the grants delegated from that grant, and clicking a grant's name navigates into it, replacing the listing with the grants delegated from it. A leading `..` row walks back out. The breadcrumb walks the delegation lineage as `grants / Acme admin / Drive read`, and every name navigates to that ancestor grant. The line under it states the addressed grant's stable ID, expiration, status, and the number of grants delegated from it.
-
-A grant row states the grant's name, each capability entry as a resource path and permission set, expiration, and status. A revoked or expired grant is marked inactive, and so is every grant delegated beneath it, because an inactive ancestor disables its descendants. Status is therefore a property of a grant's lineage rather than of the grant record alone, and the listing reports it that way.
-
-The listing's action bar creates, revokes, and inspects. `Create` creates a grant on the handle the route addresses: at `/grants/$grantId` that is `grant.create`, and at `/grants` it is a root via the administrative collection, which no token authorizes. A token delegates with `grants.create` on its own plane, which mints a child of the acting grant; the workbench sends that as `grant.create` from the acting grant's listing. Its form takes the name and optional expiration and nothing else. The new grant starts with no capability entries, because what a grant reaches is set from the grant itself, where the whole set is visible at once. `Revoke` revokes each checked grant together with the grants delegated from it, and its drawer lists those descendants under each target, so the extent of a revocation is stated before it runs.
-
-`Inspect` is the one action bar entry that navigates rather than opening a drawer. It addresses the same grant the route addresses, so it is present wherever a grant is addressed and absent at `/grants`, where the route addresses no grant and a root grant is reached by navigating into it.
-
-### Inspecting a grant
-
-`/grants/$grantId/inspect` is one grant in full. Browsing a delegation branch and reading a grant's authority are different tasks, so they are different routes: the listing stays a listing, and everything a grant is sits behind one link from it. The breadcrumb walks back out to the grant's own listing and on up its lineage.
-
-Lineage is a read-only table of the delegation chain from the root grant down to the addressed grant, one row per capability entry, grouped under the grant that holds it. Reading down the table is reading the downscoping: targets narrow, permission sets shrink, and expirations move earlier. It is the view that answers whether a grant's authority survives everything above it.
-
-Capabilities is the addressed grant's own entries: whether each names a `resourceId` or a `path`, that value, and the permission set. An ID entry whose resource has been deleted is marked deleted and still shows the path that resource held. A path entry whose location is empty is marked empty and remains editable.
-
-Its action bar holds `Set capabilities`, the one operation that changes what a grant reaches. Setting replaces the whole set in one command, so the operation opens seeded with the entries the grant holds now and executes the set it is left in.
-
-Whether that action is offered depends on the plane the active token selects. On the administrative plane it is always offered, bounded only by the parent grant. On the guarded plane the pane states what the active token can do before a form opens, rather than letting a form be filled in and the command refused: a token on a grant above the addressed grant is offered the action, and a token that is not is offered the reason in its place.
-
-A token on the addressed grant itself is refused, because a grant does not amend itself. Its holder would widen it to the authority its issuer withheld, so raising what a grant reaches belongs to the grant above it. The note therefore names that parent grant and links to it, because a token on the parent is what performs the operation. A token on a grant that is neither the addressed grant nor above it is refused as outside that branch, and a root grant's entries are administrative, so no token amends them. These are the guard's own rules, stated where the operation would be started instead of where it would fail.
-
-This is the one operation that does not open in a drawer. A drawer exists so a form can sit beside content that stays useful while it is open, and here that content is the very table the form edits. So the pane becomes the form in place: the entries stay where they were, gain their controls, and the pane grows an execute button and a response. Until `Set capabilities` is pressed the pane is a reading pane, so the route still shows no form until one is asked for.
-
-### Choosing targets
-
-Each entry explicitly selects `resource ID` or `path`. ID targets use the resource picker: a breadcrumb walks the current tree, rows select live resources, and a whole-path filter reaches deep resources directly. Path targets use a normalized path field and do not require the path to be occupied, so a grant can reserve authority for a location that is currently empty.
-
-Under the target controls is one row per entry, in order, stating whether it names a `resourceId` or a `path`, that value, and its permission checkbox set. Permissions default to none, and the form marks an entry that has none, because an entry with no permission is not valid. Every entry covers the target and its subtree; there is no per-entry extent control.
-
-For a child grant, available targets and permissions are bounded by the parent grant. A child ID target must currently resolve within a covering parent entry. A child path target may be delegated while empty when a parent path entry lexically covers it; otherwise it must currently resolve within a covering parent entry. The domain check remains authoritative, and authorization checks every grant in the lineage against the requested live resource so later moves cannot expand delegated authority.
-
-Tokens is a listing with its own checkboxes and action bar, holding one row per issued token with its label, status, and hash prefix. Its action bar issues and revokes. `Issue token` takes a label and issues a token for the grant the route addresses. Only a hash of that token is stored, so the bearer value the command returns is the only copy there will ever be: the drawer stays open after it commits, states the value on a line of its own, and offers a control that copies it. The value also becomes the active token immediately, so the header carries it until it is replaced or cleared, and the drawer says plainly that dismissing it is the last chance to read the value. `Revoke token` revokes each checked token, which disables that credential and leaves the grant intact.
-
-### Authorization and audit
-
-The simulator is the plainest operations pane: its request takes a token, a resource path, and a permission, and its response reports whether the request is allowed, the explanation, the grant it resolved to, and the grant lineage it checked. The verdict is stated in the accent colour when allowed and in red when denied.
-
-The audit route is one full-width log pane. It lists recorded events in monospace with their timestamp, action, target, result, and detail, so a move that revoked a delegated branch or a denied request is visible after the fact.
-
-### Architecture
-
-The application separates domain behavior from state management and presentation:
-
-```text
-React interface
-      ↓
-@rgap/react hooks
-      ↓
-RgapClient observable cache
-      ↓
-RgapRepository in @rgap/core
-      ↓
-Browser storage, a SQLite database, or an HTTP API
-```
-
-`@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, and asynchronous `RgapStore` and `RgapRepository` contracts. Identities in that TypeScript surface are branded (`ResourceId`, `GrantId`, `TokenId`, `TokenValue`, `TokenHash`); they serialize as ordinary strings. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. `as` takes a `TokenValue`. Neither contract exposes a subscription or requires a streaming transport. The package has no dependency on React, Zustand, browser storage, or a transport.
+`@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, and asynchronous `RgapStore` and `RgapRepository` contracts. Identities in that TypeScript surface are branded (`ResourceId`, `GrantId`, `TokenId`, `TokenValue`, `TokenHash`); they serialize as ordinary strings. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. `as` takes a `TokenValue`. Neither contract exposes a subscription or requires a streaming transport. The package has no dependency on a storage implementation or transport.
 
 A repository is the request-response interface returned by `as` or `admin`. It exposes collections, looks up existing records, reads current state, and answers decision queries. Creating a grant or a resource is one command; the parent is an argument. TypeScript fills that argument from the receiver so the caller does not pass it.
 
@@ -372,19 +237,9 @@ POST /tokens/:id/revoke
 
 Every command addresses resources by `ResourceId`. A resource path describes only where a resource currently sits, so it is a presentation concern: `@rgap/core` exports the pure helpers that render a resource's path and resolve a path to an ID, and callers use them before they look up a handle or issue a command. Keeping resolution outside the boundary means a command can never act on whatever happens to occupy a path at the moment it arrives.
 
-`@rgap/browser` implements `BrowserRgapStore` over local storage. It accepts initial state from its caller, so the package has no dependency on the reference application's example data.
-
-`@rgap/react` provides an `RgapClient` that owns a cached snapshot, a client-local subscription, and the repository used to load and mutate state. It also provides a client context plus hooks for the current snapshot, the same handle-based commands, and token-derived authority. After a command completes — including a method invoked on a handle the client returned — the client reloads the repository state and notifies its local subscribers. React components therefore retain reactive snapshots without requiring the repository or a remote backend to implement SSE, WebSockets, or another push protocol. The Vite application owns only its example seed, interface components, and styles.
-
-The store contains resources, grants, token records, and audit events in normalized collections. Repository snapshots contain only this serializable application data; Zustand actions and other functions remain private to the adapter and never cross into domain operations. Each command computes and commits its complete state change atomically. Local persistence, when enabled, serializes the same application-state schema to browser storage. Stored state is loaded only when every ID it refers to resolves to a record; state that refers to resources, grants, or tokens it does not contain cannot be read at all, so it is discarded for the example seed rather than loaded into records that name things that are gone. Raw bearer-token values exist only in transient UI memory; persisted token records contain only token hashes.
-
-The repository contract is asynchronous even though the browser implementation is local. Command inputs and `readState` outputs are JSON-compatible records and IDs; handles are a TypeScript surface over those same calls. An HTTP-backed store implements the same plane selection and the same create-with-parentId routes, and can replace `BrowserRgapStore` without changing pages, components, or domain types. Live updates from changes made by other clients are optional client behavior. A client may refresh on demand, on window focus, or on an interval, and may add a streaming transport when an application specifically needs one. Backend-specific concerns such as transport, durable storage, concurrent transactions, authentication, and secret management remain outside the browser implementation.
-
-The reference application does not expose a JSON API and is not a production authorization service. Browser state is appropriate for demonstrating the model, not for enforcing access between mutually untrusted parties.
-
 ## SQLite store
 
-`@rgap/sqlite` implements `SqliteRgapStore` over a SQLite database with Drizzle ORM, so the model runs from ordinary TypeScript — a script, a test, or a service — against a real database rather than browser storage. It runs on `better-sqlite3`, whose synchronous API is what lets a command read, decide, and write inside one transaction.
+`@rgap/sqlite` implements `SqliteRgapStore` over a SQLite database with Drizzle ORM, so the model runs from ordinary TypeScript — a script, a test, or a service — against a real database. It runs on `better-sqlite3`, whose synchronous API is what lets a command read, decide, and write inside one transaction.
 
 ```ts
 import { SqliteRgapStore } from '@rgap/sqlite';
@@ -432,7 +287,7 @@ The schema is declared once as Drizzle tables, and `drizzle-kit` generates the D
 
 ### Commands and transactions
 
-A command is one SQLite transaction. It reads the complete state, applies the same pure `@rgap/core` rule the browser adapter applies, and replaces the stored rows with the state that rule returns. Nothing observes a partially updated authorization state, and a refused command writes nothing at all, because the rule rejects before the write begins.
+A command is one SQLite transaction. It reads the complete state, applies the relevant pure `@rgap/core` rule, and replaces the stored rows with the state that rule returns. Nothing observes a partially updated authorization state, and a refused command writes nothing at all, because the rule rejects before the write begins.
 
 Rows are written parents before children, so the foreign keys hold at every statement rather than only at the end of the transaction.
 
