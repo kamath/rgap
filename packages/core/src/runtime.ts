@@ -69,12 +69,18 @@ export interface RuntimePrivateState {
   delete(slot: string): Promise<void>;
 }
 
+/** Plaintext resolution scoped to secret slots declared by the invoked revision. */
+export interface RuntimeSecrets {
+  resolve(slot: string): Promise<string>;
+}
+
 export type RuntimeInvocation = {
   revision: ExecutableRevision;
   input: unknown;
   bindings: Readonly<Record<string, RuntimeBinding>>;
   limits: ExecutionLimits;
   signal: AbortSignal;
+  secrets: RuntimeSecrets;
   credentials: RuntimePrivateState;
 };
 

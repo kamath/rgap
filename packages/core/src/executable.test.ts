@@ -192,7 +192,7 @@ describe('invocation orchestration', () => {
         write: vi.fn(),
         delete: vi.fn(),
         handle: vi.fn(async (resourceId) => ({ kind: 'secret' as const, resourceId })),
-        resolve: vi.fn(),
+        resolve: vi.fn(async () => 'provider-secret'),
       },
       credentials: {
         metadata: vi.fn(async (name, resourceId) => ({ runtime: name, resourceId, version: 'one', updatedAt: at })),
@@ -215,6 +215,8 @@ describe('invocation orchestration', () => {
         order.push('invoke');
         expect(context.bindings.token.secret?.kind).toBe('secret');
         expect(context.bindings.connection.credential?.kind).toBe('runtime-credential');
+        expect(await context.secrets.resolve('token')).toBe('provider-secret');
+        expect(() => context.secrets.resolve('connection')).toThrow('is not a secret');
         expect((await context.credentials.metadata('connection'))?.version).toBe('one');
         expect((await context.credentials.handle('connection'))?.kind).toBe('runtime-credential');
         expect((await context.credentials.write('connection', { refresh: 'protected' })).version).toBe('two');

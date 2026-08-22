@@ -21,6 +21,7 @@ import {
   type RuntimeBinding,
   type RuntimeCredentialStore,
   type RuntimePrivateState,
+  type RuntimeSecrets,
   type SecretStore,
 } from './runtime';
 
@@ -252,6 +253,23 @@ function scopedPrivateState(
   };
 }
 
+function scopedSecrets(
+  schema: Readonly<Record<string, BindingSlot>>,
+  supplied: Readonly<Record<string, ResourceId>>,
+  store: SecretStore,
+): RuntimeSecrets {
+  return {
+    resolve(slotName) {
+      const slot = schema[slotName];
+      const resourceId = supplied[slotName];
+      if (!slot || slot.kind !== 'secret' || !resourceId) {
+        throw new RgapError('invalid_binding', `Binding ${slotName} is not a secret.`);
+      }
+      return store.resolve(resourceId);
+    },
+  };
+}
+
 /**
  * Resolves, authorizes, validates, and invokes one immutable revision. Authorization finishes
  * before any secret or runtime-private handle is requested.
@@ -302,6 +320,7 @@ export async function* invokeExecutable(
     bindings,
     limits,
     signal: controller.signal,
+    secrets: scopedSecrets(revision.bindingSchema, supplied, services.secrets),
     credentials: scopedPrivateState(revision.runtime, revision.bindingSchema, supplied, services.credentials),
   };
   const startedAt = new Date().toISOString();
