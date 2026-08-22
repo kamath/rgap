@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { grantId, resourceId, tokenHash, tokenId, tokenValue, type Capability, type State } from './domain';
+import {
+  executableRevisionId, grantId, resourceId, tokenHash, tokenId, tokenValue, type Capability, type State,
+} from './domain';
 import { fixture, stubCommands } from './fixture';
 import { guardCommands } from './guard';
 import { repositoryFrom } from './repository';
@@ -15,7 +17,7 @@ const cap = (id: string, permissions: Capability['permissions']): Capability =>
 /** The demo token references `coordinator`, which holds every permission across the drive subtree. */
 function state(): State {
   const base = fixture();
-  base.grants.coordinator.capabilities = [cap('drive', ['read', 'write', 'delete', 'move', 'invoke'])];
+  base.grants.coordinator.capabilities = [cap('drive', ['read', 'write', 'use', 'delete', 'move', 'invoke'])];
   base.grants.researcher.capabilities = [
     { resourceId: r('search-files'), permissions: ['invoke'] },
   ];
@@ -206,5 +208,62 @@ describe('command guard', () => {
     expect(calls.map((call) => call.args[0])).toEqual([g('coordinator'), g('researcher')]);
 
     await expect(guard.grants.get(g('ghost'))).rejects.toThrow('outside this token');
+  });
+
+  it('guards executable metadata, publishing, secrets, private metadata, and binding invocation', async () => {
+    const initial = state();
+    const revision = {
+      id: executableRevisionId('revision'), resourceId: r('search-files'), runtime: 'test',
+      program: {}, inputSchema: true, outputSchema: null,
+      bindingSchema: { target: { kind: 'resource' as const, access: 'write' as const } },
+      limits: {}, createdAt: at,
+    };
+    initial.executables['search-files'] = {
+      resourceId: r('search-files'), activeRevisionId: revision.id, deletedAt: null,
+    };
+    initial.executableRevisions.revision = revision;
+    initial.secretMetadata['search-files'] = {
+      resourceId: r('search-files'), version: 'one', updatedAt: at,
+    };
+    initial.runtimePrivateMetadata[`test\u0000search-files`] = {
+      runtime: 'test', resourceId: r('search-files'), version: 'one', updatedAt: at,
+    };
+    const { commands, calls } = stubCommands(initial, at);
+    const guard = guardCommands(repositoryFrom(commands), bearer);
+    const search = await guard.resources.get(r('search-files'));
+    const publication = {
+      runtime: 'test', program: {}, inputSchema: true, outputSchema: null, bindingSchema: {}, limits: {},
+    };
+
+    expect((await guard.executables.get(r('search-files')))?.activeRevisionId).toBe('revision');
+    expect((await guard.executables.getRevision(revision.id))?.resourceId).toBe('search-files');
+    expect(await guard.executables.revisions(r('search-files'))).toEqual([revision]);
+    expect((await search.executable.get())?.resourceId).toBe('search-files');
+    expect(await search.executable.revisions()).toEqual([revision]);
+    await guard.executables.publish(r('search-files'), publication);
+    await search.executable.publish(publication);
+    await guard.executables.delete(r('search-files'));
+    await search.executable.delete();
+    expect((await guard.secrets.metadata(r('search-files')))?.version).toBe('one');
+    expect((await search.secret.metadata())?.version).toBe('one');
+    await guard.secrets.write(r('search-files'), 'protected');
+    await search.secret.write('protected');
+    await guard.secrets.delete(r('search-files'));
+    await search.secret.delete();
+    expect((await guard.runtimePrivateMetadata('test', r('search-files')))?.version).toBe('one');
+    expect((await search.runtimePrivateMetadata('test'))?.version).toBe('one');
+
+    for await (const event of guard.invoke(r('search-files'), {
+      input: {}, bindings: { target: r('drive') },
+    })) expect(event.type).toBe('done');
+    for await (const event of search.invoke({ input: {}, bindings: { target: r('drive') } })) {
+      expect(event.type).toBe('done');
+    }
+    expect(calls.map(({ method }) => method)).toEqual([
+      'publishExecutable', 'publishExecutable', 'deleteExecutable', 'deleteExecutable',
+      'writeSecret', 'writeSecret', 'deleteSecret', 'deleteSecret', 'invoke', 'invoke',
+    ]);
+    await expect(guard.secrets.write(r('post-message'), 'protected'))
+      .rejects.toThrow('No write capability');
   });
 });

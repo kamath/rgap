@@ -1,5 +1,5 @@
 import {
-  authorize, inspectAuthority, grantId, resourceId, tokenHash, tokenId, tokenValue,
+  authorize, inspectAuthority, executableRevisionId, grantId, resourceId, tokenHash, tokenId, tokenValue,
   type Capability, type Resource, type State,
 } from './domain';
 import { paginateRecords, repositoryFrom, type RgapCommands } from './repository';
@@ -31,6 +31,10 @@ export function fixture(): State {
         expiresAt: '2027-08-21T23:00:00.000Z', revokedAt: null,
       },
     },
+    executables: {},
+    executableRevisions: {},
+    secretMetadata: {},
+    runtimePrivateMetadata: {},
     audit: [],
   };
 }
@@ -91,6 +95,28 @@ export function stubCommands(state: State, at: string) {
     createResource: (input) => record('createResource', [input], { ...input, id: resourceId('created'), deletedAt: null }),
     moveResource: (id, parentId) => record('moveResource', [id, parentId], resourceStub(id, parentId)),
     deleteResource: (id) => record('deleteResource', [id], undefined),
+    getExecutable: (id) => Promise.resolve(state.executables[id]),
+    getExecutableRevision: (id) => Promise.resolve(state.executableRevisions[id]),
+    listExecutableRevisions: (id) => Promise.resolve(
+      Object.values(state.executableRevisions).filter((revision) => revision.resourceId === id),
+    ),
+    publishExecutable: (id, input) => record('publishExecutable', [id, input], {
+      ...input, id: executableRevisionId('revision'), resourceId: id, createdAt: at,
+    }),
+    deleteExecutable: (id) => record('deleteExecutable', [id], undefined),
+    getSecretMetadata: (id) => Promise.resolve(state.secretMetadata[id]),
+    writeSecret: (id, value) => record('writeSecret', [id, value], {
+      resourceId: id, version: 'version', updatedAt: at,
+    }),
+    deleteSecret: (id) => record('deleteSecret', [id], undefined),
+    getRuntimePrivateMetadata: (runtime, id) =>
+      Promise.resolve(state.runtimePrivateMetadata[`${runtime}\u0000${id}`]),
+    invoke: (id, input) => {
+      calls.push({ method: 'invoke', args: [id, input] });
+      return (async function* () {
+        yield { type: 'done' as const };
+      })();
+    },
     createGrant: (input) => record('createGrant', [input], { ...input, id: grantId('created'), revokedAt: null }),
     setCapabilities: (id, capabilities) =>
       record('setCapabilities', [id, capabilities], { ...state.grants[id], capabilities }),

@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { grantId, resourceId, tokenId, tokenValue } from './domain';
+import { executableRevisionId, grantId, resourceId, tokenId, tokenValue } from './domain';
 import { fixture, stubCommands } from './fixture';
 import { pageLimit, paginateRecords, repositoryFrom } from './repository';
 
 const at = '2026-08-22T00:00:00.000Z';
+const collect = async <T>(values: AsyncIterable<T>) => {
+  const result: T[] = [];
+  for await (const value of values) result.push(value);
+  return result;
+};
 
 describe('repositoryFrom', () => {
   it('bounds page sizes and advances stable cursors', () => {
@@ -74,5 +79,54 @@ describe('repositoryFrom', () => {
     expect((await repository.inspectToken(token)).grantId).toBe('coordinator');
     await repository.reset();
     expect(calls).toEqual([{ method: 'reset', args: [] }]);
+  });
+
+  it('exposes executable, secret, private metadata, and invocation commands on both surfaces', async () => {
+    const state = fixture();
+    const revision = {
+      id: executableRevisionId('existing'), resourceId: resourceId('search-files'), runtime: 'test',
+      program: {}, inputSchema: true, outputSchema: null, bindingSchema: {}, limits: {},
+      createdAt: at,
+    };
+    state.executables['search-files'] = {
+      resourceId: resourceId('search-files'), activeRevisionId: revision.id, deletedAt: null,
+    };
+    state.executableRevisions.existing = revision;
+    state.secretMetadata['search-files'] = {
+      resourceId: resourceId('search-files'), version: 'one', updatedAt: at,
+    };
+    state.runtimePrivateMetadata[`test\u0000search-files`] = {
+      runtime: 'test', resourceId: resourceId('search-files'), version: 'one', updatedAt: at,
+    };
+    const { commands, calls } = stubCommands(state, at);
+    const repository = repositoryFrom(commands);
+    const resource = await repository.resources.get(resourceId('search-files'));
+    const publish = {
+      runtime: 'test', program: {}, inputSchema: true, outputSchema: null, bindingSchema: {}, limits: {},
+    };
+
+    expect((await resource.executable.get())?.activeRevisionId).toBe('existing');
+    expect(await resource.executable.revisions()).toEqual([revision]);
+    expect((await repository.executables.getRevision(revision.id))?.runtime).toBe('test');
+    expect((await repository.executables.get(resource.id))?.resourceId).toBe(resource.id);
+    expect(await repository.executables.revisions(resource.id)).toEqual([revision]);
+    await resource.executable.publish(publish);
+    await repository.executables.publish(resource.id, publish);
+    await resource.executable.delete();
+    await repository.executables.delete(resource.id);
+    expect((await resource.secret.metadata())?.version).toBe('one');
+    expect((await repository.secrets.metadata(resource.id))?.version).toBe('one');
+    await resource.secret.write('protected');
+    await repository.secrets.write(resource.id, 'protected');
+    await resource.secret.delete();
+    await repository.secrets.delete(resource.id);
+    expect((await resource.runtimePrivateMetadata('test'))?.version).toBe('one');
+    expect((await repository.runtimePrivateMetadata('test', resource.id))?.version).toBe('one');
+    expect(await collect(resource.invoke({ input: null }))).toEqual([{ type: 'done' }]);
+    expect(await collect(repository.invoke(resource.id, { input: null }))).toEqual([{ type: 'done' }]);
+    expect(calls.map(({ method }) => method)).toEqual([
+      'publishExecutable', 'publishExecutable', 'deleteExecutable', 'deleteExecutable',
+      'writeSecret', 'writeSecret', 'deleteSecret', 'deleteSecret', 'invoke', 'invoke',
+    ]);
   });
 });

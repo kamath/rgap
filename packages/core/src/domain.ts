@@ -1,5 +1,5 @@
 /** Permissions understood by the reference RGAP contract. */
-export const permissions = ['read', 'write', 'delete', 'move', 'invoke'] as const;
+export const permissions = ['read', 'write', 'use', 'invoke', 'move', 'delete'] as const;
 export type Permission = (typeof permissions)[number];
 
 declare const identityBrand: unique symbol;
@@ -15,6 +15,8 @@ export type TokenId = Identity<'TokenId'>;
 export type TokenValue = Identity<'TokenValue'>;
 /** The stored hash of a bearer secret. The bearer itself is never stored. */
 export type TokenHash = Identity<'TokenHash'>;
+/** An immutable executable revision's stable identity. */
+export type ExecutableRevisionId = Identity<'ExecutableRevisionId'>;
 /** The record an audit event concerns. */
 export type RecordId = ResourceId | GrantId | TokenId;
 
@@ -23,6 +25,64 @@ export const grantId = (id: string): GrantId => id as GrantId;
 export const tokenId = (id: string): TokenId => id as TokenId;
 export const tokenValue = (id: string): TokenValue => id as TokenValue;
 export const tokenHash = (id: string): TokenHash => id as TokenHash;
+export const executableRevisionId = (id: string): ExecutableRevisionId => id as ExecutableRevisionId;
+
+/** JSON Schema is either a boolean schema or a JSON-compatible schema object. */
+export type JsonSchema = boolean | Readonly<Record<string, unknown>>;
+
+export type BindingKind = 'resource' | 'secret' | 'runtime-private';
+export type BindingSlot = {
+  kind: BindingKind;
+  /** Every binding requires `use`; `write` additionally requires `write`. */
+  access: 'use' | 'write';
+  required?: boolean;
+};
+
+export type NetworkLimits = {
+  allowedOrigins: string[];
+};
+
+/** Omitted limits inherit their host runtime ceiling. */
+export type ExecutionLimits = {
+  timeoutMs?: number;
+  memoryBytes?: number;
+  outputBytes?: number;
+  concurrency?: number;
+  network?: NetworkLimits;
+};
+
+export type ExecutableDefinition = {
+  resourceId: ResourceId;
+  activeRevisionId: ExecutableRevisionId | null;
+  deletedAt: string | null;
+};
+
+export type ExecutableRevision = {
+  id: ExecutableRevisionId;
+  resourceId: ResourceId;
+  runtime: string;
+  program: unknown;
+  inputSchema: JsonSchema;
+  outputSchema: JsonSchema | null;
+  bindingSchema: Record<string, BindingSlot>;
+  limits: ExecutionLimits;
+  createdAt: string;
+};
+
+/** Public information about a protected value. It never includes that value. */
+export type SecretMetadata = {
+  resourceId: ResourceId;
+  version: string;
+  updatedAt: string;
+};
+
+/** Public information about credential state owned by one registered runtime. */
+export type RuntimePrivateMetadata = {
+  runtime: string;
+  resourceId: ResourceId;
+  version: string;
+  updatedAt: string;
+};
 
 export type Resource = {
   id: ResourceId;
@@ -75,6 +135,10 @@ export type State = {
   resources: Record<string, Resource>;
   grants: Record<string, Grant>;
   tokens: Record<string, Token>;
+  executables: Record<string, ExecutableDefinition>;
+  executableRevisions: Record<string, ExecutableRevision>;
+  secretMetadata: Record<string, SecretMetadata>;
+  runtimePrivateMetadata: Record<string, RuntimePrivateMetadata>;
   audit: AuditEvent[];
 };
 
@@ -181,6 +245,34 @@ export function stateIntegrity(state: State) {
   });
   Object.values(state.tokens).forEach((token) => {
     if (!state.grants[token.grantId]) problems.push(`Token ${token.id} refers to missing grant ${token.grantId}.`);
+  });
+  Object.values(state.executables).forEach((definition) => {
+    if (!state.resources[definition.resourceId]) {
+      problems.push(`Executable ${definition.resourceId} refers to a missing resource.`);
+    }
+    if (definition.activeRevisionId && !state.executableRevisions[definition.activeRevisionId]) {
+      problems.push(`Executable ${definition.resourceId} refers to missing revision ${definition.activeRevisionId}.`);
+    } else if (
+      definition.activeRevisionId &&
+      state.executableRevisions[definition.activeRevisionId].resourceId !== definition.resourceId
+    ) {
+      problems.push(`Executable ${definition.resourceId} selects a revision from another resource.`);
+    }
+  });
+  Object.values(state.executableRevisions).forEach((revision) => {
+    if (!state.resources[revision.resourceId]) {
+      problems.push(`Executable revision ${revision.id} refers to missing resource ${revision.resourceId}.`);
+    }
+  });
+  Object.values(state.secretMetadata).forEach((metadata) => {
+    if (!state.resources[metadata.resourceId]) {
+      problems.push(`Secret metadata refers to missing resource ${metadata.resourceId}.`);
+    }
+  });
+  Object.values(state.runtimePrivateMetadata).forEach((metadata) => {
+    if (!state.resources[metadata.resourceId]) {
+      problems.push(`Runtime-private metadata refers to missing resource ${metadata.resourceId}.`);
+    }
   });
   return problems;
 }

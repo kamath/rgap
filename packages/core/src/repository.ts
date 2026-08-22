@@ -5,15 +5,22 @@ import {
   type AuthorityView,
   type Capability,
   type Decision,
+  type ExecutableDefinition,
+  type ExecutableRevision,
+  type ExecutableRevisionId,
   type Grant,
   type GrantId,
   type Permission,
   type Resource,
   type ResourceId,
+  type RuntimePrivateMetadata,
+  type SecretMetadata,
   type Token,
   type TokenId,
   type TokenValue,
 } from './domain';
+import type { InvokeInput, PublishExecutableInput } from './executable';
+import type { InvocationEvent } from './runtime';
 
 export type ResourceWrite = { name: string };
 export type GrantWrite = { name: string; capabilities: Capability[]; expiresAt: string | null };
@@ -45,6 +52,19 @@ export type ResourceHandle = Resource & {
   create(input: ResourceWrite): Promise<ResourceHandle>;
   move(parentId: ResourceId | null): Promise<ResourceHandle>;
   delete(): Promise<void>;
+  executable: {
+    get(): Promise<ExecutableDefinition | undefined>;
+    revisions(): Promise<ExecutableRevision[]>;
+    publish(input: PublishExecutableInput): Promise<ExecutableRevision>;
+    delete(): Promise<void>;
+  };
+  secret: {
+    metadata(): Promise<SecretMetadata | undefined>;
+    write(value: string): Promise<SecretMetadata>;
+    delete(): Promise<void>;
+  };
+  runtimePrivateMetadata(runtime: string): Promise<RuntimePrivateMetadata | undefined>;
+  invoke(input: InvokeInput): AsyncIterable<InvocationEvent>;
 };
 
 export type CapabilitiesHandle = Capability[] & {
@@ -87,6 +107,16 @@ export interface RgapCommands {
   createResource(input: ResourceWrite & { parentId: ResourceId | null }): Promise<Resource>;
   moveResource(id: ResourceId, parentId: ResourceId | null): Promise<Resource>;
   deleteResource(id: ResourceId): Promise<void>;
+  getExecutable(resourceId: ResourceId): Promise<ExecutableDefinition | undefined>;
+  getExecutableRevision(id: ExecutableRevisionId): Promise<ExecutableRevision | undefined>;
+  listExecutableRevisions(resourceId: ResourceId): Promise<ExecutableRevision[]>;
+  publishExecutable(resourceId: ResourceId, input: PublishExecutableInput): Promise<ExecutableRevision>;
+  deleteExecutable(resourceId: ResourceId): Promise<void>;
+  getSecretMetadata(resourceId: ResourceId): Promise<SecretMetadata | undefined>;
+  writeSecret(resourceId: ResourceId, value: string): Promise<SecretMetadata>;
+  deleteSecret(resourceId: ResourceId): Promise<void>;
+  getRuntimePrivateMetadata(runtime: string, resourceId: ResourceId): Promise<RuntimePrivateMetadata | undefined>;
+  invoke(resourceId: ResourceId, input: InvokeInput): AsyncIterable<InvocationEvent>;
   createGrant(input: GrantWrite & { parentId: GrantId | null }): Promise<Grant>;
   setCapabilities(grantId: GrantId, capabilities: Capability[]): Promise<Grant>;
   issueToken(grantId: GrantId, label: string): Promise<{ record: Token; value: TokenValue }>;
@@ -103,6 +133,20 @@ export interface RgapRepository {
     get(id: ResourceId): Promise<ResourceHandle>;
     list(query?: ResourceListQuery): Promise<Page<Resource>>;
   };
+  executables: {
+    get(resourceId: ResourceId): Promise<ExecutableDefinition | undefined>;
+    getRevision(id: ExecutableRevisionId): Promise<ExecutableRevision | undefined>;
+    revisions(resourceId: ResourceId): Promise<ExecutableRevision[]>;
+    publish(resourceId: ResourceId, input: PublishExecutableInput): Promise<ExecutableRevision>;
+    delete(resourceId: ResourceId): Promise<void>;
+  };
+  secrets: {
+    metadata(resourceId: ResourceId): Promise<SecretMetadata | undefined>;
+    write(resourceId: ResourceId, value: string): Promise<SecretMetadata>;
+    delete(resourceId: ResourceId): Promise<void>;
+  };
+  runtimePrivateMetadata(runtime: string, resourceId: ResourceId): Promise<RuntimePrivateMetadata | undefined>;
+  invoke(resourceId: ResourceId, input: InvokeInput): AsyncIterable<InvocationEvent>;
   grants: {
     create(input: GrantWrite): Promise<GrantHandle>;
     get(id: GrantId): Promise<GrantHandle>;
@@ -127,6 +171,20 @@ export function repositoryFrom(commands: RgapCommands): RgapRepository {
       get: async (id) => asResource(commands, await requireResource(commands, id)),
       list: (query) => commands.listResources(query),
     },
+    executables: {
+      get: (resourceId) => commands.getExecutable(resourceId),
+      getRevision: (id) => commands.getExecutableRevision(id),
+      revisions: (resourceId) => commands.listExecutableRevisions(resourceId),
+      publish: (resourceId, input) => commands.publishExecutable(resourceId, input),
+      delete: (resourceId) => commands.deleteExecutable(resourceId),
+    },
+    secrets: {
+      metadata: (resourceId) => commands.getSecretMetadata(resourceId),
+      write: (resourceId, value) => commands.writeSecret(resourceId, value),
+      delete: (resourceId) => commands.deleteSecret(resourceId),
+    },
+    runtimePrivateMetadata: (runtime, resourceId) => commands.getRuntimePrivateMetadata(runtime, resourceId),
+    invoke: (resourceId, input) => commands.invoke(resourceId, input),
     grants: {
       create: async (input) => asGrant(commands, await commands.createGrant({ ...input, parentId: null })),
       get: async (id) => asGrant(commands, await requireGrant(commands, id)),
@@ -169,6 +227,19 @@ function asResource(commands: RgapCommands, resource: Resource): ResourceHandle 
     create: async (input) => asResource(commands, await commands.createResource({ ...input, parentId: resource.id })),
     move: async (parentId) => asResource(commands, await commands.moveResource(resource.id, parentId)),
     delete: () => commands.deleteResource(resource.id),
+    executable: {
+      get: () => commands.getExecutable(resource.id),
+      revisions: () => commands.listExecutableRevisions(resource.id),
+      publish: (input) => commands.publishExecutable(resource.id, input),
+      delete: () => commands.deleteExecutable(resource.id),
+    },
+    secret: {
+      metadata: () => commands.getSecretMetadata(resource.id),
+      write: (value) => commands.writeSecret(resource.id, value),
+      delete: () => commands.deleteSecret(resource.id),
+    },
+    runtimePrivateMetadata: (runtime) => commands.getRuntimePrivateMetadata(runtime, resource.id),
+    invoke: (input) => commands.invoke(resource.id, input),
   };
 }
 
