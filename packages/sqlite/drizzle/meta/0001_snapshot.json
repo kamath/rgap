@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "06596867-9b8a-40d2-b8e9-dc6c0489d498",
+  "id": "195d5dac-cec1-4ba5-ade2-03808b14e636",
   "prevId": "66e1de85-0d39-4286-bffe-04769ccf874d",
   "tables": {
     "audit": {
@@ -449,111 +449,6 @@
           "tableTo": "resources",
           "columnsFrom": [
             "parent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "runtime_private_metadata": {
-      "name": "runtime_private_metadata",
-      "columns": {
-        "runtime": {
-          "name": "runtime",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "resource_id": {
-          "name": "resource_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "version": {
-          "name": "version",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "runtime_private_metadata_resource_id_resources_id_fk": {
-          "name": "runtime_private_metadata_resource_id_resources_id_fk",
-          "tableFrom": "runtime_private_metadata",
-          "tableTo": "resources",
-          "columnsFrom": [
-            "resource_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "runtime_private_metadata_runtime_resource_id_pk": {
-          "columns": [
-            "runtime",
-            "resource_id"
-          ],
-          "name": "runtime_private_metadata_runtime_resource_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "secret_metadata": {
-      "name": "secret_metadata",
-      "columns": {
-        "resource_id": {
-          "name": "resource_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "version": {
-          "name": "version",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "secret_metadata_resource_id_resources_id_fk": {
-          "name": "secret_metadata_resource_id_resources_id_fk",
-          "tableFrom": "secret_metadata",
-          "tableTo": "resources",
-          "columnsFrom": [
-            "resource_id"
           ],
           "columnsTo": [
             "id"
