@@ -14,6 +14,7 @@ import {
 } from './domain';
 import {
   RuntimeRegistry,
+  type InvokeRuntime,
   type InvocationEvent,
   type JsonSchemaValidator,
   type RuntimeBinding,
@@ -44,8 +45,10 @@ export function getAuthorizedLineage(input: InvokeInput) {
 
 const cloned = <T>(value: T): T => structuredClone(value);
 
-export const validateRuntimeProgram = (runtimes: RuntimeRegistry, runtime: string, program: unknown) =>
-  runtimes.get(runtime).validate(program);
+export const validateRuntimeProgram = (runtimes: RuntimeRegistry, runtime: string, program: unknown) => {
+  const implementation: InvokeRuntime = runtimes.get(runtime);
+  implementation.validate(program);
+};
 
 function requirePositiveInteger(value: number | undefined, name: string) {
   if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0)) {
@@ -219,15 +222,18 @@ export async function* invokeExecutable(
   }
 
   const authorization = await services.authorize(resourceId, 'invoke');
-  assertJsonSchema(services.validator, revision.inputSchema, input.input, 'Invocation input is invalid');
+  if (revision.inputSchema !== null) {
+    assertJsonSchema(services.validator, revision.inputSchema, input.input, 'Invocation input is invalid');
+  }
   const supplied = input.bindings ?? {};
   validateBindings(revision.bindingSchema, supplied);
   for (const boundId of Object.values(supplied)) {
     await services.authorize(boundId, 'invoke');
   }
 
-  const runtime = services.runtimes.get(revision.runtime);
-  runtime.validate(revision.program);
+  const runtime: InvokeRuntime = services.runtimes.get(revision.runtime);
+  const program = revision.program;
+  runtime.validate(program);
   const limits = effectiveExecutionLimits(services.runtimeLimits(revision.runtime), revision.limits);
   const bindings: Record<string, RuntimeBinding> = {};
   for (const [name, boundId] of Object.entries(supplied)) {
@@ -240,7 +246,7 @@ export async function* invokeExecutable(
   if (input.signal?.aborted) cancel();
   else input.signal?.addEventListener('abort', cancel, { once: true });
   const context = {
-    revision: cloned(revision),
+    revision: { ...cloned(revision), program: cloned(program) },
     input: cloned(input.input),
     bindings,
     limits,
@@ -249,18 +255,32 @@ export async function* invokeExecutable(
   const startedAt = new Date().toISOString();
   let result: InvocationRecord['result'] = 'error';
   let exhausted = false;
+  let failed = false;
   try {
-    for await (const event of runtime.invoke(context)) {
-      if (event.type === 'data' && revision.outputSchema !== null) {
-        assertJsonSchema(services.validator, revision.outputSchema, event.value, 'Runtime output is invalid');
+    const runtimeResult = await runtime.invoke(context);
+    if (isAsyncIterable(runtimeResult)) {
+      for await (const value of runtimeResult) {
+        if (value === undefined) continue;
+        if (revision.outputSchema !== null) {
+          assertJsonSchema(services.validator, revision.outputSchema, value, 'Runtime output is invalid');
+        }
+        yield { type: 'data', value };
       }
-      if (event.type === 'done') result = 'done';
-      yield event;
+    } else if (runtimeResult !== undefined) {
+      if (revision.outputSchema !== null) {
+        assertJsonSchema(services.validator, revision.outputSchema, runtimeResult, 'Runtime output is invalid');
+      }
+      yield { type: 'data', value: runtimeResult };
     }
     exhausted = true;
-    if (context.signal.aborted) result = 'cancelled';
+    result = context.signal.aborted ? 'cancelled' : 'done';
+    yield { type: 'done' };
+  } catch (error) {
+    failed = true;
+    result = context.signal.aborted ? 'cancelled' : 'error';
+    throw error;
   } finally {
-    if (!exhausted) result = 'cancelled';
+    if (!exhausted && !failed) result = 'cancelled';
     controller.abort();
     input.signal?.removeEventListener('abort', cancel);
     await services.recordInvocation({
@@ -274,4 +294,10 @@ export async function* invokeExecutable(
       result,
     });
   }
+}
+
+function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
+  return value !== null
+    && value !== undefined
+    && typeof (value as AsyncIterable<T>)[Symbol.asyncIterator] === 'function';
 }

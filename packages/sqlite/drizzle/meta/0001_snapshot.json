@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "195d5dac-cec1-4ba5-ade2-03808b14e636",
+  "id": "7af94e7c-a10f-44c4-a18b-02b40e791e3c",
   "prevId": "66e1de85-0d39-4286-bffe-04769ccf874d",
   "tables": {
     "audit": {
@@ -240,7 +240,7 @@
           "name": "input_schema",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "output_schema": {

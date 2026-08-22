@@ -3,7 +3,7 @@ CREATE TABLE `executable_revisions` (
 	`resource_id` text NOT NULL,
 	`runtime` text NOT NULL,
 	`program` text NOT NULL,
-	`input_schema` text NOT NULL,
+	`input_schema` text,
 	`output_schema` text,
 	`binding_schema` text NOT NULL,
 	`limits` text NOT NULL,

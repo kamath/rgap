@@ -29,10 +29,11 @@ export const JsonValueSchema = z.union([
   z.record(z.string(), z.unknown()),
 ]);
 
-export const JsonSchemaSchema = z.union([
+const NullableJsonSchemaSchema = z.union([
   z.boolean(),
   z.record(z.string(), z.unknown()),
-]).openapi('JsonSchema');
+  z.null(),
+]);
 
 export const BindingSlotSchema = z.object({
   kind: z.string().min(1),
@@ -54,8 +55,8 @@ export const ExecutableRevisionSchema = z.object({
   resourceId: IdSchema,
   runtime: z.string(),
   program: JsonValueSchema,
-  inputSchema: JsonSchemaSchema,
-  outputSchema: JsonSchemaSchema.nullable(),
+  inputSchema: NullableJsonSchemaSchema,
+  outputSchema: NullableJsonSchemaSchema,
   bindingSchema: z.record(z.string(), BindingSlotSchema),
   limits: ExecutionLimitsSchema,
   createdAt: TimestampSchema,
@@ -75,7 +76,6 @@ export const InvokeSchema = z.object({
 
 export const InvocationEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('data'), value: JsonValueSchema }).strict(),
-  z.object({ type: z.literal('error'), code: z.string(), message: z.string() }).strict(),
   z.object({ type: z.literal('done') }).strict(),
 ]).openapi('InvocationEvent');
 

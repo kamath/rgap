@@ -69,7 +69,7 @@ export const executableRevisions = sqliteTable('executable_revisions', {
   resourceId: text('resource_id').notNull().references(() => resources.id),
   runtime: text('runtime').notNull(),
   program: text('program').notNull(),
-  inputSchema: text('input_schema').notNull(),
+  inputSchema: text('input_schema'),
   outputSchema: text('output_schema'),
   bindingSchema: text('binding_schema').notNull(),
   limits: text('limits').notNull(),

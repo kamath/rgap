@@ -380,15 +380,6 @@ function asInvocationEvent(value: unknown): InvocationEvent {
   }
   if (value.type === 'done') return { type: 'done' };
   if (value.type === 'data' && 'value' in value) return { type: 'data', value: value.value };
-  if (
-    value.type === 'error'
-    && 'code' in value
-    && typeof value.code === 'string'
-    && 'message' in value
-    && typeof value.message === 'string'
-  ) {
-    return { type: 'error', code: value.code, message: value.message };
-  }
   throw new RgapError('invalid_response', 'RGAP invocation returned an invalid event.');
 }
 

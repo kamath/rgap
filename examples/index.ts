@@ -36,8 +36,11 @@ const validator: JsonSchemaValidator = {
       : { valid: false, errors: (check.errors ?? []).map((error) => `${error.instancePath} ${error.message}`) };
   },
 };
-const echo: InvokeRuntime = {
-  validate(program) {
+type EchoProgram = { prefix: string };
+type EchoInput = { query: string };
+type EchoOutput = { message: string; scope: ResourceId };
+const echo: InvokeRuntime<EchoProgram, EchoInput, EchoOutput> = {
+  validate(program): asserts program is EchoProgram {
     if (
       !program
       || typeof program !== 'object'
@@ -46,14 +49,11 @@ const echo: InvokeRuntime = {
       throw new RgapError('invalid_program', 'Echo programs require a prefix.');
     }
   },
-  async *invoke({ revision, input, bindings }) {
-    const { prefix } = revision.program as { prefix: string };
-    const { query } = input as { query: string };
-    yield {
-      type: 'data',
-      value: { message: `${prefix}${query}`, scope: bindings.scope.resourceId },
+  async invoke({ revision, input, bindings }) {
+    return {
+      message: `${revision.program.prefix}${input.query}`,
+      scope: bindings.scope.resourceId,
     };
-    yield { type: 'done' };
   },
 };
 const store = new SqliteRgapStore({

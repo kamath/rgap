@@ -142,7 +142,7 @@ describe('invocation orchestration', () => {
     publishExecutable(fixture(), executableId, publication, revisionId, at, vi.fn());
 
   it('uses immutable object or map runtime configuration and refuses unknown names', () => {
-    const runtime: InvokeRuntime = { validate() {}, async *invoke() { yield { type: 'done' }; } };
+    const runtime: InvokeRuntime = { validate() {}, invoke() { return undefined; } };
     const objectRegistry = new RuntimeRegistry({ test: runtime });
     const mapRegistry = new RuntimeRegistry(new Map([['test', runtime]]));
     expect(objectRegistry.has('test')).toBe(true);
@@ -184,15 +184,17 @@ describe('invocation orchestration', () => {
   it('authorizes bindings and gives runtimes only opaque resource identities and kinds', async () => {
     const order: string[] = [];
     const runtime: InvokeRuntime = {
-      validate: vi.fn(() => order.push('validate')),
-      async *invoke(context) {
+      validate(program): asserts program is unknown {
+        void program;
+        order.push('validate');
+      },
+      async invoke(context) {
         order.push('invoke');
         expect(context.bindings).toEqual({
           source: { resourceId: resourceId('read-file'), kind: 'document' },
           destination: { resourceId: resourceId('drive'), kind: 'collection' },
         });
-        yield { type: 'data', value: { ok: true } };
-        yield { type: 'done' };
+        return { ok: true };
       },
     };
     const state = preparedState();
@@ -220,10 +222,119 @@ describe('invocation orchestration', () => {
     }));
   });
 
+  it('normalizes sync, promise, async iterable, and undefined runtime results', async () => {
+    const state = preparedState();
+    const invoke = (runtime: InvokeRuntime) => collect(invokeExecutable(
+      services(state, runtime),
+      executableId,
+      { input: {}, bindings: { source: resourceId('drive') } },
+    ));
+
+    await expect(invoke({ validate() {}, invoke: () => 'sync' })).resolves.toEqual([
+      { type: 'data', value: 'sync' },
+      { type: 'done' },
+    ]);
+    await expect(invoke({ validate() {}, invoke: async () => 'promise' })).resolves.toEqual([
+      { type: 'data', value: 'promise' },
+      { type: 'done' },
+    ]);
+    await expect(invoke({ validate() {}, invoke: () => null })).resolves.toEqual([
+      { type: 'data', value: null },
+      { type: 'done' },
+    ]);
+    await expect(invoke({
+      validate() {},
+      async *invoke() {
+        yield 'first';
+        yield 'second';
+      },
+    })).resolves.toEqual([
+      { type: 'data', value: 'first' },
+      { type: 'data', value: 'second' },
+      { type: 'done' },
+    ]);
+    await expect(invoke({ validate() {}, invoke: () => undefined })).resolves.toEqual([
+      { type: 'done' },
+    ]);
+  });
+
+  it('supports heterogeneous typed runtimes and narrows their program and input', () => {
+    type EchoProgram = { prefix: string };
+    const echo: InvokeRuntime<EchoProgram, { value: string }, string> = {
+      validate(program): asserts program is EchoProgram {
+        if (!program || typeof program !== 'object' || !('prefix' in program)) throw new Error('invalid');
+      },
+      invoke({ revision, input }) {
+        return `${revision.program.prefix}${input.value}`;
+      },
+    };
+    const count: InvokeRuntime<{ multiplier: number }, number, number> = {
+      validate(program): asserts program is { multiplier: number } {
+        if (!program || typeof program !== 'object' || !('multiplier' in program)) throw new Error('invalid');
+      },
+      invoke({ revision, input }) {
+        return revision.program.multiplier * input;
+      },
+    };
+    const registry = new RuntimeRegistry({ echo, count });
+
+    expect(registry.get('echo')).toBe(echo);
+    expect(registry.get('count')).toBe(count);
+  });
+
+  it('skips nullable schemas and validates every emitted output item', async () => {
+    const state = preparedState();
+    state.executableRevisions[revisionId].inputSchema = null;
+    state.executableRevisions[revisionId].outputSchema = null;
+    const skipped = vi.fn(() => ({ valid: false as const, errors: ['must not run'] }));
+    await expect(collect(invokeExecutable(services(state, {
+      validate() {},
+      async *invoke() {
+        yield 'unchecked';
+      },
+    }, { validator: { validate: skipped } }), executableId, {
+      input: undefined,
+      bindings: { source: resourceId('drive') },
+    }))).resolves.toEqual([{ type: 'data', value: 'unchecked' }, { type: 'done' }]);
+    expect(skipped).not.toHaveBeenCalled();
+
+    state.executableRevisions[revisionId].inputSchema = true;
+    state.executableRevisions[revisionId].outputSchema = true;
+    const validate = vi.fn(() => ({ valid: true as const }));
+    await collect(invokeExecutable(services(state, {
+      validate() {},
+      async *invoke() {
+        yield 1;
+        yield undefined;
+        yield 2;
+      },
+    }, { validator: { validate } }), executableId, {
+      input: {},
+      bindings: { source: resourceId('drive') },
+    }));
+    expect(validate).toHaveBeenCalledTimes(3);
+    expect(validate.mock.calls.slice(1).map((call) => call[1])).toEqual([1, 2]);
+  });
+
+  it('records thrown and rejected runtime failures as errors', async () => {
+    for (const runtime of [
+      { validate() {}, invoke() { throw new Error('thrown'); } },
+      { validate() {}, invoke() { return Promise.reject(new Error('rejected')); } },
+    ] satisfies InvokeRuntime[]) {
+      const configured = services(preparedState(), runtime);
+      await expect(collect(invokeExecutable(configured, executableId, {
+        input: {},
+        bindings: { source: resourceId('drive') },
+      }))).rejects.toThrow();
+      expect(configured.recordInvocation)
+        .toHaveBeenCalledWith(expect.objectContaining({ result: 'error' }));
+    }
+  });
+
   it('rejects missing definitions, revisions, invalid inputs and outputs, and unknown runtimes', async () => {
     const runtime: InvokeRuntime = {
       validate() {},
-      async *invoke() { yield { type: 'data', value: 'bad' }; },
+      invoke() { return 'bad'; },
     };
     const empty = services(fixture(), runtime);
     await expect(collect(invokeExecutable(empty, executableId, { input: {} }))).rejects.toThrow('does not exist');
@@ -271,7 +382,7 @@ describe('invocation orchestration', () => {
     state.executableRevisions[revisionId].outputSchema = null;
     await expect(collect(invokeExecutable(services(state, runtime, { validator: selective }), executableId, {
       input: {}, bindings: { source: resourceId('drive') },
-    }))).resolves.toEqual([{ type: 'data', value: 'bad' }]);
+    }))).resolves.toEqual([{ type: 'data', value: 'bad' }, { type: 'done' }]);
   });
 
   it('propagates cancellation and records downstream early return without recording values', async () => {
@@ -280,8 +391,8 @@ describe('invocation orchestration', () => {
       validate() {},
       async *invoke(context) {
         runtimeSignal = context.signal;
-        yield { type: 'data', value: 'first' };
-        yield { type: 'data', value: 'second' };
+        yield 'first';
+        yield 'second';
       },
     };
     const configured = services(preparedState(), runtime);
@@ -310,10 +421,9 @@ describe('invocation orchestration', () => {
     alreadyAborted.abort('before invocation');
     const preAbortedRuntime: InvokeRuntime = {
       validate() {},
-      async *invoke(context) {
+      invoke(context) {
         expect(context.signal.aborted).toBe(true);
         expect(context.signal.reason).toBe('before invocation');
-        yield { type: 'done' };
       },
     };
     const preAbortedServices = services(state, preAbortedRuntime);
@@ -328,11 +438,10 @@ describe('invocation orchestration', () => {
     const later = new AbortController();
     const laterRuntime: InvokeRuntime = {
       validate() {},
-      async *invoke(context) {
+      invoke(context) {
         later.abort('during invocation');
         expect(context.signal.aborted).toBe(true);
         expect(context.signal.reason).toBe('during invocation');
-        yield { type: 'done' };
       },
     };
     const laterServices = services(state, laterRuntime);
@@ -343,5 +452,20 @@ describe('invocation orchestration', () => {
     }));
     expect(laterServices.recordInvocation)
       .toHaveBeenCalledWith(expect.objectContaining({ bindings: {}, result: 'cancelled' }));
+
+    const failedAfterAbort = new AbortController();
+    const cancelledFailure = services(state, {
+      validate() {},
+      invoke() {
+        failedAfterAbort.abort('cancel before failure');
+        throw new Error('cancelled runtime');
+      },
+    });
+    await expect(collect(invokeExecutable(cancelledFailure, executableId, {
+      input: {},
+      signal: failedAfterAbort.signal,
+    }))).rejects.toThrow('cancelled runtime');
+    expect(cancelledFailure.recordInvocation)
+      .toHaveBeenCalledWith(expect.objectContaining({ result: 'cancelled' }));
   });
 });

@@ -9,7 +9,6 @@ import {
 
 export type InvocationEvent =
   | { type: 'data'; value: unknown }
-  | { type: 'error'; code: string; message: string }
   | { type: 'done' };
 
 export type ValidationResult = { valid: true } | { valid: false; errors: string[] };
@@ -24,33 +23,55 @@ export type RuntimeBinding = {
   kind: BindingSlot['kind'];
 };
 
-export type RuntimeInvocation = {
-  revision: ExecutableRevision;
-  input: unknown;
+export type RuntimeInvocation<TProgram = unknown, TInput = unknown> = {
+  revision: Omit<ExecutableRevision, 'program'> & { program: TProgram };
+  input: TInput;
   bindings: Readonly<Record<string, RuntimeBinding>>;
   limits: ExecutionLimits;
   signal: AbortSignal;
 };
 
-export interface InvokeRuntime {
-  validate(program: unknown): void;
-  invoke(context: RuntimeInvocation): AsyncIterable<InvocationEvent>;
+export type RuntimeResult<T> = T | AsyncIterable<T>;
+
+export interface InvokeRuntime<TProgram = unknown, TInput = unknown, TOutput = unknown> {
+  validate(program: unknown): asserts program is TProgram;
+  invoke(
+    context: RuntimeInvocation<TProgram, TInput>,
+  ): RuntimeResult<TOutput> | Promise<RuntimeResult<TOutput>>;
 }
 
-/** Deployment-owned registry; repository commands cannot mutate it. */
-export class RuntimeRegistry {
-  readonly #runtimes: ReadonlyMap<string, InvokeRuntime>;
+type RegisteredRuntime = {
+  validate(program: unknown): void;
+  invoke(context: never): unknown;
+};
+export type RuntimeRegistrations =
+  | Readonly<Record<string, RegisteredRuntime>>
+  | ReadonlyMap<string, RegisteredRuntime>;
 
-  constructor(runtimes: Readonly<Record<string, InvokeRuntime>> | ReadonlyMap<string, InvokeRuntime> = {}) {
+/** Deployment-owned registry; repository commands cannot mutate it. */
+export class RuntimeRegistry<TRuntimes extends RuntimeRegistrations = RuntimeRegistrations> {
+  readonly #runtimes: ReadonlyMap<string, RegisteredRuntime>;
+
+  constructor(runtimes: TRuntimes = {} as TRuntimes) {
     this.#runtimes = runtimes instanceof Map
       ? new Map(runtimes)
-      : new Map(Object.entries(runtimes as Readonly<Record<string, InvokeRuntime>>));
+      : new Map(Object.entries(runtimes));
   }
 
-  get(name: string) {
+  get<K extends keyof TRuntimes & string>(
+    name: K,
+  ): TRuntimes[K] extends RegisteredRuntime ? TRuntimes[K] : InvokeRuntime;
+  get<TProgram = unknown, TInput = unknown, TOutput = unknown>(
+    name: string,
+  ): InvokeRuntime<TProgram, TInput, TOutput>;
+  get<TProgram = unknown, TInput = unknown, TOutput = unknown>(
+    name: string,
+  ): InvokeRuntime<TProgram, TInput, TOutput> {
     const runtime = this.#runtimes.get(name);
     if (!runtime) throw new RgapError('unknown_runtime', `Runtime ${name} is not registered.`);
-    return runtime;
+    // The revision's runtime name selects this existential type. Program validation establishes
+    // the concrete program type before invocation; the erasure never escapes the registry.
+    return runtime as unknown as InvokeRuntime<TProgram, TInput, TOutput>;
   }
 
   has(name: string) {

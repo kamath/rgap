@@ -45,6 +45,7 @@ import {
   type InvokeInput,
   type InvokeRuntime,
   type JsonSchemaValidator,
+  type RuntimeRegistrations,
   type Permission,
   type PublishExecutableInput,
   type AuditListQuery,
@@ -71,7 +72,7 @@ export type SqliteRgapStoreOptions = {
   /** What an empty database is initialized with, and what `reset` restores. */
   initialState?: State;
   /** Deployment-owned runtime implementations. They are configuration, not repository state. */
-  runtimes?: RuntimeRegistry | Readonly<Record<string, InvokeRuntime>>;
+  runtimes?: RuntimeRegistry | RuntimeRegistrations;
   /** Host JSON Schema implementation used at invocation boundaries. */
   validator?: JsonSchemaValidator;
   /** Per-runtime host ceilings. An omitted runtime has no configured ceilings. */
@@ -235,7 +236,10 @@ class SqliteBackingRepository implements RgapCommands {
     return this.commit((state) => ({
       state: addExecutableRevision(
         state, id, input, revisionId, now(),
-        (runtime, program) => this.runtimes.get(runtime).validate(program),
+        (runtime, program) => {
+          const implementation: InvokeRuntime = this.runtimes.get(runtime);
+          implementation.validate(program);
+        },
       ),
       pick: (committed) => committed.executableRevisions[revisionId],
     }));
@@ -536,7 +540,7 @@ class SqliteBackingRepository implements RgapCommands {
       resourceId: revision.resourceId,
       runtime: revision.runtime,
       program: encodeJson(revision.program),
-      inputSchema: encodeJson(revision.inputSchema),
+      inputSchema: revision.inputSchema === null ? null : encodeJson(revision.inputSchema),
       outputSchema: revision.outputSchema === null ? null : encodeJson(revision.outputSchema),
       bindingSchema: encodeJson(revision.bindingSchema),
       limits: encodeJson(revision.limits),
@@ -611,7 +615,7 @@ const executableRevisionRecord = (row: typeof schema.executableRevisions.$inferS
   resourceId: resourceId(row.resourceId),
   runtime: row.runtime,
   program: JSON.parse(row.program) as unknown,
-  inputSchema: JSON.parse(row.inputSchema),
+  inputSchema: row.inputSchema === null ? null : JSON.parse(row.inputSchema),
   outputSchema: row.outputSchema === null ? null : JSON.parse(row.outputSchema),
   bindingSchema: JSON.parse(row.bindingSchema),
   limits: JSON.parse(row.limits),

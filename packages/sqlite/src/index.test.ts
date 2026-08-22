@@ -135,7 +135,7 @@ describe('SqliteRgapStore', () => {
 
   it('persists executable definitions and immutable revisions across restart', async () => {
     const url = file();
-    const runtime: InvokeRuntime = { validate: vi.fn(), async *invoke() { yield { type: 'done' }; } };
+    const runtime: InvokeRuntime = { validate() {}, invoke() {} };
     const options = {
       url,
       initialState: acme(),
@@ -147,7 +147,7 @@ describe('SqliteRgapStore', () => {
     const drive = await first.resources.get(resourceId('drive'));
     const revisionOne = await drive.executable.publish(publication());
     const revisionTwo = await drive.executable.publish({
-      ...publication(), program: { operation: 'echo-again' },
+      ...publication(), program: { operation: 'echo-again' }, inputSchema: null, outputSchema: null,
     });
     expect((await drive.executable.get())?.activeRevisionId).toBe(revisionTwo.id);
     expect((await drive.executable.revisions()).map(({ id }) => id).sort())
@@ -156,6 +156,10 @@ describe('SqliteRgapStore', () => {
 
     const second = open({ ...options, initialState: undefined }).admin();
     expect(await second.executables.getRevision(revisionOne.id)).toEqual(revisionOne);
+    expect(await second.executables.getRevision(revisionTwo.id)).toMatchObject({
+      inputSchema: null,
+      outputSchema: null,
+    });
     expect((await second.executables.get(resourceId('drive')))?.activeRevisionId).toBe(revisionTwo.id);
     await second.executables.delete(resourceId('drive'));
     expect((await second.executables.get(resourceId('drive')))?.deletedAt).not.toBeNull();
@@ -169,7 +173,7 @@ describe('SqliteRgapStore', () => {
   });
 
   it('refuses executable values that JSON persistence would change', async () => {
-    const runtime: InvokeRuntime = { validate() {}, async *invoke() { yield { type: 'done' }; } };
+    const runtime: InvokeRuntime = { validate() {}, invoke() {} };
     const repository = open({ initialState: acme(), runtimes: { test: runtime } }).admin();
 
     await expect(repository.executables.publish(resourceId('drive'), {
@@ -185,11 +189,10 @@ describe('SqliteRgapStore', () => {
     const outputMarker = 'private-runtime-output';
     const runtime: InvokeRuntime = {
       validate() {},
-      async *invoke(context) {
+      async invoke(context) {
         expect(context.limits.timeoutMs).toBe(50);
         expect(context.bindings.source).toEqual({ resourceId: resourceId('acme'), kind: 'document' });
-        yield { type: 'data', value: outputMarker };
-        yield { type: 'done' };
+        return outputMarker;
       },
     };
     const options: SqliteRgapStoreOptions = {
@@ -216,7 +219,7 @@ describe('SqliteRgapStore', () => {
   });
 
   it('authorizes invocation through the guarded plane while admin remains unrestricted', async () => {
-    const runtime: InvokeRuntime = { validate() {}, async *invoke() { yield { type: 'done' }; } };
+    const runtime: InvokeRuntime = { validate() {}, invoke() {} };
     const store = open({ initialState: acme(), runtimes: { test: runtime }, validator });
     const admin = store.admin();
     await admin.executables.publish(resourceId('drive'), publication());

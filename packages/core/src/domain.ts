@@ -59,7 +59,7 @@ export type ExecutableRevision = {
   resourceId: ResourceId;
   runtime: string;
   program: unknown;
-  inputSchema: JsonSchema;
+  inputSchema: JsonSchema | null;
   outputSchema: JsonSchema | null;
   bindingSchema: Record<string, BindingSlot>;
   limits: ExecutionLimits;

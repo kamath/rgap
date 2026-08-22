@@ -55,13 +55,16 @@ function testApp() {
 function executableTestApp() {
   const runtime: InvokeRuntime = {
     validate() {},
-    async *invoke(context) {
-      yield { type: 'data', value: context.input };
-      yield { type: 'done' };
+    async invoke(context) {
+      return context.input;
     },
   };
+  const voidRuntime: InvokeRuntime = {
+    validate() {},
+    async invoke() {},
+  };
   store = new SqliteRgapStore({
-    runtimes: { test: runtime },
+    runtimes: { test: runtime, void: voidRuntime },
     validator: { validate: () => ({ valid: true }) },
   });
   return createApp({ store, adminToken });
@@ -73,6 +76,14 @@ describe('RGAP Hono API', () => {
     const response = await app.request('/openapi.json');
     const document = await response.json() as {
       paths: Record<string, Record<string, { operationId?: string }>>;
+      components: {
+        schemas: {
+          ExecutableRevision: {
+            properties: { inputSchema: { anyOf: Array<{ type?: string }> } };
+          };
+          InvocationEvent: { oneOf: Array<{ properties: { type: { enum: string[] } } }> };
+        };
+      };
     };
     const operationIds = Object.values(document.paths)
       .flatMap((path) => Object.values(path))
@@ -81,6 +92,10 @@ describe('RGAP Hono API', () => {
     expect(response.status).toBe(200);
     expect(operationIds.sort()).toEqual([...expectedOperations].sort());
     expect(expectedOperations.every((operation) => typeof sdk[operation] === 'function')).toBe(true);
+    expect(document.components.schemas.ExecutableRevision.properties.inputSchema.anyOf)
+      .toContainEqual({ type: 'null' });
+    expect(document.components.schemas.InvocationEvent.oneOf.map((event) => event.properties.type.enum[0]))
+      .toEqual(['data', 'done']);
 
     const ui = await app.request('/ui');
     expect(ui.status).toBe(200);
@@ -180,7 +195,7 @@ describe('RGAP Hono API', () => {
     const publication = {
       runtime: 'test',
       program: { operation: 'echo' },
-      inputSchema: true,
+      inputSchema: null,
       outputSchema: true,
       bindingSchema: {
         source: { kind: 'document' },
@@ -193,9 +208,10 @@ describe('RGAP Hono API', () => {
       'POST',
       publication,
     );
-    const revision = await published.json() as { id: string; resourceId: string };
+    const revision = await published.json() as { id: string; resourceId: string; inputSchema: unknown };
     expect(published.status).toBe(200);
     expect(revision.resourceId).toBe(executable.id);
+    expect(revision.inputSchema).toBeNull();
     expect(await (await request(`/resources/${executable.id}/executable`, 'GET')).json())
       .toMatchObject({ resourceId: executable.id, activeRevisionId: revision.id });
     expect(await (await request(`/executable-revisions/${revision.id}`, 'GET')).json())
@@ -219,6 +235,18 @@ describe('RGAP Hono API', () => {
       { type: 'data', value: { message: 'hello' } },
       { type: 'done' },
     ]);
+    const voidRevision = await (await request(
+      `/resources/${executable.id}/executable/revisions`,
+      'POST',
+      { ...publication, runtime: 'void', outputSchema: null },
+    )).json() as { id: string };
+    const voidInvocation = await request(`/resources/${executable.id}/invoke`, 'POST', {
+      input: null,
+      bindings: { source: source.id },
+      revisionId: voidRevision.id,
+    });
+    expect((await voidInvocation.text()).trim().split('\n').map((line) => JSON.parse(line)))
+      .toEqual([{ type: 'done' }]);
     const readerGrant = await (await request('/grants', 'POST', {
       name: 'reader',
       parentId: null,
