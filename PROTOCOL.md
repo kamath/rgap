@@ -25,15 +25,13 @@ type Resource = {
   deletedAt: string | null;                          // tombstone marker
 };
 
-type CapabilityTarget =
-  | { type: 'resource'; resourceId: string }          // follows one stable resource identity
-  | { type: 'path'; path: string };                   // stays attached to one normalized location
-
-type Capability = {
-  target: CapabilityTarget;
+type CapabilityConfig = {
   permissions: Permission[];                         // a set; order is not significant
-  descendants: boolean;                              // whether the entry covers the root's subtree
 };
+
+type ResourceCapability = CapabilityConfig & { resourceId: string };  // follows one stable resource identity
+type PathCapability = CapabilityConfig & { path: string };            // stays attached to one normalized location
+type Capability = ResourceCapability | PathCapability;
 
 type Grant = {
   id: string;
@@ -87,7 +85,7 @@ requireResourceId(resources, path) -> string            // raises missing_resour
 
 Resource commands name resources by stable ID, so a caller resolves an operational path at the moment it reads state. Capability path targets are different: the normalized path is stored as part of the grant and resolved from the current tree for every authorization decision.
 
-An ID target names an identity. It follows the resource and its subtree when they move. A path target names a location. It remains attached to the same normalized path while empty and applies to a resource that later occupies that path.
+An ID entry names an identity. It follows the resource and its subtree when they move. A path entry names a location. It remains attached to the same normalized path while empty and applies to a resource that later occupies that path, including that resource's subtree. Every entry covers its target and the live resources currently under it.
 
 ### Ancestry
 
@@ -151,16 +149,14 @@ Two relations define everything else: what a capability authorizes, and when one
 
 ```ts
 targetResourceId(capability, resources) =
-  capability.target.type === 'resource'
-    ? (isLive(resources[capability.target.resourceId]) ? capability.target.resourceId : null)
-    : resourceIdAtPath(resources, capability.target.path)
+  'path' in capability
+    ? resourceIdAtPath(resources, capability.path)
+    : (isLive(resources[capability.resourceId]) ? capability.resourceId : null)
 
 authorizes(capability, resources, resourceId, permission) =
   capability.permissions.includes(permission) &&
   targetResourceId(capability, resources) !== null &&
-  (capability.descendants
-    ? isWithin(resources, resourceId, targetResourceId(capability, resources))
-    : targetResourceId(capability, resources) === resourceId)
+  isWithin(resources, resourceId, targetResourceId(capability, resources))
 ```
 
 ### Containment
@@ -173,23 +169,18 @@ covers(parent, child, resources) =
   child.permissions.every((permission) => parent.permissions.includes(permission));
 
 location(parent, child, resources) = {
-  if both targets are paths:
-    parent.descendants
-      ? child.path is equal to or lexically beneath parent.path
-      : child.path === parent.path && !child.descendants
+  if both entries name a path:
+    child.path is equal to or lexically beneath parent.path
   otherwise:
     let parentId = targetResourceId(parent, resources)
     let childId = targetResourceId(child, resources)
-    parentId !== null && childId !== null &&
-      (parent.descendants
-        ? isWithin(resources, childId, parentId)
-        : parentId === childId && !child.descendants)
+    parentId !== null && childId !== null && isWithin(resources, childId, parentId)
 }
 ```
 
 Each clause is a containment proof over one dimension:
 
-- **Location.** Two path targets compare lexically, which permits an empty child path to be delegated beneath a parent path. Every comparison involving an ID resolves both targets against the current live tree. A parent entry that covers only its root contains only a child reaching that same root and no descendants.
+- **Location.** Two path entries compare lexically, which permits an empty child path to be delegated beneath a parent path. Every comparison involving an ID resolves both entries against the current live tree. An entry covers its target and everything currently under it.
 - **Permissions.** The child's set is a subset of the parent's.
 
 Containment is required when a grant is issued or amended. Authorization separately checks every grant in the lineage against the requested resource in the current tree. Moving a target can therefore make delegated authority ineffective or effective again, but it cannot widen authority beyond what every ancestor currently authorizes.
@@ -201,7 +192,7 @@ Containment is required when a grant is issued or amended. Authorization separat
 A grant is created only when all of the following hold:
 
 1. `name` is non-empty.
-2. Every entry in `capabilities` has at least one permission. A resource target names a live resource. A path target has a non-empty normalized path and need not currently resolve. The set may be empty, in which case the grant authorizes nothing until its capabilities are set.
+2. Every entry in `capabilities` has at least one permission and names exactly one of `resourceId` or `path`. A `resourceId` names a live resource. A `path` has a non-empty normalized path and need not currently resolve. The set may be empty, in which case the grant authorizes nothing until its capabilities are set.
 3. If `parentId` is set, the parent grant exists and is active. A missing or inactive parent is `InvalidParentError` (`missing_parent` or `inactive_parent`).
 4. If the parent has an `expiresAt`, the child has one and it is no later than the parent's.
 5. Every child capability entry is covered by at least one parent capability entry, by `covers` above.
@@ -213,7 +204,7 @@ Rules 4 and 5 are the downscoping proof. A root grant, having no parent, is unco
 A grant's identity, parent, and expiry are fixed at issue. Its capability set is not: `setCapabilities(state, grantId, capabilities, at)` replaces the whole set in one atomic transition.
 
 1. The grant exists and is active. A revoked or expired grant is not amended.
-2. Every entry has at least one permission. Resource targets name live resources, and path targets hold non-empty normalized paths that may be empty locations.
+2. Every entry has at least one permission and names exactly one of `resourceId` or `path`. Resource IDs name live resources, and paths hold non-empty normalized locations that may be empty.
 3. If the grant has a parent, every entry is covered by at least one entry of the parent grant, by `covers` above. A root grant's entries are unconstrained, so setting them is administrative.
 4. Let `orphaned` be the active grants delegated directly from this grant that hold an entry which no entry of the new set covers.
 5. Revoke each grant in `orphaned` together with everything delegated from it.
@@ -221,7 +212,7 @@ A grant's identity, parent, and expiry are fixed at issue. Its capability set is
 
 Rule 3 is the same downscoping proof as issue, applied at the moment the set changes, so an amended grant is bounded by its parent exactly as a newly issued one is. Rule 4 need only consider direct children: a deeper grant is covered against its own parent, which this operation does not change. A child is orphaned when the parent gives up its target or permission coverage.
 
-Resource targets name live resources when set but remain stored if their resources are later deleted. Path targets may be unresolved from the start. Neither condition invalidates or revokes the grant; the affected entry simply authorizes no live resource.
+Resource IDs name live resources when set but remain stored if their resources are later deleted. Paths may be unresolved from the start. Neither condition invalidates or revokes the grant; the affected entry simply authorizes no live resource.
 
 Narrowing a set takes effect on the next decision whether or not rule 5 runs, because `authorize` re-checks coverage against every grant in the lineage. Rule 5 exists so the consequence is a recorded revocation rather than a grant record that remains active while authorizing nothing.
 

@@ -32,15 +32,17 @@ export type Resource = {
   deletedAt: string | null;
 };
 
-export type CapabilityTarget =
-  | { type: 'resource'; resourceId: ResourceId }
-  | { type: 'path'; path: string };
-
-export type Capability = {
-  target: CapabilityTarget;
+export type CapabilityConfig = {
   permissions: Permission[];
-  descendants: boolean;
 };
+
+export type ResourceCapability = CapabilityConfig & { resourceId: ResourceId };
+export type PathCapability = CapabilityConfig & { path: string };
+export type Capability = ResourceCapability | PathCapability;
+
+export function isPathCapability(capability: Capability): capability is PathCapability {
+  return 'path' in capability;
+}
 
 export type Grant = {
   id: GrantId;
@@ -165,8 +167,8 @@ export function stateIntegrity(state: State) {
       problems.push(`Grant ${grant.id} refers to missing parent ${grant.parentId}.`);
     }
     grant.capabilities.forEach((cap) => {
-      if (cap.target.type === 'resource' && !state.resources[cap.target.resourceId]) {
-        problems.push(`Grant ${grant.id} refers to missing resource ${cap.target.resourceId}.`);
+      if (!isPathCapability(cap) && !state.resources[cap.resourceId]) {
+        problems.push(`Grant ${grant.id} refers to missing resource ${cap.resourceId}.`);
       }
     });
   });
@@ -197,8 +199,8 @@ export function requireResourceId(resources: State['resources'], path: string) {
 export const normalizePath = (path: string) => pathParts(path).join('/');
 
 function targetResourceId(capability: Capability, resources: State['resources']) {
-  if (capability.target.type === 'path') return resourceIdAtPath(resources, capability.target.path);
-  return isLive(resources[capability.target.resourceId]) ? capability.target.resourceId : null;
+  if (isPathCapability(capability)) return resourceIdAtPath(resources, capability.path);
+  return isLive(resources[capability.resourceId]) ? capability.resourceId : null;
 }
 
 /** Whether one entry authorizes a request against the current live resource tree. */
@@ -210,16 +212,13 @@ export function capabilityAuthorizes(
 ) {
   if (!capability.permissions.includes(permission)) return false;
   const rootId = targetResourceId(capability, resources);
-  return Boolean(rootId && (rootId === id || (capability.descendants && isWithin(resources, id, rootId))));
+  return Boolean(rootId && isWithin(resources, id, rootId));
 }
 
 function pathContains(parent: Capability, child: Capability) {
-  if (parent.target.type !== 'path' || child.target.type !== 'path') return null;
-  const parentPath = normalizePath(parent.target.path);
-  const childPath = normalizePath(child.target.path);
-  if (!parent.descendants) return parentPath === childPath && !child.descendants;
-  const parentParts = pathParts(parentPath);
-  const childParts = pathParts(childPath);
+  if (!isPathCapability(parent) || !isPathCapability(child)) return null;
+  const parentParts = pathParts(normalizePath(parent.path));
+  const childParts = pathParts(normalizePath(child.path));
   return parentParts.every((part, index) => childParts[index] === part);
 }
 
@@ -228,24 +227,28 @@ export function covers(parent: Capability, child: Capability, resources: State['
   const lexicalCoverage = pathContains(parent, child);
   const parentId = targetResourceId(parent, resources);
   const childId = targetResourceId(child, resources);
-  const locationCovered = lexicalCoverage ?? Boolean(parentId && childId && (
-    parent.descendants ? isWithin(resources, childId, parentId) : parentId === childId && !child.descendants
-  ));
+  const locationCovered = lexicalCoverage ?? Boolean(parentId && childId && isWithin(resources, childId, parentId));
   return locationCovered && child.permissions.every((permission) => parent.permissions.includes(permission));
 }
 
 function normalizeCapabilities(capabilities: Capability[], resources: State['resources']) {
   return capabilities.map((capability) => {
     if (!capability.permissions.length) throw new RgapError('invalid_capability', 'Select at least one permission.');
-    if (capability.target.type === 'resource') {
-      if (!isLive(resources[capability.target.resourceId])) {
-        throw new RgapError('missing_resource', 'Capability resource does not exist.');
+    if (isPathCapability(capability)) {
+      if ('resourceId' in capability) {
+        throw new RgapError('invalid_capability', 'Capability must name a resourceId or a path.');
       }
-      return structuredClone(capability);
+      const path = normalizePath(capability.path);
+      if (!path) throw new RgapError('invalid_capability', 'Capability path is required.');
+      return { ...structuredClone(capability), path };
     }
-    const path = normalizePath(capability.target.path);
-    if (!path) throw new RgapError('invalid_capability', 'Capability path is required.');
-    return { ...structuredClone(capability), target: { type: 'path' as const, path } };
+    if (!('resourceId' in capability)) {
+      throw new RgapError('invalid_capability', 'Capability must name a resourceId or a path.');
+    }
+    if (!isLive(resources[capability.resourceId])) {
+      throw new RgapError('missing_resource', 'Capability resource does not exist.');
+    }
+    return structuredClone(capability);
   });
 }
 

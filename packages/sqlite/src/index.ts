@@ -14,6 +14,7 @@ import {
   grantId,
   guardCommands,
   inspectAuthority,
+  isPathCapability,
   moveResource as move,
   permissions as canonicalPermissions,
   recordToken,
@@ -232,15 +233,13 @@ class SqliteBackingRepository implements RgapCommands {
       .all()
       .forEach((row) => {
         const carried = held.get(entryKey(row.grantId, row.position));
-        const target: Capability['target'] = row.targetType === 'resource'
-          ? { type: 'resource', resourceId: resourceId(row.resourceId!) }
-          : { type: 'path', path: row.path! };
-        state.grants[row.grantId].capabilities.push({
-          target,
-          // An entry's permissions are a set, so they are read in the protocol's canonical order.
-          permissions: canonicalPermissions.filter((permission) => carried?.has(permission)),
-          descendants: row.descendants,
-        });
+        // An entry's permissions are a set, so they are read in the protocol's canonical order.
+        const permissions = canonicalPermissions.filter((permission) => carried?.has(permission));
+        state.grants[row.grantId].capabilities.push(
+          row.path !== null
+            ? { path: row.path, permissions }
+            : { resourceId: resourceId(row.resourceId!), permissions },
+        );
       });
 
     this.db.select().from(schema.tokens).orderBy(asc(schema.tokens.id)).all().forEach((row) => {
@@ -293,10 +292,8 @@ class SqliteBackingRepository implements RgapCommands {
         entries.push({
           grantId: grant.id,
           position,
-          targetType: capability.target.type,
-          resourceId: capability.target.type === 'resource' ? capability.target.resourceId : null,
-          path: capability.target.type === 'path' ? capability.target.path : null,
-          descendants: capability.descendants,
+          resourceId: isPathCapability(capability) ? null : capability.resourceId,
+          path: isPathCapability(capability) ? capability.path : null,
         });
         capability.permissions.forEach((permission) => {
           carried.push({ grantId: grant.id, position, permission });

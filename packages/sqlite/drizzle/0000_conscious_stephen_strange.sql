@@ -12,15 +12,13 @@ CREATE UNIQUE INDEX `audit_id_unique` ON `audit` (`id`);--> statement-breakpoint
 CREATE TABLE `capabilities` (
 	`grant_id` text NOT NULL,
 	`position` integer NOT NULL,
-	`target_type` text NOT NULL,
 	`resource_id` text,
 	`path` text,
-	`descendants` integer NOT NULL,
 	PRIMARY KEY(`grant_id`, `position`),
 	FOREIGN KEY (`grant_id`) REFERENCES `grants`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`resource_id`) REFERENCES `resources`(`id`) ON UPDATE no action ON DELETE no action,
-	CONSTRAINT "capabilities_target_check" CHECK(("capabilities"."target_type" = 'resource' and "capabilities"."resource_id" is not null and "capabilities"."path" is null)
-        or ("capabilities"."target_type" = 'path' and "capabilities"."resource_id" is null and "capabilities"."path" is not null))
+	CONSTRAINT "capabilities_target_check" CHECK(("capabilities"."resource_id" is not null and "capabilities"."path" is null)
+        or ("capabilities"."resource_id" is null and "capabilities"."path" is not null))
 );
 --> statement-breakpoint
 CREATE TABLE `capability_permissions` (

@@ -16,15 +16,11 @@ await root.reset();
 
 const acme = await root.resources.create({ name: 'acme-company' });
 const adminGrant = await root.grants.create({
-  name: 'Acme admin', capabilities: [], expiresAt: null,
-});
-await adminGrant.capabilities.set([
-  {
-    target: { type: 'resource', resourceId: acme.id },
+  name: 'Acme admin', capabilities: [{
+    resourceId: acme.id,
     permissions: ['read', 'write', 'invoke', 'move', 'delete'],
-    descendants: true,
-  },
-]);
+  }], expiresAt: null,
+});
 const adminToken = await adminGrant.tokens.create({ label: 'admin' });
 const admin = store.as(adminToken.value);
 
@@ -40,7 +36,7 @@ const readerGrant = await (await alice.grants.get(adminGrant.id)).create({
   name: 'Drive read', capabilities: [], expiresAt: null,
 });
 await readerGrant.capabilities.set([
-  { target: { type: 'path', path: 'acme-company/drive' }, permissions: ['read'], descendants: true },
+  { path: 'acme-company/drive', permissions: ['read'] },
 ]);
 
 const bobToken = await readerGrant.tokens.create({ label: 'bob' });

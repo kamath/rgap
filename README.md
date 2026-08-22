@@ -35,9 +35,21 @@ Renaming or moving a resource changes its position in the tree without changing 
 
 ### Grants
 
-A grant contains a set of capability entries. Each entry authorizes a set of operations over a resource or resource subtree and chooses whether its target is a stable resource ID or a normalized path. Multiple entries let one grant aggregate authority from several branches, such as tools exposed by different MCP servers. Grants may delegate authority to child grants.
+A grant contains a set of capability entries. Each entry authorizes a set of operations over a resource and its subtree. The target is either a stable resource ID or a normalized path, distinguished by which field is present: `resourceId` names an object, `path` names a location. Both kinds share the same permission set. Multiple entries let one grant aggregate authority from several branches, such as tools exposed by different MCP servers. Grants may delegate authority to child grants.
 
-An ID target names an object. It follows that resource and its subtree when they move. A path target names a location. It remains attached to that path when the resource there moves or is deleted, authorizes nothing while the path is empty, and applies when a resource later occupies the path. Deleting an ID-targeted resource makes that entry permanently ineffective because resource IDs are never reused. In every case, other entries in the same grant continue to work.
+```ts
+type CapabilityConfig = {
+  permissions: Permission[];
+};
+
+type ResourceCapability = CapabilityConfig & { resourceId: ResourceId };
+type PathCapability = CapabilityConfig & { path: string };
+type Capability = ResourceCapability | PathCapability;
+```
+
+An ID entry follows that resource and its subtree when they move. A path entry remains attached to that path when the resource there moves or is deleted, authorizes nothing while the path is empty, and applies when a resource later occupies the path, including that resource's subtree. Deleting an ID-targeted resource makes that entry permanently ineffective because resource IDs are never reused. In every case, other entries in the same grant continue to work.
+
+A grant on a container therefore includes children that do not exist yet. Operators who do not want that expansion grant the leaves rather than the container. A grant on a leaf reaches only that resource until something is created under it.
 
 A grant's identity, parent, and expiry are fixed when it is created. Its capability set is not: entries are set afterwards, and the set may be empty, in which case the grant authorizes nothing yet. Creating a grant and deciding what it reaches are separate acts, so a delegation can be recorded before its authority is chosen.
 
@@ -126,12 +138,12 @@ Authorization checks the selected grant and every grant in its delegation ancest
 
 ## Moves and renames
 
-Moves and renames change the current resource tree without rewriting or revoking grants. Target type determines what an entry means:
+Moves and renames change the current resource tree without rewriting or revoking grants. Which field the entry carries determines what it means:
 
 | Target | Behavior when a resource moves |
 | --- | --- |
-| Stable resource ID | The entry follows the resource and, when descendants are included, its subtree. |
-| Normalized path | The entry stays at the same path and applies to whatever live resource occupies it. |
+| `resourceId` | The entry follows the resource and its subtree. |
+| `path` | The entry stays at the same path and applies to whatever live resource occupies it, including that resource's subtree. |
 
 For example, suppose `secret` moves:
 
@@ -258,7 +270,7 @@ The listing's action bar creates, revokes, and inspects. `Create` creates a gran
 
 Lineage is a read-only table of the delegation chain from the root grant down to the addressed grant, one row per capability entry, grouped under the grant that holds it. Reading down the table is reading the downscoping: targets narrow, permission sets shrink, and expirations move earlier. It is the view that answers whether a grant's authority survives everything above it.
 
-Capabilities is the addressed grant's own entries: target type, stable ID or normalized path, permissions, and descendant behavior. An ID entry whose resource has been deleted is marked deleted and still shows the path that resource held. A path entry whose location is empty is marked empty and remains editable.
+Capabilities is the addressed grant's own entries: whether each names a `resourceId` or a `path`, that value, and the permission set. An ID entry whose resource has been deleted is marked deleted and still shows the path that resource held. A path entry whose location is empty is marked empty and remains editable.
 
 Its action bar holds `Set capabilities`, the one operation that changes what a grant reaches. Setting replaces the whole set in one command, so the operation opens seeded with the entries the grant holds now and executes the set it is left in.
 
@@ -272,7 +284,7 @@ This is the one operation that does not open in a drawer. A drawer exists so a f
 
 Each entry explicitly selects `resource ID` or `path`. ID targets use the resource picker: a breadcrumb walks the current tree, rows select live resources, and a whole-path filter reaches deep resources directly. Path targets use a normalized path field and do not require the path to be occupied, so a grant can reserve authority for a location that is currently empty.
 
-Under the target controls is one row per entry, in order, stating its target type and value and carrying its descendant toggle and permission checkbox set. Permissions default to none, and the form marks an entry that has none, because an entry with no permission is not valid.
+Under the target controls is one row per entry, in order, stating whether it names a `resourceId` or a `path`, that value, and its permission checkbox set. Permissions default to none, and the form marks an entry that has none, because an entry with no permission is not valid. Every entry covers the target and its subtree; there is no per-entry extent control.
 
 For a child grant, available targets and permissions are bounded by the parent grant. A child ID target must currently resolve within a covering parent entry. A child path target may be delegated while empty when a parent path entry lexically covers it; otherwise it must currently resolve within a covering parent entry. The domain check remains authoritative, and authorization checks every grant in the lineage against the requested live resource so later moves cannot expand delegated authority.
 
@@ -313,7 +325,7 @@ const grant = await admin.grants.create({
   name: 'Acme admin', capabilities: [], expiresAt: null,
 });
 await grant.capabilities.set([
-  { target: { type: 'resource', resourceId: acme.id }, permissions: ['read', 'write'], descendants: true },
+  { resourceId: acme.id, permissions: ['read', 'write'] },
 ]);
 const reader = await grant.create({
   name: 'Drive read', capabilities: [], expiresAt: null,
@@ -379,7 +391,7 @@ const grant = await admin.grants.create({
   name: 'Acme admin', capabilities: [], expiresAt: null,
 });
 await grant.capabilities.set([
-  { target: { type: 'resource', resourceId: acme.id }, permissions: ['read', 'write'], descendants: true },
+  { resourceId: acme.id, permissions: ['read', 'write'] },
 ]);
 
 const { value } = await grant.tokens.create({ label: 'cli' });
@@ -442,11 +454,8 @@ Reaching every path means the suite asserts each rejection, not only each succes
 id: grant_bob_docs
 parent_grant_id: grant_alice_alpha
 capabilities:
-  - target:
-      type: path
-      path: projects/alpha/docs
+  - path: projects/alpha/docs
     permissions: [read]
-    descendant_policy: include
 expires_at: 2026-12-31T23:59:59Z
 revoked_at: null
 ```

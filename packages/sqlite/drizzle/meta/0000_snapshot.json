@@ -88,13 +88,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "target_type": {
-          "name": "target_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "resource_id": {
           "name": "resource_id",
           "type": "text",
@@ -107,13 +100,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false
-        },
-        "descendants": {
-          "name": "descendants",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
           "autoincrement": false
         }
       },
@@ -159,7 +145,7 @@
       "checkConstraints": {
         "capabilities_target_check": {
           "name": "capabilities_target_check",
-          "value": "(\"capabilities\".\"target_type\" = 'resource' and \"capabilities\".\"resource_id\" is not null and \"capabilities\".\"path\" is null)\n        or (\"capabilities\".\"target_type\" = 'path' and \"capabilities\".\"resource_id\" is null and \"capabilities\".\"path\" is not null)"
+          "value": "(\"capabilities\".\"resource_id\" is not null and \"capabilities\".\"path\" is null)\n        or (\"capabilities\".\"resource_id\" is null and \"capabilities\".\"path\" is not null)"
         }
       }
     },

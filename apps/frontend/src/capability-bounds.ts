@@ -1,13 +1,17 @@
 import {
   covers,
+  isPathCapability,
   normalizePath,
   permissions as allPermissions,
   type Capability,
-  type CapabilityTarget,
   type Grant,
+  type PathCapability,
   type Permission,
+  type ResourceCapability,
   type State,
 } from '@rgap/core';
+
+type CapabilityTarget = Pick<ResourceCapability, 'resourceId'> | Pick<PathCapability, 'path'>;
 
 /**
  * What a delegating grant permits at one target. A child entry must be covered by a single parent
@@ -15,29 +19,20 @@ import {
  * whether a whole entry is legal.
  */
 export function boundsAt(parent: Grant | null, resources: State['resources'], target: CapabilityTarget) {
-  if (!parent) {
-    return { selectable: true, permissions: [...allPermissions], descendants: true };
-  }
-  const candidate = (permissions: Permission[], descendants: boolean): Capability => ({
-    target,
-    permissions,
-    descendants,
-  });
+  if (!parent) return { selectable: true, permissions: [...allPermissions] };
+  const candidate = (permissions: Permission[]): Capability => ({ ...target, permissions });
   const allowedPermissions = allPermissions.filter((permission) =>
-    parent.capabilities.some((entry) => covers(entry, candidate([permission], false), resources)),
+    parent.capabilities.some((entry) => covers(entry, candidate([permission]), resources)),
   );
   return {
     selectable: allowedPermissions.length > 0,
     permissions: allowedPermissions,
-    descendants: allowedPermissions.some((permission) =>
-      parent.capabilities.some((entry) => covers(entry, candidate([permission], true), resources)),
-    ),
   };
 }
 
 /** The reason an entry is not legal, or null when some parent entry covers it. */
 export function uncovered(parent: Grant | null, resources: State['resources'], entry: Capability) {
-  if (entry.target.type === 'path' && !normalizePath(entry.target.path)) return 'path required';
+  if (isPathCapability(entry) && !normalizePath(entry.path)) return 'path required';
   if (!entry.permissions.length) return 'no permission';
   if (!parent) return null;
   return parent.capabilities.some((parentEntry) => covers(parentEntry, entry, resources)) ? null : 'not covered';

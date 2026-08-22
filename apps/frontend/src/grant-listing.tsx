@@ -176,7 +176,7 @@ export function GrantListing({
                 <td>
                   <div className="entries">
                     {grant.capabilities.map((capability, index) => (
-                      <code key={`${capability.target.type}-${capabilityTarget(resources, capability).value}-${index}`}>
+                      <code key={`${capabilityTarget(resources, capability).type}-${capabilityTarget(resources, capability).value}-${index}`}>
                         {capabilityLabel(resources, capability)}
                       </code>
                     ))}
@@ -214,7 +214,6 @@ export function LineagePane({ lineage, resources }: { lineage: Grant[]; resource
             <th>Target type</th>
             <th>Target</th>
             <th>Permissions</th>
-            <th>Descendants</th>
             <th>Expires</th>
             <th>Status</th>
           </tr>
@@ -251,7 +250,7 @@ export function LineagePane({ lineage, resources }: { lineage: Grant[]; resource
               return [
                 <tr key={grant.id}>
                   {facts}
-                  <td colSpan={4} className="dim">
+                  <td colSpan={3} className="dim">
                     no capability entries
                   </td>
                   {trailing}
@@ -260,19 +259,16 @@ export function LineagePane({ lineage, resources }: { lineage: Grant[]; resource
             }
 
             return grant.capabilities.map((capability, index) => (
-              <tr key={`${grant.id}-${capability.target.type}-${capabilityTarget(resources, capability).value}-${index}`}>
+              <tr key={`${grant.id}-${capabilityTarget(resources, capability).type}-${capabilityTarget(resources, capability).value}-${index}`}>
                 {index === 0 ? facts : null}
                 <td>
-                  <code>{capability.target.type === 'resource' ? 'resource ID' : 'path'}</code>
+                  <code>{capabilityTarget(resources, capability).type === 'resource' ? 'resource ID' : 'path'}</code>
                 </td>
                 <td>
                   <CapabilityResource resources={resources} capability={capability} />
                 </td>
                 <td>
                   <code>{capability.permissions.join(' ')}</code>
-                </td>
-                <td>
-                  <code>{capability.descendants ? 'include' : 'root only'}</code>
                 </td>
                 {index === 0 ? trailing : null}
               </tr>

@@ -40,7 +40,7 @@ const resource = (id: string, parent: string | null): Resource => ({
 });
 
 const cap = (id: string): Capability => ({
-  target: { type: 'resource', resourceId: resourceId(id) }, permissions: ['invoke'], descendants: false,
+  resourceId: resourceId(id), permissions: ['invoke'],
 });
 
 /** A call the guard forwarded to the command sink, in the order the guard made it. */

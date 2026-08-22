@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { check, foreignKey, integer, primaryKey, sqliteTable, text, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
-import type { AuditEvent, CapabilityTarget, Permission } from '@rgap/core';
+import type { AuditEvent, Permission } from '@rgap/core';
 
 /** A resource's stable ID is its key; its parent is a reference to another row of the same table. */
 export const resources = sqliteTable('resources', {
@@ -24,17 +24,15 @@ export const capabilities = sqliteTable(
   {
     grantId: text('grant_id').notNull().references(() => grants.id),
     position: integer('position').notNull(),
-    targetType: text('target_type').$type<CapabilityTarget['type']>().notNull(),
     resourceId: text('resource_id').references(() => resources.id),
     path: text('path'),
-    descendants: integer('descendants', { mode: 'boolean' }).notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.grantId, table.position] }),
     check(
       'capabilities_target_check',
-      sql`(${table.targetType} = 'resource' and ${table.resourceId} is not null and ${table.path} is null)
-        or (${table.targetType} = 'path' and ${table.resourceId} is null and ${table.path} is not null)`,
+      sql`(${table.resourceId} is not null and ${table.path} is null)
+        or (${table.resourceId} is null and ${table.path} is not null)`,
     ),
   ],
 );

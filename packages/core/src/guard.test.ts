@@ -10,14 +10,14 @@ const subBearer = tokenValue('sub-token-hash');
 const r = resourceId;
 const g = grantId;
 const cap = (id: string, permissions: Capability['permissions']): Capability =>
-  ({ target: { type: 'resource', resourceId: r(id) }, permissions, descendants: true });
+  ({ resourceId: r(id), permissions });
 
 /** The demo token references `coordinator`, which holds every permission across the drive subtree. */
 function state(): State {
   const base = fixture();
   base.grants.coordinator.capabilities = [cap('drive', ['read', 'write', 'delete', 'move', 'invoke'])];
   base.grants.researcher.capabilities = [
-    { target: { type: 'resource', resourceId: r('search-files') }, permissions: ['invoke'], descendants: false },
+    { resourceId: r('search-files'), permissions: ['invoke'] },
   ];
   // A grant tree beside the acting grant, which no token on the coordinator branch reaches.
   base.grants['other-root'] = {

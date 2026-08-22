@@ -1,6 +1,7 @@
 import {
   grantId,
   isLive,
+  isPathCapability,
   normalizePath,
   resourceId,
   resourceIdAtPath,
@@ -63,8 +64,8 @@ export function lineageStatus(grants: State['grants'], grantId: GrantId) {
 
 /** What a capability entry points at, which is readable even once the resource is gone. */
 export function capabilityTarget(resources: State['resources'], capability: Capability) {
-  if (capability.target.type === 'path') {
-    const path = normalizePath(capability.target.path);
+  if (isPathCapability(capability)) {
+    const path = normalizePath(capability.path);
     return {
       type: 'path' as const,
       value: path,
@@ -72,14 +73,14 @@ export function capabilityTarget(resources: State['resources'], capability: Capa
       state: resourceIdAtPath(resources, path) ? ('live' as const) : ('empty' as const),
     };
   }
-  const resource = resources[capability.target.resourceId];
-  const path = tryResourcePath(resources, capability.target.resourceId);
+  const resource = resources[capability.resourceId];
+  const path = tryResourcePath(resources, capability.resourceId);
   if (!resource || path === null) {
-    return { type: 'resource' as const, value: capability.target.resourceId, path: null, state: 'missing' as const };
+    return { type: 'resource' as const, value: capability.resourceId, path: null, state: 'missing' as const };
   }
   return {
     type: 'resource' as const,
-    value: capability.target.resourceId,
+    value: capability.resourceId,
     path,
     state: isLive(resource) ? ('live' as const) : ('deleted' as const),
   };
@@ -89,7 +90,7 @@ export function capabilityTarget(resources: State['resources'], capability: Capa
 export function capabilityLabel(resources: State['resources'], capability: Capability) {
   const target = capabilityTarget(resources, capability);
   const reach = target.path ?? target.value;
-  return `${reach}${capability.descendants ? '/…' : ''} ${capability.permissions.join('+')}`;
+  return `${reach}/… ${capability.permissions.join('+')}`;
 }
 
 /** Every grant delegated from one grant, which is the extent revoking it would disable. */

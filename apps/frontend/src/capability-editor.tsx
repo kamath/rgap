@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import {
+  isPathCapability,
   liveResources,
   normalizePath,
   type Capability,
-  type CapabilityTarget,
   type Grant,
   type Permission,
   type ResourceId,
@@ -56,26 +56,25 @@ function CapabilityTable({ grant }: { grant: Grant }) {
           <th>Target type</th>
           <th>Target</th>
           <th>Permissions</th>
-          <th>Descendants</th>
         </tr>
       </thead>
       <tbody>
-        {grant.capabilities.map((capability, index) => (
-          <tr key={`${capability.target.type}-${capabilityTarget(snapshot.resources, capability).value}-${index}`}>
-            <td>
-              <code>{capability.target.type === 'resource' ? 'resource ID' : 'path'}</code>
-            </td>
-            <td>
-              <CapabilityResource resources={snapshot.resources} capability={capability} />
-            </td>
-            <td>
-              <code>{capability.permissions.join(' ')}</code>
-            </td>
-            <td>
-              <code>{capability.descendants ? 'include' : 'root only'}</code>
-            </td>
-          </tr>
-        ))}
+        {grant.capabilities.map((capability, index) => {
+          const target = capabilityTarget(snapshot.resources, capability);
+          return (
+            <tr key={`${target.type}-${target.value}-${index}`}>
+              <td>
+                <code>{target.type === 'resource' ? 'resource ID' : 'path'}</code>
+              </td>
+              <td>
+                <CapabilityResource resources={snapshot.resources} capability={capability} />
+              </td>
+              <td>
+                <code>{capability.permissions.join(' ')}</code>
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -88,12 +87,10 @@ function CapabilityEditor({ grant, onClose }: { grant: Grant; onClose: () => voi
   const { response, execute } = useOperation();
   const parent = grant.parentId ? snapshot.grants[grant.parentId] ?? null : null;
   const [draft, setDraft] = useState<Capability[]>(() => structuredClone(grant.capabilities));
-  const [targetType, setTargetType] = useState<CapabilityTarget['type']>('resource');
+  const [targetType, setTargetType] = useState<'resource' | 'path'>('resource');
   const [pathTarget, setPathTarget] = useState('');
   const normalizedDraft = draft.map((entry) =>
-    entry.target.type === 'path'
-      ? { ...entry, target: { type: 'path' as const, path: normalizePath(entry.target.path) } }
-      : entry,
+    isPathCapability(entry) ? { ...entry, path: normalizePath(entry.path) } : entry,
   );
   const request = { grant: grant.id, method: 'capabilities.set', params: { capabilities: normalizedDraft } };
 
@@ -105,29 +102,16 @@ function CapabilityEditor({ grant, onClose }: { grant: Grant; onClose: () => voi
 
   const toggle = (id: ResourceId) =>
     setDraft((held) => {
-      if (held.some((entry) => entry.target.type === 'resource' && entry.target.resourceId === id)) {
-        return held.filter((entry) => entry.target.type !== 'resource' || entry.target.resourceId !== id);
+      if (held.some((entry) => !isPathCapability(entry) && entry.resourceId === id)) {
+        return held.filter((entry) => isPathCapability(entry) || entry.resourceId !== id);
       }
-      const target = { type: 'resource' as const, resourceId: id };
-      const bounds = boundsAt(parent, snapshot.resources, target);
-      const hasChildren = childrenOf(snapshot.resources, id).length > 0;
-      return [
-        ...held,
-        {
-          target,
-          permissions: [],
-          descendants: hasChildren && bounds.descendants,
-        },
-      ];
+      return [...held, { resourceId: id, permissions: [] }];
     });
 
   const addPath = () => {
     const path = normalizePath(pathTarget);
     if (!path) return;
-    setDraft((held) => [
-      ...held,
-      { target: { type: 'path', path }, permissions: [], descendants: false },
-    ]);
+    setDraft((held) => [...held, { path, permissions: [] }]);
     setPathTarget('');
   };
 
@@ -150,14 +134,14 @@ function CapabilityEditor({ grant, onClose }: { grant: Grant; onClose: () => voi
       <Form onSubmit={submit}>
         <label>
           <span>target type</span>
-          <select value={targetType} onChange={(event) => setTargetType(event.target.value as CapabilityTarget['type'])}>
+          <select value={targetType} onChange={(event) => setTargetType(event.target.value as 'resource' | 'path')}>
             <option value="resource">resource ID</option>
             <option value="path">path</option>
           </select>
         </label>
         {targetType === 'resource' ? (
           <ResourcePicker
-            selected={draft.flatMap((entry) => entry.target.type === 'resource' ? [entry.target.resourceId] : [])}
+            selected={draft.flatMap((entry) => isPathCapability(entry) ? [] : [entry.resourceId])}
             parent={parent}
             onToggle={toggle}
           />
@@ -246,7 +230,7 @@ function ResourcePicker({
         </thead>
         <tbody>
           {rows.map(({ resource, path }) => {
-            const bounds = boundsAt(parent, snapshot.resources, { type: 'resource', resourceId: resource.id });
+            const bounds = boundsAt(parent, snapshot.resources, { resourceId: resource.id });
             const children = childrenOf(snapshot.resources, resource.id).length;
 
             return (
@@ -313,29 +297,29 @@ function DraftEntries({
     <div className="entry-list">
       {draft.map((entry, index) => {
         const target = capabilityTarget(snapshot.resources, entry);
-        const bounds = boundsAt(parent, snapshot.resources, entry.target);
+        const bounds = boundsAt(
+          parent,
+          snapshot.resources,
+          isPathCapability(entry) ? { path: entry.path } : { resourceId: entry.resourceId },
+        );
         const problem = uncovered(parent, snapshot.resources, entry);
 
         return (
           <div key={index} className={problem ? 'entry denied' : 'entry'}>
             <div className="entry-head">
-              <code>{entry.target.type === 'resource' ? 'resource ID' : 'path'}</code>
-              {entry.target.type === 'resource' ? (
-                <>
-                  <code>{entry.target.resourceId}</code>
-                  <code className="dim">{target.path}</code>
-                </>
-              ) : (
+              <code>{isPathCapability(entry) ? 'path' : 'resource ID'}</code>
+              {isPathCapability(entry) ? (
                 <input
                   aria-label={`Path target ${index + 1}`}
-                  value={entry.target.path}
-                  onChange={(event) =>
-                    onAmend(index, { target: { type: 'path', path: event.target.value } })
-                  }
-                  onBlur={(event) =>
-                    onAmend(index, { target: { type: 'path', path: normalizePath(event.target.value) } })
-                  }
+                  value={entry.path}
+                  onChange={(event) => onAmend(index, { path: event.target.value })}
+                  onBlur={(event) => onAmend(index, { path: normalizePath(event.target.value) })}
                 />
+              ) : (
+                <>
+                  <code>{entry.resourceId}</code>
+                  <code className="dim">{target.path}</code>
+                </>
               )}
               {target.state === 'empty' ? <code className="denied">empty</code> : null}
               {target.state === 'deleted' ? <code className="denied">deleted</code> : null}
@@ -359,15 +343,6 @@ function DraftEntries({
                   {permission}
                 </label>
               ))}
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={entry.descendants}
-                  disabled={!bounds.descendants}
-                  onChange={(event) => onAmend(index, { descendants: event.target.checked })}
-                />
-                descendants
-              </label>
             </div>
           </div>
         );

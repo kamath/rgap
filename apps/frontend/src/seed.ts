@@ -61,13 +61,11 @@ function resource(id: string, parent: string | null, name: string) {
 }
 
 const resourceCap = (id: string): Capability => ({
-  target: { type: 'resource', resourceId: resourceId(id) },
+  resourceId: resourceId(id),
   permissions: ['invoke'],
-  descendants: false,
 });
 
 const pathCap = (path: string): Capability => ({
-  target: { type: 'path', path },
+  path,
   permissions: ['invoke'],
-  descendants: false,
 });

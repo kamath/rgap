@@ -28,8 +28,8 @@ const initialState = (): State => ({
     owner: {
       id: grantId('owner'), name: 'Owner', parentId: null, expiresAt: null, revokedAt: null,
       capabilities: [{
-        target: { type: 'resource', resourceId: resourceId('drive') },
-        permissions: ['read', 'write', 'move', 'delete'], descendants: true,
+        resourceId: resourceId('drive'),
+        permissions: ['read', 'write', 'move', 'delete'],
       }],
     },
   },
@@ -63,8 +63,8 @@ describe('BrowserRgapStore token plane', () => {
   it('lets a token set what a grant below it reaches, but never its own grant', async () => {
     const { admin, store } = await guarded();
     const entry = [{
-      target: { type: 'resource' as const, resourceId: resourceId('tools') },
-      permissions: ['read' as const], descendants: false,
+      resourceId: resourceId('tools'),
+      permissions: ['read' as const],
     }];
     // The acting grant is delegated, not a root, so the own-grant rule is what refuses it.
     const acting = await (await admin.grants.get(grantId('owner'))).create({
@@ -111,7 +111,7 @@ describe('BrowserRgapStore token plane', () => {
     await expect(repo.reset()).rejects.toThrow('administrative operation');
     await expect(repo.grants.create({
       name: 'Root', expiresAt: null,
-      capabilities: [{ target: { type: 'resource', resourceId: resourceId('drive') }, permissions: ['read'], descendants: false }],
+      capabilities: [{ resourceId: resourceId('drive'), permissions: ['read'] }],
     })).rejects.toThrow('administrative operation');
   });
 
@@ -119,7 +119,7 @@ describe('BrowserRgapStore token plane', () => {
     const { repo, admin, token } = await guarded();
     const child = await (await repo.grants.get(grantId('owner'))).create({
       name: 'Reader', expiresAt: null,
-      capabilities: [{ target: { type: 'resource', resourceId: resourceId('tools') }, permissions: ['read'], descendants: false }],
+      capabilities: [{ resourceId: resourceId('tools'), permissions: ['read'] }],
     });
 
     const issued = await child.tokens.create({ label: 'reader token' });
@@ -127,7 +127,7 @@ describe('BrowserRgapStore token plane', () => {
 
     const outsider = await admin.grants.create({
       name: 'Outsider', expiresAt: null,
-      capabilities: [{ target: { type: 'resource', resourceId: resourceId('slack') }, permissions: ['read'], descendants: false }],
+      capabilities: [{ resourceId: resourceId('slack'), permissions: ['read'] }],
     });
     await expect((await repo.grants.get(outsider.id)).tokens.create({ label: 'nope' })).rejects.toThrow('neither this token');
     await expect((await repo.grants.get(outsider.id)).revoke()).rejects.toThrow('neither this token');

@@ -63,7 +63,7 @@ The interface exposes all repository methods without extra workflow abstractions
 - Create a resource on the listing's parent handle, or on `resources.create` at the tree root
 - Move a resource under another parent, or delete its subtree by marking it deleted and retaining its stable ID
 - Create a root grant on `grants.create`, or a child grant on the addressed grant's `create`
-- Set ID-targeted capabilities that follow resources or path-targeted capabilities that remain at locations
+- Set ID-targeted capabilities that follow resources or path-targeted capabilities that remain at locations. Every entry covers its target and the subtree.
 - Issue a token with `grant.tokens.create`, then activate, paste, clear, or revoke it
 - Revoke a grant branch
 - Authorize a token for a resource and permission
