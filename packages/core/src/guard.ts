@@ -94,38 +94,12 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
         return resource.executable.delete();
       },
     },
-    secret: {
-      async metadata() {
-        await permit(resource.id, 'read');
-        return resource.secret.metadata();
-      },
-      async write(value) {
-        await permit(resource.id, 'write');
-        return resource.secret.write(value);
-      },
-      async delete() {
-        await permit(resource.id, 'write');
-        return resource.secret.delete();
-      },
-    },
-    async runtimePrivateMetadata(runtime) {
-      await permit(resource.id, 'read');
-      return resource.runtimePrivateMetadata(runtime);
-    },
     invoke: (input) => guardedInvoke(resource.id, input),
   });
 
   const authorizeInvocation = async (id: ResourceId, input: Parameters<RgapRepository['invoke']>[1]) => {
     const invocation = await permit(id, 'invoke');
     for (const boundId of Object.values(input.bindings ?? {})) await permit(boundId, 'use');
-    const definition = await repository.executables.get(id);
-    const revisionId = input.revisionId ?? definition?.activeRevisionId;
-    const revision = revisionId ? await repository.executables.getRevision(revisionId) : undefined;
-    if (revision?.resourceId === id) {
-      for (const [slot, boundId] of Object.entries(input.bindings ?? {})) {
-        if (revision.bindingSchema[slot]?.access === 'write') await permit(boundId, 'write');
-      }
-    }
     return invocation.lineage;
   };
 
@@ -226,7 +200,6 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
       event.action === 'authorize' ||
       event.action.startsWith('resource.') ||
       event.action.startsWith('executable.') ||
-      event.action.startsWith('secret.') ||
       event.action.startsWith('invoke.')
     ) {
       return resources.has(event.target);
@@ -292,24 +265,6 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
         await permit(resourceId, 'write');
         return repository.executables.delete(resourceId);
       },
-    },
-    secrets: {
-      async metadata(resourceId) {
-        await permit(resourceId, 'read');
-        return repository.secrets.metadata(resourceId);
-      },
-      async write(resourceId, value) {
-        await permit(resourceId, 'write');
-        return repository.secrets.write(resourceId, value);
-      },
-      async delete(resourceId) {
-        await permit(resourceId, 'write');
-        return repository.secrets.delete(resourceId);
-      },
-    },
-    async runtimePrivateMetadata(runtime, resourceId) {
-      await permit(resourceId, 'read');
-      return repository.runtimePrivateMetadata(runtime, resourceId);
     },
     invoke: guardedInvoke,
     grants: {

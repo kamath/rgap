@@ -210,24 +210,18 @@ describe('command guard', () => {
     await expect(guard.grants.get(g('ghost'))).rejects.toThrow('outside this token');
   });
 
-  it('guards executable metadata, publishing, secrets, private metadata, and binding invocation', async () => {
+  it('guards executable metadata, publishing, and binding invocation', async () => {
     const initial = state();
     const revision = {
       id: executableRevisionId('revision'), resourceId: r('search-files'), runtime: 'test',
       program: {}, inputSchema: true, outputSchema: null,
-      bindingSchema: { target: { kind: 'resource' as const, access: 'write' as const } },
+      bindingSchema: { target: { kind: 'resource' } },
       limits: {}, createdAt: at,
     };
     initial.executables['search-files'] = {
       resourceId: r('search-files'), activeRevisionId: revision.id, deletedAt: null,
     };
     initial.executableRevisions.revision = revision;
-    initial.secretMetadata['search-files'] = {
-      resourceId: r('search-files'), version: 'one', updatedAt: at,
-    };
-    initial.runtimePrivateMetadata[`test\u0000search-files`] = {
-      runtime: 'test', resourceId: r('search-files'), version: 'one', updatedAt: at,
-    };
     const { commands, calls } = stubCommands(initial, at);
     const guard = guardCommands(repositoryFrom(commands), bearer);
     const search = await guard.resources.get(r('search-files'));
@@ -245,15 +239,6 @@ describe('command guard', () => {
     await search.executable.publish(publication);
     await guard.executables.delete(r('search-files'));
     await search.executable.delete();
-    expect((await guard.secrets.metadata(r('search-files')))?.version).toBe('one');
-    expect((await search.secret.metadata())?.version).toBe('one');
-    await guard.secrets.write(r('search-files'), 'protected');
-    await search.secret.write('protected');
-    await guard.secrets.delete(r('search-files'));
-    await search.secret.delete();
-    expect((await guard.runtimePrivateMetadata('test', r('search-files')))?.version).toBe('one');
-    expect((await search.runtimePrivateMetadata('test'))?.version).toBe('one');
-
     for await (const event of guard.invoke(r('search-files'), {
       input: {}, bindings: { target: r('drive') },
     })) expect(event.type).toBe('done');
@@ -262,13 +247,11 @@ describe('command guard', () => {
     }
     expect(calls.map(({ method }) => method)).toEqual([
       'publishExecutable', 'publishExecutable', 'deleteExecutable', 'deleteExecutable',
-      'writeSecret', 'writeSecret', 'deleteSecret', 'deleteSecret', 'invoke', 'invoke',
+      'invoke', 'invoke',
     ]);
-    await expect(guard.secrets.write(r('post-message'), 'protected'))
-      .rejects.toThrow('No write capability');
   });
 
-  it('invokes without bindings and only infers writes from a matching revision', async () => {
+  it('invokes with or without opaque bindings', async () => {
     const initial = state();
     const revision = {
       id: executableRevisionId('branch-revision'),
@@ -278,7 +261,7 @@ describe('command guard', () => {
       inputSchema: true,
       outputSchema: null,
       bindingSchema: {
-        readonly: { kind: 'resource' as const, access: 'use' as const },
+        readonly: { kind: 'resource' },
       },
       limits: {},
       createdAt: at,

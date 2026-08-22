@@ -71,28 +71,6 @@ describe('RGAP domain', () => {
       limits: {},
       createdAt: at,
     };
-    state.secretMetadata.orphan = {
-      resourceId: r('missing-secret-resource'),
-      version: 'one',
-      updatedAt: at,
-    };
-    state.secretMetadata.valid = {
-      resourceId: r('drive'),
-      version: 'one',
-      updatedAt: at,
-    };
-    state.runtimePrivateMetadata.orphan = {
-      runtime: 'test',
-      resourceId: r('missing-private-resource'),
-      version: 'one',
-      updatedAt: at,
-    };
-    state.runtimePrivateMetadata.valid = {
-      runtime: 'test',
-      resourceId: r('drive'),
-      version: 'one',
-      updatedAt: at,
-    };
     state.executables['missing-definition-resource'] = {
       resourceId: r('missing-definition-resource'),
       activeRevisionId: null,
@@ -128,8 +106,6 @@ describe('RGAP domain', () => {
       'Executable drive refers to missing revision missing-active-revision.',
       'Executable create-issue selects a revision from another resource.',
       'Executable revision orphan refers to missing resource missing-executable-resource.',
-      'Secret metadata refers to missing resource missing-secret-resource.',
-      'Runtime-private metadata refers to missing resource missing-private-resource.',
     ]);
   });
 

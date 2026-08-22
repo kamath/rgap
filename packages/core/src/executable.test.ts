@@ -2,14 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   assertJsonSchema,
   deleteExecutable,
-  deleteSecretMetadata,
   effectiveExecutionLimits,
   getAuthorizedLineage,
   invokeExecutable,
   publishExecutable,
-  recordRuntimePrivateMetadata,
-  recordSecretMetadata,
-  runtimeMetadataKey,
   validateBindings,
   validateExecutableRevision,
   validateRuntimeProgram,
@@ -30,8 +26,8 @@ const publication: PublishExecutableInput = {
   inputSchema: true,
   outputSchema: true,
   bindingSchema: {
-    token: { kind: 'secret', access: 'use' },
-    connection: { kind: 'runtime-private', access: 'write', required: false },
+    source: { kind: 'document' },
+    destination: { kind: 'collection', required: false },
   },
   limits: { timeoutMs: 20, network: { allowedOrigins: ['https://api.example'] } },
 };
@@ -89,18 +85,24 @@ describe('executable domain rules', () => {
     ]) expect(invalid({ limits })).toThrow('positive integer');
     expect(invalid({ limits: { network: { allowedOrigins: null as never } } }))
       .toThrow('must be an array');
-    expect(invalid({ bindingSchema: { ' ': { kind: 'resource', access: 'use' } } }))
+    expect(invalid({ bindingSchema: { ' ': { kind: 'resource' } } }))
       .toThrow('Binding names');
-    expect(invalid({ bindingSchema: { bad: { kind: 'other' as never, access: 'use' } } }))
-      .toThrow('unknown kind');
-    expect(invalid({ bindingSchema: { bad: { kind: 'resource', access: 'other' as never } } }))
-      .toThrow('unknown access');
+    expect(invalid({ bindingSchema: { bad: { kind: ' ' } } }))
+      .toThrow('requires a kind');
+    expect(invalid({ bindingSchema: { bad: null as never } }))
+      .toThrow('requires a kind');
+    expect(invalid({ bindingSchema: { bad: { kind: 1 as never } } }))
+      .toThrow('requires a kind');
+    expect(invalid({ bindingSchema: { bad: { kind: 'resource', extra: true } as never } }))
+      .toThrow('unknown property');
+    expect(invalid({ bindingSchema: { bad: { kind: 'resource', required: 'yes' as never } } }))
+      .toThrow('invalid required flag');
   });
 
   it('validates binding maps, JSON values, and runtime ceilings', () => {
-    expect(() => validateBindings(publication.bindingSchema, { token: executableId })).not.toThrow();
-    expect(() => validateBindings(publication.bindingSchema, {})).toThrow('token is required');
-    expect(() => validateBindings(publication.bindingSchema, { token: executableId, extra: executableId }))
+    expect(() => validateBindings(publication.bindingSchema, { source: executableId })).not.toThrow();
+    expect(() => validateBindings(publication.bindingSchema, {})).toThrow('source is required');
+    expect(() => validateBindings(publication.bindingSchema, { source: executableId, extra: executableId }))
       .toThrow('not declared');
     expect(() => assertJsonSchema(validator, false, {}, 'bad value')).toThrow('bad value: false schema');
     expect(() => assertJsonSchema(validator, true, {}, 'good value')).not.toThrow();
@@ -133,20 +135,6 @@ describe('executable domain rules', () => {
     )).toThrow('origins');
   });
 
-  it('records only secret and runtime-private metadata', () => {
-    const secret = { resourceId: executableId, version: 'one', updatedAt: at };
-    const privateMetadata = { runtime: 'test', resourceId: executableId, version: 'two', updatedAt: at };
-    let state = recordSecretMetadata(fixture(), secret);
-    state = recordRuntimePrivateMetadata(state, privateMetadata);
-    expect(state.secretMetadata[executableId]).toEqual(secret);
-    expect(state.runtimePrivateMetadata[runtimeMetadataKey('test', executableId)]).toEqual(privateMetadata);
-    expect(deleteSecretMetadata(state, executableId).secretMetadata).toEqual({});
-    expect(() => recordSecretMetadata(fixture(), { ...secret, resourceId: resourceId('missing') }))
-      .toThrow('Resource does not exist');
-    expect(() => recordRuntimePrivateMetadata(
-      fixture(), { ...privateMetadata, resourceId: resourceId('missing') },
-    )).toThrow('Resource does not exist');
-  });
 });
 
 describe('invocation orchestration', () => {
@@ -188,39 +176,21 @@ describe('invocation orchestration', () => {
         timeoutMs: 100,
         network: { allowedOrigins: ['https://api.example'] },
       }),
-      secrets: {
-        write: vi.fn(),
-        delete: vi.fn(),
-        handle: vi.fn(async (resourceId) => ({ kind: 'secret' as const, resourceId })),
-        resolve: vi.fn(async () => 'provider-secret'),
-      },
-      credentials: {
-        metadata: vi.fn(async (name, resourceId) => ({ runtime: name, resourceId, version: 'one', updatedAt: at })),
-        handle: vi.fn(async (name, resourceId) => ({
-          kind: 'runtime-credential' as const, runtime: name, resourceId,
-        })),
-        write: vi.fn(async (name, resourceId) => ({ runtime: name, resourceId, version: 'two', updatedAt: at })),
-        delete: vi.fn(async () => undefined),
-      },
       recordInvocation: vi.fn(async () => undefined),
       ...over,
     };
   }
 
-  it('authorizes before resolving handles and gives trusted runtimes scoped credential mutation', async () => {
+  it('authorizes bindings and gives runtimes only opaque resource identities and kinds', async () => {
     const order: string[] = [];
     const runtime: InvokeRuntime = {
       validate: vi.fn(() => order.push('validate')),
       async *invoke(context) {
         order.push('invoke');
-        expect(context.bindings.token.secret?.kind).toBe('secret');
-        expect(context.bindings.connection.credential?.kind).toBe('runtime-credential');
-        expect(await context.secrets.resolve('token')).toBe('provider-secret');
-        expect(() => context.secrets.resolve('connection')).toThrow('is not a secret');
-        expect((await context.credentials.metadata('connection'))?.version).toBe('one');
-        expect((await context.credentials.handle('connection'))?.kind).toBe('runtime-credential');
-        expect((await context.credentials.write('connection', { refresh: 'protected' })).version).toBe('two');
-        await context.credentials.delete('connection');
+        expect(context.bindings).toEqual({
+          source: { resourceId: resourceId('read-file'), kind: 'document' },
+          destination: { resourceId: resourceId('drive'), kind: 'collection' },
+        });
         yield { type: 'data', value: { ok: true } };
         yield { type: 'done' };
       },
@@ -231,48 +201,22 @@ describe('invocation orchestration', () => {
       order.push(`authorize:${permission}`);
       return { lineage: [grantId('acting')] };
     });
-    base.secrets.handle = vi.fn(async (resourceId) => {
-      order.push('secret');
-      return { kind: 'secret' as const, resourceId };
-    });
     const events = await collect(invokeExecutable(base, executableId, {
       input: { query: 'x' },
-      bindings: { token: resourceId('read-file'), connection: resourceId('drive') },
+      bindings: { source: resourceId('read-file'), destination: resourceId('drive') },
     }));
 
     expect(events).toEqual([{ type: 'data', value: { ok: true } }, { type: 'done' }]);
-    expect(order.slice(0, 5)).toEqual([
-      'authorize:invoke', 'authorize:use', 'authorize:use', 'authorize:write', 'validate',
+    expect(order.slice(0, 4)).toEqual([
+      'authorize:invoke', 'authorize:use', 'authorize:use', 'validate',
     ]);
-    expect(order.indexOf('secret')).toBeGreaterThan(order.lastIndexOf('authorize:write'));
     expect(base.recordInvocation).toHaveBeenCalledWith(expect.objectContaining({
       resourceId: executableId,
       revisionId,
       runtime: 'test',
       grantLineage: [grantId('acting')],
-      bindings: { token: resourceId('read-file'), connection: resourceId('drive') },
+      bindings: { source: resourceId('read-file'), destination: resourceId('drive') },
       result: 'done',
-    }));
-  });
-
-  it('refuses undeclared or read-only credential mutation', async () => {
-    const readOnly = {
-      ...publication,
-      bindingSchema: {
-        connection: { kind: 'runtime-private' as const, access: 'use' as const },
-      },
-    };
-    const state = publishExecutable(fixture(), executableId, readOnly, revisionId, at, vi.fn());
-    const runtime: InvokeRuntime = {
-      validate() {},
-      async *invoke(context) {
-        expect(() => context.credentials.write('connection', {})).toThrow('does not permit');
-        expect(() => context.credentials.handle('missing')).toThrow('not runtime-private');
-        yield { type: 'done' };
-      },
-    };
-    await collect(invokeExecutable(services(state, runtime), executableId, {
-      input: {}, bindings: { connection: resourceId('drive') },
     }));
   });
 
@@ -298,7 +242,7 @@ describe('invocation orchestration', () => {
       .rejects.toThrow('Invocation input');
     const unknownRuntime = services(state, runtime, { runtimes: new RuntimeRegistry() });
     await expect(collect(invokeExecutable(unknownRuntime, executableId, {
-      input: {}, bindings: { token: resourceId('drive') },
+      input: {}, bindings: { source: resourceId('drive') },
     }))).rejects.toThrow('not registered');
 
     const outputValidator: JsonSchemaValidator = {
@@ -316,8 +260,18 @@ describe('invocation orchestration', () => {
     };
     void outputValidator;
     await expect(collect(invokeExecutable(services(state, runtime, { validator: selective }), executableId, {
-      input: {}, bindings: { token: resourceId('drive') },
+      input: {}, bindings: { source: resourceId('drive') },
     }))).rejects.toThrow('Runtime output');
+
+    state.executableRevisions[revisionId].outputSchema = false;
+    await expect(collect(invokeExecutable(services(state, runtime), executableId, {
+      input: {}, bindings: { source: resourceId('drive') },
+    }))).rejects.toThrow('Runtime output');
+
+    state.executableRevisions[revisionId].outputSchema = null;
+    await expect(collect(invokeExecutable(services(state, runtime, { validator: selective }), executableId, {
+      input: {}, bindings: { source: resourceId('drive') },
+    }))).resolves.toEqual([{ type: 'data', value: 'bad' }]);
   });
 
   it('propagates cancellation and records downstream early return without recording values', async () => {
@@ -332,7 +286,7 @@ describe('invocation orchestration', () => {
     };
     const configured = services(preparedState(), runtime);
     const events = invokeExecutable(configured, executableId, {
-      input: {}, bindings: { token: resourceId('drive') },
+      input: {}, bindings: { source: resourceId('drive') },
     });
     for await (const event of events) {
       expect(event.type).toBe('data');
