@@ -33,14 +33,14 @@ new SqliteRgapStore({
   runtimes,       // RuntimeRegistry or name -> InvokeRuntime
   validator,      // JsonSchemaValidator
   runtimeLimits,  // per-runtime host ceilings
-  secrets,        // SecretStore
+  secretKey,      // lazy AES-256-GCM key provider
   credentials,    // RuntimeCredentialStore
 });
 ```
 
 The core package contains no built-in fetch, GitHub, OpenAI, or other provider runtime. A deployment registers trusted `InvokeRuntime` implementations. Publishing calls that runtime's `validate(program)`, and invocation validates the program again.
 
-`SecretStore` and `RuntimeCredentialStore` keep protected values outside repository state. SQLite stores only `SecretMetadata` and runtime-scoped `RuntimePrivateMetadata`. Runtime code receives opaque handles and a slot-scoped private-state interface; repository and HTTP reads never return a protected value.
+Core defines the universal `SecretEnvelope`, AES-256-GCM encryption and decryption helpers, and trusted `SecretStore.resolve` contract. SQLite stores encrypted envelopes internally and exposes resolution only on the concrete store object's trusted `secrets` surface. Repository and HTTP reads return `SecretMetadata`, never plaintext. An external vault-compatible `SecretStore` may replace internal envelopes. `RuntimeCredentialStore` remains deployment-owned; runtime code receives opaque handles and a slot-scoped private-state interface.
 
 ## SQLite store
 
@@ -54,11 +54,12 @@ The core package contains no built-in fetch, GitHub, OpenAI, or other provider r
 | `tokens` | Token records and bearer hashes. |
 | `executables` | Resource attachment, active revision, and deletion marker. |
 | `executable_revisions` | Immutable runtime, program, schemas, binding schema, limits, and creation time. |
-| `secret_metadata` | Public version and update time for externally stored secrets. |
+| `secret_metadata` | Public secret version and update time. |
+| `secret_envelopes` | Portable AES-256-GCM ciphertext, nonce, tag, version, and update time. |
 | `runtime_private_metadata` | Public version and update time keyed by runtime and resource. |
 | `audit` | Ordered authorization, mutation, and invocation events. |
 
-Metadata transitions use the same whole-state SQLite transaction mechanism as the rest of the store. A protected-value write or delete completes in the injected external store before SQLite commits its public metadata. Reset makes best-effort external deletions and then restores the configured initial state.
+Metadata transitions use the same whole-state SQLite transaction mechanism as the rest of the store. Internal secret writes encrypt first and atomically commit the envelope and public metadata in one SQLite transaction. Internal reset clears all envelopes. An external vault override completes its mutation before SQLite commits returned public metadata.
 
 ## Invocation lifecycle
 

@@ -380,7 +380,9 @@ An executable definition is attached to one resource, which remains the authoriz
 
 Deleting an executable sets its deletion marker and clears its active revision. It does not delete revisions or audit history, and a deleted definition cannot publish again. Reads of a definition or its revisions require `read`; publish and delete require `write`.
 
-A secret is a protected value in a host-injected `SecretStore`. Runtime-private state is protected credential data in a host-injected store, scoped by runtime name and resource ID. RGAP state contains only public `{ resourceId, version, updatedAt }` metadata, plus `runtime` for runtime-private state. No repository operation returns the protected value. Secret mutation requires `write`; public metadata requires `read`.
+A secret is a protected value addressed by resource ID through the universal `SecretStore` contract. An encrypted implementation stores a JSON-compatible `{ ciphertext, nonce, tag, version, updatedAt }` envelope. AES-256-GCM uses a fresh 96-bit nonce and authenticates the resource ID plus version as additional data. The command plane contains only public `{ resourceId, version, updatedAt }` metadata and never exposes trusted `resolve`.
+
+Each persistence implementation stores envelopes natively; no separate backend protocol is required. SQLite commits its envelope and public metadata atomically, while a deployment may substitute a vault-compatible `SecretStore`. Runtime-private state remains protected credential data in a host-injected store, scoped by runtime name and resource ID. Secret mutation requires `write`; public metadata requires `read`; trusted plaintext resolution occurs only after the host has enforced `use`.
 
 The runtime name identifies a host-registered implementation. The runtime registry is immutable deployment configuration from the repository's perspective: grants and executable programs cannot register, replace, or configure runtime code. RGAP defines no built-in fetch, GitHub, OpenAI, GraphQL, MCP, or language runtime. Deployments may supply such implementations.
 

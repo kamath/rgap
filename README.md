@@ -579,7 +579,7 @@ For each request, the gateway:
 
 1. Parses the RGAP bearer from `Authorization`.
 2. Authorizes `invoke` on the OpenAI gateway resource and `use` on its secret resource through the bearer's complete grant lineage.
-3. Reads the protected OpenAI key from the example's database-backed `SecretStore`, replaces the employee bearer, and removes `Host`.
+3. Resolves the protected OpenAI key through the trusted SQLite store, replaces the employee bearer, and removes `Host`.
 4. Calls `fetch` with the same method, path, query, body stream, and cancellation signal beneath `https://api.openai.com`.
 5. Returns the upstream `Response` directly.
 
@@ -587,7 +587,7 @@ The proxy route is intentionally a small wrapper around `fetch`; it does not imp
 
 The package exports an app factory that accepts a trusted RGAP store with secret resolution, OpenAI resource and secret IDs, optional upstream origin, and fetch implementation. It contains no encryption or database implementation.
 
-The trusted bootstrap command resets the configured database, creates `llm/openai` and `secrets/openai-key`, and writes `OPENAI_API_KEY` through the example's encrypted `SecretStore`. It prints the two resource IDs for the server and client configuration. Bootstrap receives both `OPENAI_API_KEY` and `RGAP_SECRET_KEY`.
+The trusted bootstrap command resets the configured database, creates `llm/openai` and `secrets/openai-key`, and writes `OPENAI_API_KEY` through `SqliteRgapStore.secrets`. It prints the two resource IDs for the server and client configuration. Bootstrap receives both `OPENAI_API_KEY` and `RGAP_SECRET_KEY`.
 
 The server receives `RGAP_SECRET_KEY`, decrypts the provider key only after authorization, and never receives `OPENAI_API_KEY` directly. `client.ts` receives neither provider credential nor encryption key. It imports the shared RGAP store, creates a named employee grant with `invoke` on the gateway and `use` on the secret, issues a one-time bearer, constructs the official OpenAI SDK with that bearer and the local gateway base URL, and calls the Responses API.
 
