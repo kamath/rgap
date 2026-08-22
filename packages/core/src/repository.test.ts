@@ -116,6 +116,8 @@ describe('repositoryFrom', () => {
     await repository.executables.delete(resource.id);
     expect((await resource.secret.metadata())?.version).toBe('one');
     expect((await repository.secrets.metadata(resource.id))?.version).toBe('one');
+    expect(resource.secret).not.toHaveProperty('resolve');
+    expect(repository.secrets).not.toHaveProperty('resolve');
     await resource.secret.write('protected');
     await repository.secrets.write(resource.id, 'protected');
     await resource.secret.delete();

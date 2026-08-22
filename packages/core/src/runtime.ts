@@ -38,6 +38,8 @@ export interface SecretStore {
   write(resourceId: ResourceId, value: string): Promise<SecretMetadata>;
   delete(resourceId: ResourceId): Promise<void>;
   handle(resourceId: ResourceId): Promise<SecretHandle>;
+  /** Trusted plaintext access. Repository command planes never expose this operation. */
+  resolve(resourceId: ResourceId): Promise<string>;
 }
 
 /**

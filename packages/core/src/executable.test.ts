@@ -192,6 +192,7 @@ describe('invocation orchestration', () => {
         write: vi.fn(),
         delete: vi.fn(),
         handle: vi.fn(async (resourceId) => ({ kind: 'secret' as const, resourceId })),
+        resolve: vi.fn(),
       },
       credentials: {
         metadata: vi.fn(async (name, resourceId) => ({ runtime: name, resourceId, version: 'one', updatedAt: at })),
