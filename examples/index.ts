@@ -5,14 +5,18 @@
  * This file walks company → team → employee → agent → subagent. Each step issues a token,
  * selects that plane with `store.as`, and creates a narrower child grant.
  *
- * `pnpm scratch` runs this file against examples/scratch.db.
+ * `pnpm scratch` runs this file against examples/scratch.db. Replace the store-construction line
+ * with `new HttpRgapStore(...)` to run the same walkthrough against the Hono API.
  */
 import { fileURLToPath } from 'node:url';
 import { resourceId, resourcePath, type Permission, type ResourceId, type TokenValue } from '@rgap/core';
+import { HttpRgapStore } from '@rgap/server';
 import { SqliteRgapStore } from '@rgap/sqlite';
 
 type TreeNode<Id extends string> = { id: Id; parentId: Id | null; name: string };
 
+// To use Hono, replace the next line with:
+// const store = new HttpRgapStore({ baseUrl: 'http://localhost:3000', adminToken: process.env.RGAP_ADMIN_TOKEN! });
 const store = new SqliteRgapStore({ url: fileURLToPath(new URL('scratch.db', import.meta.url)) });
 const root = store.admin();
 

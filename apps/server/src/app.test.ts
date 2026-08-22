@@ -1,9 +1,11 @@
 import { hc } from 'hono/client';
 import { afterEach, describe, expect, it } from 'vitest';
+import { resourceId } from '@rgap/core';
 import { SqliteRgapStore } from '@rgap/sqlite';
 import { createApp, type AppType } from './app';
 import { createClient } from './client/generated/client';
 import * as sdk from './client/generated/sdk.gen';
+import { HttpRgapStore } from './http-store';
 
 const adminToken = 'test-admin-token';
 const authorization = `Bearer ${adminToken}`;
@@ -232,5 +234,35 @@ describe('RGAP Hono API', () => {
     expect((await sdk.deleteResource({ client, headers, path: { id: childId } })).response?.status)
       .toBe(204);
     expect((await sdk.reset({ client, headers })).response?.status).toBe(204);
+  });
+
+  it('presents the HTTP API through the RgapStore interface', async () => {
+    const app = testApp();
+    const remote = new HttpRgapStore({
+      baseUrl: 'http://rgap.test',
+      adminToken,
+      fetch: async (input, init) => app.fetch(new Request(input, init)),
+    });
+    const admin = remote.admin();
+
+    await admin.reset();
+    const root = await admin.resources.create({ name: 'acme' });
+    const grant = await admin.grants.create({
+      name: 'writer',
+      capabilities: [{ resourceId: root.id, permissions: ['read', 'write'] }],
+      expiresAt: null,
+    });
+    const issued = await grant.tokens.create({ label: 'remote' });
+    const guarded = remote.as(issued.value);
+    const child = await (await guarded.resources.get(root.id)).create({ name: 'docs' });
+
+    expect(child.parentId).toBe(root.id);
+    expect((await guarded.resources.list()).map((resource) => resource.id))
+      .toEqual([root.id, child.id]);
+    expect((await guarded.inspectToken(issued.value)).valid).toBe(true);
+    await expect(guarded.resources.get(resourceId('missing'))).rejects.toMatchObject({
+      code: 'missing_resource',
+    });
+    remote.close();
   });
 });

@@ -53,6 +53,9 @@ importers:
       '@rgap/core':
         specifier: workspace:*
         version: link:../packages/core
+      '@rgap/server':
+        specifier: workspace:*
+        version: link:../apps/server
       '@rgap/sqlite':
         specifier: workspace:*
         version: link:../packages/sqlite

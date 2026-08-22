@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@rgap/core": "workspace:*",
+    "@rgap/server": "workspace:*",
     "@rgap/sqlite": "workspace:*"
   },
   "devDependencies": {
