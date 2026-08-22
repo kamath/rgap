@@ -295,7 +295,7 @@ describe('SqliteRgapStore', () => {
       version: 'credential-v1',
       updatedAt: '2026-08-22T08:00:00.000Z',
     });
-    const invokeAudit = (await first.audit.list()).find(({ action }) => action === 'invoke')!;
+    const invokeAudit = (await first.audit.list()).find(({ action }) => action === 'executable.invoke')!;
     expect(invokeAudit.detail).toContain('"runtime":"test"');
     expect(invokeAudit.detail).toContain('"result":"done"');
     expect(invokeAudit.detail).not.toContain(inputMarker);
@@ -379,7 +379,7 @@ describe('SqliteRgapStore', () => {
     const amended = await grant.capabilities.set([
       { resourceId: resourceId('acme'), permissions: ['invoke', 'delete', 'read'] },
     ]);
-    expect(amended.capabilities[0].permissions).toEqual(['read', 'delete', 'invoke']);
+    expect(amended.capabilities[0].permissions).toEqual(['read', 'invoke', 'delete']);
   });
 
   it('stores path targets without a resource foreign key value', async () => {

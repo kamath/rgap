@@ -123,9 +123,10 @@ class SqliteBackingRepository implements RgapCommands {
       ? options.runtimes
       : new RuntimeRegistry(options.runtimes);
     this.validator = options.validator ?? unavailableValidator;
-    this.runtimeLimits = typeof options.runtimeLimits === 'function'
-      ? options.runtimeLimits
-      : (runtime) => structuredClone(options.runtimeLimits?.[runtime] ?? {});
+    const configuredLimits = options.runtimeLimits;
+    this.runtimeLimits = typeof configuredLimits === 'function'
+      ? configuredLimits
+      : (runtime) => structuredClone(configuredLimits?.[runtime] ?? {});
     this.secrets = options.secrets ?? unavailableSecrets;
     this.credentials = options.credentials ?? unavailableCredentials;
     this.connection = new Database(options.url ?? ':memory:');
