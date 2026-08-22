@@ -107,7 +107,6 @@ A capability entry carries a plain set of permissions:
 | --- | --- |
 | `read` | Reading the resource and listing its children. |
 | `write` | Modifying what the resource refers to, and creating children under it. |
-| `use` | Supplying the resource as an opaque binding to an invocation. |
 | `invoke` | Calling the resource, such as executing a tool. |
 | `move` | Relocating the resource to a different parent. |
 | `delete` | Deleting the resource together with its descendants. |
@@ -144,7 +143,7 @@ interface InvokeRuntime {
 
 The deployment configures a runtime registry once. Grants and executable programs cannot modify it. The core package defines no runtime implementations.
 
-`resource.invoke({ input, bindings, revisionId })` authorizes `invoke` on the executable resource and `use` on every bound resource through the complete grant lineage. It validates input and exact binding names, resolves the configured runtime, and returns `AsyncIterable<InvocationEvent>`. The runtime receives only the program, input, limits, cancellation signal, and opaque `{ resourceId, kind }` bindings.
+`resource.invoke({ input, bindings, revisionId })` authorizes `invoke` on the executable resource and every bound resource through the complete grant lineage. A binding is another resource exercised by the invocation; it need not be a tree child of the executable. The command validates input and exact binding names, resolves the configured runtime, and returns `AsyncIterable<InvocationEvent>`. The runtime receives only the program, input, limits, cancellation signal, and opaque `{ resourceId, kind }` bindings.
 
 Binding kinds are runtime-defined strings. RGAP treats every supplied binding as an opaque resource reference.
 
@@ -412,7 +411,7 @@ for await (const event of events) {
 }
 ```
 
-The company grant carries `invoke` on `search` and `use` on `docs` through its existing `acme` subtree capability. The runtime receives validated input and `{ resourceId, kind }` for `scope`, emits a `data` event, and finishes with `done`. It never resolves or reads the bound resource, leaving secret resolution as a later binding-kind extension.
+The company grant carries `invoke` on both `search` and `docs` through its existing `acme` subtree capability. The runtime receives validated input and `{ resourceId, kind }` for `scope`, emits a `data` event, and finishes with `done`. It never resolves or reads the bound resource, leaving secret resolution as a later binding-kind extension.
 
 The file currently walks a five-step delegation. Resources are the company's workspace. Grants are who holds authority over it. Each step issues a token for the current grant, selects that token's plane with `store.as`, and creates a narrower child grant:
 
