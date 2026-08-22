@@ -211,17 +211,29 @@ await executable.invoke({
 
 The executable revision declares each slot's expected binding kind. Before execution, RGAP checks `use` on every bound resource through the same complete grant lineage used for other permissions. The runtime receives opaque binding handles rather than unrestricted repository handles.
 
-A secret is a protected value attached to a resource ID through a `SecretStore` configured by the host:
+A secret is a protected value attached to a resource ID. Core defines the universal store contract and AES-256-GCM envelope operations:
 
 ```ts
+type SecretEnvelope = {
+  ciphertext: string;
+  nonce: string;
+  tag: string;
+  version: string;
+  updatedAt: string;
+};
+
 interface SecretStore {
   write(resourceId: ResourceId, value: string): Promise<SecretMetadata>;
   delete(resourceId: ResourceId): Promise<void>;
   handle(resourceId: ResourceId): Promise<SecretHandle>;
+  resolve(resourceId: ResourceId): Promise<string>;
 }
+
+encryptSecret(key, resourceId, version, value) -> SecretEnvelope
+decryptSecret(key, resourceId, envelope) -> string
 ```
 
-Secret writes and rotations require `write` on the resource. Secret reads return metadata only; no repository or HTTP command returns plaintext. `use` permits the secret resource to participate in an invocation but does not imply `read` or `write`.
+Encryption uses Web Crypto so the same envelope format and authenticated-data rules apply across storage implementations. Each store persists the envelope with its existing native persistence rather than through a separate backend abstraction. Secret writes and rotations require `write` on the resource. Repository and HTTP reads return metadata only; no command-plane read returns plaintext. `use` permits the secret resource to participate in an invocation but does not imply `read` or `write`. `resolve` is available only from the trusted store object, never from `store.as(token)` or `store.admin()`.
 
 Trusted runtimes may materialize a secret handle only at a controlled sink, such as an allowed HTTP header, OAuth token exchange, MCP connection, or GraphQL transport. Sandboxed programs receive opaque handles and cannot materialize secret values. Runtime implementations are trusted deployment code; granting a runtime access to the secret resolver places that runtime inside the secret-handling boundary.
 
@@ -456,7 +468,7 @@ const store = new SqliteRgapStore({
   url: 'rgap.db',
   runtimes: deploymentRuntimes,
   validator: jsonSchemaValidator,
-  secrets: secretStore,
+  secretKey: () => secretKey,
   credentials: runtimeCredentialStore,
 });
 const admin = store.admin();
@@ -478,7 +490,7 @@ const decision = await repository.authorize(value, child.id, 'read');
 store.close();
 ```
 
-The constructor takes an optional `url`, a file path or `:memory:`, and an optional `initialState`, which is what an empty database is initialized with and what `reset()` restores. It also accepts a deployment-owned runtime registry, JSON Schema validator, per-runtime limit ceilings, secret store, and runtime credential store. Missing optional execution services fail only when an operation needs them. A database that already holds records is opened as it stands. `close()` releases the connection. Bearer values are returned once and never stored; the `tokens` table holds only hashes. Protected secret and credential values stay in the injected stores; SQLite holds their public metadata.
+The constructor takes an optional `url`, a file path or `:memory:`, and an optional `initialState`, which is what an empty database is initialized with and what `reset()` restores. It also accepts a deployment-owned runtime registry, JSON Schema validator, per-runtime limit ceilings, lazy secret-key provider, and runtime credential store. Missing optional execution services fail only when an operation needs them. A database that already holds records is opened as it stands. `close()` releases the connection. Bearer values are returned once and never stored; the `tokens` table holds only hashes. SQLite stores encrypted secret envelopes internally and exposes their plaintext only through its trusted `store.secrets` surface. Runtime-private credential values remain in the injected credential store.
 
 `admin()` and `as(token)` return the same `RgapRepository` interface, so callers cannot accidentally switch planes by changing command code. Only the explicit store selection differs.
 
@@ -496,6 +508,7 @@ The store is normalized. Protocol metadata is represented in tables, and referen
 | `executables` | One executable attachment per resource, with active revision and deletion marker. |
 | `executable_revisions` | Immutable runtime, program, schemas, binding schema, limits, and creation time. |
 | `secret_metadata` | Public secret version and update time; no protected value. |
+| `secret_envelopes` | AES-256-GCM ciphertext, nonce, tag, version, and update time; no plaintext. |
 | `runtime_private_metadata` | Public credential-state metadata keyed by runtime and resource; no credential value. |
 | `audit` | One row per recorded event, ordered by an explicit sequence number so the log's order is stored rather than inferred. |
 
@@ -505,7 +518,7 @@ The schema is declared once as Drizzle tables, and `drizzle-kit` generates the D
 
 ### Commands and transactions
 
-A metadata command is one SQLite transaction. It reads the complete state, applies the relevant pure `@rgap/core` rule, and replaces the stored rows with the state that rule returns. Nothing observes a partially updated authorization state, and a refused pure-state command writes nothing. A secret or runtime-private write first updates its external protected-value store and then commits the returned public metadata to SQLite.
+A metadata command is one SQLite transaction. It reads the complete state, applies the relevant pure `@rgap/core` rule, and replaces the stored rows with the state that rule returns. Nothing observes a partially updated authorization state, and a refused pure-state command writes nothing. Secret encryption occurs before a transaction atomically stores its envelope and public metadata. Runtime-private writes update their external protected-value store and then commit returned public metadata.
 
 Rows are written parents before children, so the foreign keys hold at every statement rather than only at the end of the transaction.
 
@@ -572,13 +585,13 @@ For each request, the gateway:
 
 The proxy route is intentionally a small wrapper around `fetch`; it does not implement endpoint-specific request or response adapters. Returning the upstream response directly preserves JSON, SSE, binary bodies, statuses, and headers. The example uses direct RGAP authorization rather than `resource.invoke()` because the generic invocation protocol carries JSON-compatible `InvocationEvent` values rather than arbitrary HTTP responses.
 
-The package exports an app factory that accepts its RGAP store, encrypted database-backed secret store, OpenAI resource and secret IDs, optional upstream origin, and fetch implementation.
+The package exports an app factory that accepts a trusted RGAP store with secret resolution, OpenAI resource and secret IDs, optional upstream origin, and fetch implementation. It contains no encryption or database implementation.
 
 The trusted bootstrap command resets the configured database, creates `llm/openai` and `secrets/openai-key`, and writes `OPENAI_API_KEY` through the example's encrypted `SecretStore`. It prints the two resource IDs for the server and client configuration. Bootstrap receives both `OPENAI_API_KEY` and `RGAP_SECRET_KEY`.
 
 The server receives `RGAP_SECRET_KEY`, decrypts the provider key only after authorization, and never receives `OPENAI_API_KEY` directly. `client.ts` receives neither provider credential nor encryption key. It imports the shared RGAP store, creates a named employee grant with `invoke` on the gateway and `use` on the secret, issues a one-time bearer, constructs the official OpenAI SDK with that bearer and the local gateway base URL, and calls the Responses API.
 
-The example secret store uses AES-256-GCM with a random nonce and the resource ID as authenticated data. The same SQLite file stores ciphertext, authentication tag, nonce, version, and public RGAP secret metadata. `RGAP_SECRET_KEY` is a 32-byte base64 value shared only by trusted bootstrap and server processes. A production deployment may replace the example store with a KMS or vault without changing the gateway authorization flow.
+The SQLite store uses core's AES-256-GCM envelope operations with a random nonce and the resource ID plus version as authenticated data. The same SQLite file stores ciphertext, authentication tag, nonce, version, and public RGAP secret metadata. `RGAP_SECRET_KEY` is a 32-byte base64 value shared only by trusted bootstrap and server processes. Another store implementation persists the same envelope through its own native storage, or a production deployment replaces secret storage with a KMS or vault without changing the gateway authorization flow.
 
 ## Testing
 
