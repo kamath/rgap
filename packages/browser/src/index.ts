@@ -6,6 +6,7 @@ import {
   createResource as addResource,
   createGrant as addGrant,
   deleteResource as removeResource,
+  grantId,
   guardCommands,
   inspectAuthority,
   moveResource as move,
@@ -14,13 +15,20 @@ import {
   stateIntegrity,
   revokeToken as revokeTokenRecord,
   setCapabilities as amendCapabilities,
+  tokenHash,
+  tokenId,
+  tokenValue,
   type Capability,
   type CreateGrantInput,
   type CreateResourceInput,
+  type GrantId,
   type Permission,
   type RgapStore,
+  type ResourceId,
   type State,
   type Token,
+  type TokenId,
+  type TokenValue,
   type RgapRepository,
 } from '@rgap/core';
 
@@ -41,7 +49,7 @@ export class BrowserRgapStore implements RgapStore {
     return this.repository;
   }
 
-  as(token: string): RgapRepository {
+  as(token: TokenValue): RgapRepository {
     return guardCommands(this.repository, token);
   }
 }
@@ -79,58 +87,58 @@ class BrowserBackingRepository implements RgapRepository {
     return this.currentState().resources[id];
   }
 
-  async moveResource(id: string, parentId: string | null) {
+  async moveResource(id: ResourceId, parentId: ResourceId | null) {
     this.commit(move(this.currentState(), id, parentId, now()));
     return this.currentState().resources[id];
   }
 
-  async deleteResource(id: string) {
+  async deleteResource(id: ResourceId) {
     this.commit(removeResource(this.currentState(), id, now()));
   }
 
   async createGrant(input: CreateGrantInput) {
-    const id = crypto.randomUUID();
+    const id = grantId(crypto.randomUUID());
     this.commit(addGrant(this.currentState(), input, id, now()));
     return this.currentState().grants[id];
   }
 
-  async setCapabilities(grantId: string, capabilities: Capability[]) {
-    this.commit(amendCapabilities(this.currentState(), grantId, capabilities, now()));
-    return this.currentState().grants[grantId];
+  async setCapabilities(id: GrantId, capabilities: Capability[]) {
+    this.commit(amendCapabilities(this.currentState(), id, capabilities, now()));
+    return this.currentState().grants[id];
   }
 
-  async issueToken(grantId: string, label: string) {
-    const value = `rgap_${crypto.randomUUID().replaceAll('-', '')}`;
+  async issueToken(id: GrantId, label: string) {
+    const value = tokenValue(`rgap_${crypto.randomUUID().replaceAll('-', '')}`);
     const record: Token = {
-      id: crypto.randomUUID(), grantId, label: label.trim() || 'unnamed token',
-      hash: await hash(value), expiresAt: this.currentState().grants[grantId]?.expiresAt ?? null, revokedAt: null,
+      id: tokenId(crypto.randomUUID()), grantId: id, label: label.trim() || 'unnamed token',
+      hash: await digest(value), expiresAt: this.currentState().grants[id]?.expiresAt ?? null, revokedAt: null,
     };
     this.commit(recordToken(this.currentState(), record, now()));
     return { record, value };
   }
 
-  async revokeToken(id: string) {
+  async revokeToken(id: TokenId) {
     this.commit(revokeTokenRecord(this.currentState(), id, now()));
   }
 
-  async revokeGrant(id: string) {
+  async revokeGrant(id: GrantId) {
     this.commit(revokeGrantBranch(this.currentState(), id, now()));
   }
 
-  async authorize(token: string, resourceId: string, permission: Permission) {
+  async authorize(token: TokenValue, id: ResourceId, permission: Permission) {
     const at = now();
-    const decision = decide(this.currentState(), await hash(token), resourceId, permission, at);
+    const decision = decide(this.currentState(), await digest(token), id, permission, at);
     const state = structuredClone(this.currentState());
     state.audit.unshift({
-      id: crypto.randomUUID(), at, action: 'authorize', target: resourceId,
+      id: crypto.randomUUID(), at, action: 'authorize', target: id,
       result: decision.allowed ? 'allowed' : 'denied', detail: decision.detail,
     });
     this.commit(state);
     return decision;
   }
 
-  async inspectToken(token: string) {
-    return inspectAuthority(this.currentState(), await hash(token), now());
+  async inspectToken(token: TokenValue) {
+    return inspectAuthority(this.currentState(), await digest(token), now());
   }
 
   async reset() {
@@ -151,4 +159,8 @@ const now = () => new Date().toISOString();
 async function hash(value: string) {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function digest(value: string) {
+  return tokenHash(await hash(value));
 }

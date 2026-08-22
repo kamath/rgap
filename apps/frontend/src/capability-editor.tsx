@@ -7,6 +7,7 @@ import {
   type CapabilityTarget,
   type Grant,
   type Permission,
+  type ResourceId,
 } from '@rgap/core';
 import { useRgapClient, useRgapSnapshot } from '@rgap/react';
 import { boundsAt, uncovered, withPermission } from './capability-bounds';
@@ -101,14 +102,14 @@ function CapabilityEditor({ grant, onClose }: { grant: Grant; onClose: () => voi
     if (committed) onClose();
   };
 
-  const toggle = (resourceId: string) =>
+  const toggle = (id: ResourceId) =>
     setDraft((held) => {
-      if (held.some((entry) => entry.target.type === 'resource' && entry.target.resourceId === resourceId)) {
-        return held.filter((entry) => entry.target.type !== 'resource' || entry.target.resourceId !== resourceId);
+      if (held.some((entry) => entry.target.type === 'resource' && entry.target.resourceId === id)) {
+        return held.filter((entry) => entry.target.type !== 'resource' || entry.target.resourceId !== id);
       }
-      const target = { type: 'resource' as const, resourceId };
+      const target = { type: 'resource' as const, resourceId: id };
       const bounds = boundsAt(parent, snapshot.resources, target);
-      const hasChildren = childrenOf(snapshot.resources, resourceId).length > 0;
+      const hasChildren = childrenOf(snapshot.resources, id).length > 0;
       return [
         ...held,
         {
@@ -192,12 +193,12 @@ function ResourcePicker({
   parent,
   onToggle,
 }: {
-  selected: string[];
+  selected: ResourceId[];
   parent: Grant | null;
-  onToggle: (resourceId: string) => void;
+  onToggle: (id: ResourceId) => void;
 }) {
   const snapshot = useRgapSnapshot();
-  const [location, setLocation] = useState<string | null>(null);
+  const [location, setLocation] = useState<ResourceId | null>(null);
   const [filter, setFilter] = useState('');
   const term = filter.trim().toLowerCase();
 
@@ -212,7 +213,7 @@ function ResourcePicker({
         path: pathOf(snapshot.resources, resource.id),
       }));
 
-  const trail: string[] = [];
+  const trail: ResourceId[] = [];
   for (let id = location; id; id = snapshot.resources[id]?.parentId ?? null) trail.unshift(id);
 
   return (

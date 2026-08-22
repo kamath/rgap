@@ -1,4 +1,7 @@
-import { authorize, inspectAuthority, type Capability, type Resource, type State } from './domain';
+import {
+  authorize, inspectAuthority, grantId, resourceId, tokenHash, tokenId, tokenValue,
+  type Capability, type Resource, type State,
+} from './domain';
 import type { RgapRepository } from './repository';
 
 export function fixture(): State {
@@ -11,20 +14,20 @@ export function fixture(): State {
     resources: Object.fromEntries(resources.map((item) => [item.id, item])),
     grants: {
       coordinator: {
-        id: 'coordinator', name: 'Coordinator', parentId: null,
+        id: grantId('coordinator'), name: 'Coordinator', parentId: null,
         capabilities: [cap('search-files'), cap('create-issue')],
         expiresAt: '2027-08-21T23:00:00.000Z', revokedAt: null,
       },
       researcher: {
-        id: 'researcher', name: 'Researcher', parentId: 'coordinator',
+        id: grantId('researcher'), name: 'Researcher', parentId: grantId('coordinator'),
         capabilities: [cap('search-files')],
         expiresAt: '2027-08-21T22:00:00.000Z', revokedAt: null,
       },
     },
     tokens: {
       demo: {
-        id: 'demo', grantId: 'coordinator', label: 'demo',
-        hash: 'b528aaf0496a7f1b670eaf73987ee9237eaddbbefa1ade4844e5d318d4d35bc3',
+        id: tokenId('demo'), grantId: grantId('coordinator'), label: 'demo',
+        hash: tokenHash('b528aaf0496a7f1b670eaf73987ee9237eaddbbefa1ade4844e5d318d4d35bc3'),
         expiresAt: '2027-08-21T23:00:00.000Z', revokedAt: null,
       },
     },
@@ -32,12 +35,12 @@ export function fixture(): State {
   };
 }
 
-const resource = (id: string, parentId: string | null): Resource => ({
-  id, parentId, name: id, deletedAt: null,
+const resource = (id: string, parent: string | null): Resource => ({
+  id: resourceId(id), parentId: parent ? resourceId(parent) : null, name: id, deletedAt: null,
 });
 
-const cap = (resourceId: string): Capability => ({
-  target: { type: 'resource', resourceId }, permissions: ['invoke'], descendants: false,
+const cap = (id: string): Capability => ({
+  target: { type: 'resource', resourceId: resourceId(id) }, permissions: ['invoke'], descendants: false,
 });
 
 /** A call the guard forwarded to the repository, in the order the guard made it. */
@@ -56,22 +59,25 @@ export function stubRepository(state: State, at: string) {
     calls.push({ method, args });
     return Promise.resolve(result);
   };
-  const resourceStub = (id: string, parentId: string | null): Resource =>
+  const resourceStub = (id: Resource['id'], parentId: Resource['parentId']): Resource =>
     ({ id, parentId, name: id, deletedAt: null });
 
   const repository: RgapRepository = {
     readState: () => Promise.resolve(state),
-    authorize: (token, resourceId, permission) => Promise.resolve(authorize(state, token, resourceId, permission, at)),
-    inspectToken: (token) => Promise.resolve(inspectAuthority(state, token, at)),
-    createResource: (input) => record('createResource', [input], { ...input, id: 'created', deletedAt: null }),
+    // Tests treat the bearer as the stored hash, so the stub re-brands rather than hashing.
+    authorize: (token, id, permission) => Promise.resolve(authorize(state, tokenHash(token), id, permission, at)),
+    inspectToken: (token) => Promise.resolve(inspectAuthority(state, tokenHash(token), at)),
+    createResource: (input) => record('createResource', [input], { ...input, id: resourceId('created'), deletedAt: null }),
     moveResource: (id, parentId) => record('moveResource', [id, parentId], resourceStub(id, parentId)),
     deleteResource: (id) => record('deleteResource', [id], undefined),
-    createGrant: (input) => record('createGrant', [input], { ...input, id: 'created', revokedAt: null }),
-    setCapabilities: (grantId, capabilities) =>
-      record('setCapabilities', [grantId, capabilities], { ...state.grants[grantId], capabilities }),
-    issueToken: (grantId, label) => record('issueToken', [grantId, label], {
-      record: { id: 'issued', grantId, label, hash: 'issued-hash', expiresAt: null, revokedAt: null },
-      value: 'issued-value',
+    createGrant: (input) => record('createGrant', [input], { ...input, id: grantId('created'), revokedAt: null }),
+    setCapabilities: (id, capabilities) =>
+      record('setCapabilities', [id, capabilities], { ...state.grants[id], capabilities }),
+    issueToken: (id, label) => record('issueToken', [id, label], {
+      record: {
+        id: tokenId('issued'), grantId: id, label, hash: tokenHash('issued-hash'), expiresAt: null, revokedAt: null,
+      },
+      value: tokenValue('issued-value'),
     }),
     revokeToken: (id) => record('revokeToken', [id], undefined),
     revokeGrant: (id) => record('revokeGrant', [id], undefined),

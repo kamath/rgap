@@ -6,12 +6,17 @@ import type {
   CreateResourceInput,
   Decision,
   Grant,
+  GrantId,
   IssuedToken,
   Permission,
   Resource,
+  ResourceId,
   RgapRepository,
   State,
+  TokenId,
+  TokenValue,
 } from '@rgap/core';
+import { tokenValue } from '@rgap/core';
 
 type Listener = () => void;
 
@@ -45,11 +50,11 @@ export class RgapClient {
     return this.run(() => this.repository.createResource(input));
   }
 
-  moveResource(id: string, parentId: string | null): Promise<Resource> {
+  moveResource(id: ResourceId, parentId: ResourceId | null): Promise<Resource> {
     return this.run(() => this.repository.moveResource(id, parentId));
   }
 
-  deleteResource(id: string): Promise<void> {
+  deleteResource(id: ResourceId): Promise<void> {
     return this.run(() => this.repository.deleteResource(id));
   }
 
@@ -57,27 +62,27 @@ export class RgapClient {
     return this.run(() => this.repository.createGrant(input));
   }
 
-  setCapabilities(grantId: string, capabilities: Capability[]): Promise<Grant> {
+  setCapabilities(grantId: GrantId, capabilities: Capability[]): Promise<Grant> {
     return this.run(() => this.repository.setCapabilities(grantId, capabilities));
   }
 
-  issueToken(grantId: string, label: string): Promise<IssuedToken> {
+  issueToken(grantId: GrantId, label: string): Promise<IssuedToken> {
     return this.run(() => this.repository.issueToken(grantId, label));
   }
 
-  revokeToken(id: string): Promise<void> {
+  revokeToken(id: TokenId): Promise<void> {
     return this.run(() => this.repository.revokeToken(id));
   }
 
-  revokeGrant(id: string): Promise<void> {
+  revokeGrant(id: GrantId): Promise<void> {
     return this.run(() => this.repository.revokeGrant(id));
   }
 
-  authorize(token: string, resourceId: string, permission: Permission): Promise<Decision> {
+  authorize(token: TokenValue, resourceId: ResourceId, permission: Permission): Promise<Decision> {
     return this.run(() => this.repository.authorize(token, resourceId, permission));
   }
 
-  inspectToken(token: string): Promise<AuthorityView> {
+  inspectToken(token: TokenValue): Promise<AuthorityView> {
     return this.repository.inspectToken(token);
   }
 
@@ -121,7 +126,7 @@ export function useRgapAuthority(token: string) {
     }
     setAuthority(null);
     let current = true;
-    client.inspectToken(token).then((result) => { if (current) setAuthority(result); });
+    client.inspectToken(tokenValue(token)).then((result) => { if (current) setAuthority(result); });
     return () => { current = false; };
   }, [client, snapshot, token]);
 

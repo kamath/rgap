@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest';
-import { RgapError, type RgapRepository, type State } from '@rgap/core';
+import { RgapError, resourceId, tokenValue, type RgapRepository, type State } from '@rgap/core';
 import { SqliteRgapStore } from './index';
 
 const open = (options?: { url?: string; initialState?: State }) => {
@@ -28,8 +28,8 @@ afterEach(() => {
 
 const acme = (): State => ({
   resources: {
-    acme: { id: 'acme', parentId: null, name: 'acme', deletedAt: null },
-    drive: { id: 'drive', parentId: 'acme', name: 'drive', deletedAt: null },
+    acme: { id: resourceId('acme'), parentId: null, name: 'acme', deletedAt: null },
+    drive: { id: resourceId('drive'), parentId: resourceId('acme'), name: 'drive', deletedAt: null },
   },
   grants: {},
   tokens: {},
@@ -50,7 +50,7 @@ describe('SqliteRgapStore', () => {
     const repository = open({ initialState: acme() }).admin();
     const grant = await rootGrant(repository);
     await repository.setCapabilities(grant.id, [
-      { target: { type: 'resource', resourceId: 'acme' }, permissions: ['read', 'write'], descendants: true },
+      { target: { type: 'resource', resourceId: resourceId('acme') }, permissions: ['read', 'write'], descendants: true },
       { target: { type: 'path', path: 'acme/future-tool' }, permissions: ['invoke'], descendants: false },
     ]);
     const { record } = await repository.issueToken(grant.id, 'cli');
@@ -58,7 +58,7 @@ describe('SqliteRgapStore', () => {
     const state = await repository.readState();
     expect(state.resources.drive.parentId).toBe('acme');
     expect(state.grants[grant.id].capabilities).toEqual([
-      { target: { type: 'resource', resourceId: 'acme' }, permissions: ['read', 'write'], descendants: true },
+      { target: { type: 'resource', resourceId: resourceId('acme') }, permissions: ['read', 'write'], descendants: true },
       { target: { type: 'path', path: 'acme/future-tool' }, permissions: ['invoke'], descendants: false },
     ]);
     expect(state.tokens[record.id]).toEqual(record);
@@ -68,7 +68,7 @@ describe('SqliteRgapStore', () => {
     const repository = open({ initialState: acme() }).admin();
     const grant = await rootGrant(repository);
     const amended = await repository.setCapabilities(grant.id, [
-      { target: { type: 'resource', resourceId: 'acme' }, permissions: ['invoke', 'delete', 'read'], descendants: true },
+      { target: { type: 'resource', resourceId: resourceId('acme') }, permissions: ['invoke', 'delete', 'read'], descendants: true },
     ]);
     expect(amended.capabilities[0].permissions).toEqual(['read', 'delete', 'invoke']);
   });
@@ -101,7 +101,7 @@ describe('SqliteRgapStore', () => {
     const firstStore = open({ url, initialState: acme() });
     const first = firstStore.admin();
     const created = await first.createResource({
-      name: 'mcp', parentId: 'acme',
+      name: 'mcp', parentId: resourceId('acme'),
     });
     firstStore.close();
 
@@ -116,7 +116,7 @@ describe('SqliteRgapStore', () => {
 
   it('restores the initial state on reset', async () => {
     const repository = open({ initialState: acme() }).admin();
-    await repository.createResource({ name: 'mcp', parentId: 'acme' });
+    await repository.createResource({ name: 'mcp', parentId: resourceId('acme') });
     await repository.reset();
     expect(await repository.readState()).toEqual(acme());
   });
@@ -130,7 +130,7 @@ describe('SqliteRgapStore', () => {
     const repository = open({ initialState: acme() }).admin();
     const parent = await rootGrant(repository);
     await repository.setCapabilities(parent.id, [
-      { target: { type: 'resource', resourceId: 'drive' }, permissions: ['read'], descendants: true },
+      { target: { type: 'resource', resourceId: resourceId('drive') }, permissions: ['read'], descendants: true },
     ]);
     const child = await repository.createGrant({
       name: 'Drive read', parentId: parent.id, capabilities: [], expiresAt: null,
@@ -139,7 +139,7 @@ describe('SqliteRgapStore', () => {
 
     await expect(
       repository.setCapabilities(child.id, [
-        { target: { type: 'resource', resourceId: 'acme' }, permissions: ['write'], descendants: true },
+        { target: { type: 'resource', resourceId: resourceId('acme') }, permissions: ['write'], descendants: true },
       ]),
     ).rejects.toThrow(RgapError);
 
@@ -150,12 +150,12 @@ describe('SqliteRgapStore', () => {
     const repository = open({ initialState: acme() }).admin();
     const grant = await rootGrant(repository);
     await repository.setCapabilities(grant.id, [
-      { target: { type: 'resource', resourceId: 'acme' }, permissions: ['read'], descendants: true },
+      { target: { type: 'resource', resourceId: resourceId('acme') }, permissions: ['read'], descendants: true },
     ]);
     const { value } = await repository.issueToken(grant.id, 'cli');
 
-    expect((await repository.authorize(value, 'drive', 'read')).allowed).toBe(true);
-    expect((await repository.authorize(value, 'drive', 'write')).allowed).toBe(false);
+    expect((await repository.authorize(value, resourceId('drive'), 'read')).allowed).toBe(true);
+    expect((await repository.authorize(value, resourceId('drive'), 'write')).allowed).toBe(false);
 
     const { audit } = await repository.readState();
     expect(audit.slice(0, 2).map((event) => event.result)).toEqual(['denied', 'allowed']);
@@ -166,26 +166,26 @@ describe('SqliteRgapStore', () => {
     const repository = open({ initialState: acme() }).admin();
     const grant = await rootGrant(repository);
     await repository.setCapabilities(grant.id, [
-      { target: { type: 'resource', resourceId: 'drive' }, permissions: ['read', 'invoke'], descendants: false },
+      { target: { type: 'resource', resourceId: resourceId('drive') }, permissions: ['read', 'invoke'], descendants: false },
     ]);
     const { value } = await repository.issueToken(grant.id, 'cli');
 
     const authority = await repository.inspectToken(value);
     expect(authority.valid).toBe(true);
     expect(authority.permissions.drive).toEqual(['read', 'invoke']);
-    expect((await repository.inspectToken('rgap_unknown')).valid).toBe(false);
+    expect((await repository.inspectToken(tokenValue('rgap_unknown'))).valid).toBe(false);
   });
 
   it('moves, deletes, and revokes', async () => {
     const repository = open({ initialState: acme() }).admin();
-    const moved = await repository.moveResource('drive', null);
+    const moved = await repository.moveResource(resourceId('drive'), null);
     expect(moved.parentId).toBe(null);
 
     const grant = await rootGrant(repository);
     const { record } = await repository.issueToken(grant.id, 'cli');
     await repository.revokeToken(record.id);
     await repository.revokeGrant(grant.id);
-    await repository.deleteResource('acme');
+    await repository.deleteResource(resourceId('acme'));
 
     const state = await repository.readState();
     expect(state.resources.acme.deletedAt).not.toBe(null);
@@ -197,12 +197,12 @@ describe('SqliteRgapStore', () => {
     const repository = open({ initialState: acme() }).admin();
     const grant = await rootGrant(repository);
     await repository.setCapabilities(grant.id, [
-      { target: { type: 'resource', resourceId: 'drive' }, permissions: ['read'], descendants: false },
+      { target: { type: 'resource', resourceId: resourceId('drive') }, permissions: ['read'], descendants: false },
       { target: { type: 'path', path: 'acme/drive' }, permissions: ['read'], descendants: false },
     ]);
 
-    await repository.moveResource('drive', null);
-    await repository.deleteResource('drive');
+    await repository.moveResource(resourceId('drive'), null);
+    await repository.deleteResource(resourceId('drive'));
 
     expect((await repository.readState()).grants[grant.id].revokedAt).toBe(null);
   });
@@ -212,24 +212,24 @@ describe('SqliteRgapStore', () => {
     const repository = store.admin();
     const grant = await rootGrant(repository);
     await repository.setCapabilities(grant.id, [
-      { target: { type: 'resource', resourceId: 'acme' }, permissions: ['write'], descendants: true },
+      { target: { type: 'resource', resourceId: resourceId('acme') }, permissions: ['write'], descendants: true },
     ]);
     const { value } = await repository.issueToken(grant.id, 'cli');
     const guarded = store.as(value);
 
     const created = await guarded.createResource({
-      name: 'mcp', parentId: 'acme',
+      name: 'mcp', parentId: resourceId('acme'),
     });
     expect(created.parentId).toBe('acme');
-    await expect(guarded.deleteResource('acme')).rejects.toThrow();
+    await expect(guarded.deleteResource(resourceId('acme'))).rejects.toThrow();
   });
 
   it('writes a state larger than one insert statement', async () => {
     const initialState: State = { resources: {}, grants: {}, tokens: {}, audit: [] };
     for (let index = 0; index < 250; index += 1) {
-      const id = `resource-${index}`;
+      const id = resourceId(`resource-${index}`);
       initialState.resources[id] = {
-        id, parentId: index === 0 ? null : `resource-${index - 1}`, name: `r${index}`,
+        id, parentId: index === 0 ? null : resourceId(`resource-${index - 1}`), name: `r${index}`,
         deletedAt: null,
       };
     }
@@ -242,8 +242,8 @@ describe('SqliteRgapStore', () => {
   it('refuses to write a state whose parents form a cycle', () => {
     const initialState: State = {
       resources: {
-        a: { id: 'a', parentId: 'b', name: 'a', deletedAt: null },
-        b: { id: 'b', parentId: 'a', name: 'b', deletedAt: null },
+        a: { id: resourceId('a'), parentId: resourceId('b'), name: 'a', deletedAt: null },
+        b: { id: resourceId('b'), parentId: resourceId('a'), name: 'b', deletedAt: null },
       },
       grants: {}, tokens: {}, audit: [],
     };

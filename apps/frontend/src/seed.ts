@@ -1,4 +1,4 @@
-import type { Capability, State } from '@rgap/core';
+import { grantId, resourceId, tokenHash, tokenId, type Capability, type State } from '@rgap/core';
 
 export const demoToken = 'rgap_demo_coordinator';
 
@@ -22,7 +22,7 @@ export function seed(): State {
     ].map((item) => [item.id, item])),
     grants: {
       coordinator: {
-        id: 'coordinator', name: 'Coordinator', parentId: null,
+        id: grantId('coordinator'), name: 'Coordinator', parentId: null,
         capabilities: [
           resourceCap('search-files'),
           pathCap('Acme/MCP servers/Slack/Tools/search_messages'),
@@ -32,36 +32,36 @@ export function seed(): State {
         expiresAt: '2027-08-21T23:00:00.000Z', revokedAt: null,
       },
       researcher: {
-        id: 'researcher', name: 'Researcher', parentId: 'coordinator',
+        id: grantId('researcher'), name: 'Researcher', parentId: grantId('coordinator'),
         capabilities: [resourceCap('search-files'), pathCap('Acme/MCP servers/Slack/Tools/search_messages')],
         expiresAt: '2027-08-21T22:00:00.000Z', revokedAt: null,
       },
       summarizer: {
-        id: 'summarizer', name: 'Summarizer', parentId: 'researcher',
+        id: grantId('summarizer'), name: 'Summarizer', parentId: grantId('researcher'),
         capabilities: [resourceCap('search-files')],
         expiresAt: '2027-08-21T21:00:00.000Z', revokedAt: null,
       },
     },
     tokens: {
       demo: {
-        id: 'demo', grantId: 'coordinator', label: 'coordinator demo',
-        hash: 'b528aaf0496a7f1b670eaf73987ee9237eaddbbefa1ade4844e5d318d4d35bc3',
+        id: tokenId('demo'), grantId: grantId('coordinator'), label: 'coordinator demo',
+        hash: tokenHash('b528aaf0496a7f1b670eaf73987ee9237eaddbbefa1ade4844e5d318d4d35bc3'),
         expiresAt: '2027-08-21T23:00:00.000Z', revokedAt: null,
       },
     },
     audit: [{
       id: 'welcome', at: '2026-08-21T16:00:00.000Z', action: 'example.load',
-      target: 'acme', result: 'recorded', detail: 'Loaded the MCP delegation example.',
+      target: resourceId('acme'), result: 'recorded', detail: 'Loaded the MCP delegation example.',
     }],
   };
 }
 
-function resource(id: string, parentId: string | null, name: string) {
-  return { id, parentId, name, deletedAt: null };
+function resource(id: string, parent: string | null, name: string) {
+  return { id: resourceId(id), parentId: parent ? resourceId(parent) : null, name, deletedAt: null };
 }
 
-const resourceCap = (resourceId: string): Capability => ({
-  target: { type: 'resource', resourceId },
+const resourceCap = (id: string): Capability => ({
+  target: { type: 'resource', resourceId: resourceId(id) },
   permissions: ['invoke'],
   descendants: false,
 });

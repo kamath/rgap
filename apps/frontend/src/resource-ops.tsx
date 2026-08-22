@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Resource, State } from '@rgap/core';
+import type { Resource, ResourceId, State } from '@rgap/core';
 import { useRgapClient } from '@rgap/react';
 import { Drawer, Execute, Form, Json, ResponseBlock, Targets, plural, useOperation } from './panes';
 import { usePlane } from './shell';
@@ -10,7 +10,7 @@ export type ResourceOperation = (typeof resourceOperations)[number];
 
 type DrawerProps = {
   path: string;
-  parentId: string | null;
+  parentId: ResourceId | null;
   targets: Resource[];
   resources: State['resources'];
   onClose: () => void;

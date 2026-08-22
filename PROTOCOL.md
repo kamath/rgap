@@ -202,7 +202,7 @@ A grant is created only when all of the following hold:
 
 1. `name` is non-empty.
 2. Every entry in `capabilities` has at least one permission. A resource target names a live resource. A path target has a non-empty normalized path and need not currently resolve. The set may be empty, in which case the grant authorizes nothing until its capabilities are set.
-3. If `parentId` is set, the parent grant exists and is active.
+3. If `parentId` is set, the parent grant exists and is active. A missing or inactive parent is `InvalidParentError` (`missing_parent` or `inactive_parent`).
 4. If the parent has an `expiresAt`, the child has one and it is no later than the parent's.
 5. Every child capability entry is covered by at least one parent capability entry, by `covers` above.
 

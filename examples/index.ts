@@ -5,7 +5,7 @@
  * `pnpm scratch` runs this file against examples/scratch.db.
  */
 import { fileURLToPath } from 'node:url';
-import { resourcePath, type Permission } from '@rgap/core';
+import { resourcePath, InvalidParentError, type Permission } from '@rgap/core';
 import { SqliteRgapStore } from '@rgap/sqlite';
 
 const store = new SqliteRgapStore({ url: fileURLToPath(new URL('scratch.db', import.meta.url)) });
@@ -14,13 +14,24 @@ const root = store.admin();
 // Every run starts from an empty store. Remove this to keep what the last run wrote.
 await root.reset();
 
-
-
 const acme = await root.createResource({ name: 'acme-company', parentId: null });
 
-const adminGrant = await root.createGrant({
+try {
+const badAdminGrant = await root.createGrant({
+  // @ts-expect-error - we're using a grant id where a resource id is expected
   name: 'Acme admin', parentId: acme.id, capabilities: [], expiresAt: null,
 });
+} catch (error) {
+  if (error instanceof InvalidParentError)
+    console.error(error.message);
+  else
+    throw error;
+}
+
+const adminGrant = await root.createGrant({
+  name: 'Acme admin', parentId: null, capabilities: [], expiresAt: null,
+});
+
 await root.setCapabilities(adminGrant.id, [
   {
     target: { type: 'resource', resourceId: acme.id },
@@ -28,24 +39,26 @@ await root.setCapabilities(adminGrant.id, [
     descendants: true,
   },
 ]);
-const admin = store.as(adminGrant.id);
+const adminToken = await root.issueToken(adminGrant.id, 'admin')
+const admin = store.as(adminToken.value);
 
 const drive = await admin.createResource({ name: 'drive', parentId: acme.id });
 const notes = await admin.createResource({ name: 'notes', parentId: drive.id });
 const secret = await admin.createResource({ name: 'secret', parentId: acme.id });
 
-const alice = await admin.issueToken(adminGrant.id, 'alice cli');
-const aliceRepository = store.as(alice.value);
+const aliceToken = await admin.issueToken(adminGrant.id, 'alice cli');
+const alice = store.as(aliceToken.value);
 
 // Alice delegates through her token-authorized plane, so the child can only be narrower than her grant.
-const reader = await aliceRepository.createGrant({
+const readerGrant = await alice.createGrant({
   name: 'Drive read', parentId: adminGrant.id, capabilities: [], expiresAt: null,
 });
-await aliceRepository.setCapabilities(reader.id, [
+await alice.setCapabilities(readerGrant.id, [
   { target: { type: 'path', path: 'acme/drive' }, permissions: ['read'], descendants: true },
 ]);
 
-const bob = await aliceRepository.issueToken(reader.id, 'bob cli');
+const bobToken = await alice.issueToken(readerGrant.id, 'bob');
+const bob = store.as(bobToken.value);
 
 const { resources } = await admin.readState();
 const path = (id: string) => resourcePath(resources, id);
@@ -68,5 +81,7 @@ for (const [label, token] of [['alice', alice.value], ['bob', bob.value]] as con
     console.log(`  ${path(id).padEnd(18)} ${held.join(' ')}`);
   });
 }
+
+console.log(await root.readState());
 
 store.close();

@@ -1,3 +1,4 @@
+import { tokenValue } from '@rgap/core';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { Link, Outlet } from '@tanstack/react-router';
 import { useRgapAuthority, useRgapClient } from '@rgap/react';
@@ -25,7 +26,7 @@ export function Shell() {
 
   // With no token the interface holds the administrative plane; with one, every command is authorized first.
   useEffect(() => {
-    client.setRepository(token.trim() ? store.as(token) : store.admin());
+    client.setRepository(token.trim() ? store.as(tokenValue(token)) : store.admin());
   }, [client, token]);
 
   return (

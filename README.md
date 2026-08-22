@@ -41,6 +41,8 @@ An ID target names an object. It follows that resource and its subtree when they
 
 A grant's identity, parent, and expiry are fixed when it is created. Its capability set is not: entries are set afterwards, and the set may be empty, in which case the grant authorizes nothing yet. Creating a grant and deciding what it reaches are separate acts, so a delegation can be recorded before its authority is chosen.
 
+A child grant's parent must exist and be active. Creating or amending a grant under a missing, revoked, or expired parent throws `InvalidParentError`, which is an `RgapError`. A missing parent uses code `missing_parent`; a revoked or expired parent uses `inactive_parent`. Callers that care only that the parent is unusable catch `InvalidParentError`. Resource-parent refusals and a broken grant lineage stay ordinary `RgapError` values.
+
 ```text
 Alice: read/write/delete projects/alpha
 └── Bob: read projects/alpha/docs
@@ -66,6 +68,24 @@ Tokens are opaque bearer credentials that reference grants. Store only a cryptog
 Multiple tokens may reference one grant. Revoking a token disables only that credential; revoking a grant disables the grant and all grants delegated from it.
 
 RGAP does not assign a subject identity to a grant. Possession of a valid bearer token is what permits use of the referenced grant. A host that authenticates people, services, or agents may associate its own identity records with grants or tokens outside the RGAP protocol.
+
+### Identities
+
+Resources, grants, and tokens each have their own identity. A grant's parent is a grant, a resource's parent is a resource, a capability ID target is a resource, `store.as` takes a bearer token, and a stored token record holds a hash of that bearer rather than the bearer itself. `@rgap/core` encodes those distinctions as branded strings:
+
+| Type | Names |
+| --- | --- |
+| `ResourceId` | A resource's `id` and `parentId`, a capability's resource target, and every resource command argument. |
+| `GrantId` | A grant's `id` and `parentId`, a token's `grantId`, and every grant command argument. |
+| `TokenId` | A token record's `id`, and `revokeToken`. |
+| `TokenValue` | The bearer secret returned once by `issueToken`. `store.as`, `authorize`, and `inspectToken` take this value. |
+| `TokenHash` | The hash stored on the token record. The bearer is never stored. |
+
+A branded value is still a string at runtime. Records serialize as JSON strings and SQLite text, and [PROTOCOL.md](PROTOCOL.md) states the wire types as `string`. TypeScript does not treat the brands as interchangeable: `createGrant({ parentId: resource.id })` and `store.as(grant.id)` are type errors.
+
+A path remains an ordinary string. Targeting `acme/drive` when the resource is named `acme-company` is a wrong location, not a wrong kind of identity, so it type-checks. Callers that want a stable object rather than a location use a `ResourceId` target.
+
+The repository mints branded identities when it creates records and re-brands them when it reads stored state, so values that come from the repository are already typed. Seed data and tests that build records by hand use the exported constructors `resourceId`, `grantId`, `tokenId`, `tokenValue`, and `tokenHash`. An audit event's `target` is a `ResourceId`, `GrantId`, or `TokenId`, because an event concerns one of those records.
 
 ## Permissions
 
@@ -280,9 +300,9 @@ RgapRepository in @rgap/core
 Browser storage, a SQLite database, or an HTTP API
 ```
 
-`@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, and asynchronous `RgapStore` and `RgapRepository` contracts. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. A repository is the request-response interface returned by either method: it reads current state and exposes asynchronous query and command methods. Neither contract exposes a subscription or requires a streaming transport. The package has no dependency on React, Zustand, browser storage, or a transport.
+`@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, and asynchronous `RgapStore` and `RgapRepository` contracts. Identities in that TypeScript surface are branded (`ResourceId`, `GrantId`, `TokenId`, `TokenValue`, `TokenHash`); they serialize as ordinary strings. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. `as` takes a `TokenValue`. A repository is the request-response interface returned by either method: it reads current state and exposes asynchronous query and command methods. Neither contract exposes a subscription or requires a streaming transport. The package has no dependency on React, Zustand, browser storage, or a transport.
 
-Every method of that contract addresses resources by stable ID. A resource path describes only where a resource currently sits, so it is a presentation concern: `@rgap/core` exports the pure helpers that render a resource's path and resolve a path to an ID, and callers use them before they issue a command. Keeping resolution outside the boundary means a command can never act on whatever happens to occupy a path at the moment it arrives.
+Every method of that contract addresses resources by `ResourceId`. A resource path describes only where a resource currently sits, so it is a presentation concern: `@rgap/core` exports the pure helpers that render a resource's path and resolve a path to an ID, and callers use them before they issue a command. Keeping resolution outside the boundary means a command can never act on whatever happens to occupy a path at the moment it arrives.
 
 `@rgap/browser` implements `BrowserRgapStore` over local storage. It accepts initial state from its caller, so the package has no dependency on the reference application's example data.
 

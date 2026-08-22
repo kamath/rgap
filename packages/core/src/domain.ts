@@ -2,16 +2,38 @@
 export const permissions = ['read', 'write', 'delete', 'move', 'invoke'] as const;
 export type Permission = (typeof permissions)[number];
 
+declare const identityBrand: unique symbol;
+type Identity<Kind extends string> = string & { readonly [identityBrand]: Kind };
+
+/** A resource's stable identity. Not a grant, token, or bearer value. */
+export type ResourceId = Identity<'ResourceId'>;
+/** A grant's stable identity. A grant's parent is always a grant. */
+export type GrantId = Identity<'GrantId'>;
+/** A token record's stable identity. Not the bearer secret. */
+export type TokenId = Identity<'TokenId'>;
+/** The bearer secret returned once at issue. `store.as`, `authorize`, and `inspectToken` take this. */
+export type TokenValue = Identity<'TokenValue'>;
+/** The stored hash of a bearer secret. The bearer itself is never stored. */
+export type TokenHash = Identity<'TokenHash'>;
+/** The record an audit event concerns. */
+export type RecordId = ResourceId | GrantId | TokenId;
+
+export const resourceId = (id: string): ResourceId => id as ResourceId;
+export const grantId = (id: string): GrantId => id as GrantId;
+export const tokenId = (id: string): TokenId => id as TokenId;
+export const tokenValue = (id: string): TokenValue => id as TokenValue;
+export const tokenHash = (id: string): TokenHash => id as TokenHash;
+
 export type Resource = {
-  id: string;
-  parentId: string | null;
+  id: ResourceId;
+  parentId: ResourceId | null;
   name: string;
   /** Set when the resource is deleted. The record is retained so its stable ID is never reissued. */
   deletedAt: string | null;
 };
 
 export type CapabilityTarget =
-  | { type: 'resource'; resourceId: string }
+  | { type: 'resource'; resourceId: ResourceId }
   | { type: 'path'; path: string };
 
 export type Capability = {
@@ -21,19 +43,19 @@ export type Capability = {
 };
 
 export type Grant = {
-  id: string;
+  id: GrantId;
   name: string;
-  parentId: string | null;
+  parentId: GrantId | null;
   capabilities: Capability[];
   expiresAt: string | null;
   revokedAt: string | null;
 };
 
 export type Token = {
-  id: string;
-  grantId: string;
+  id: TokenId;
+  grantId: GrantId;
   label: string;
-  hash: string;
+  hash: TokenHash;
   expiresAt: string | null;
   revokedAt: string | null;
 };
@@ -42,7 +64,7 @@ export type AuditEvent = {
   id: string;
   at: string;
   action: string;
-  target: string;
+  target: RecordId;
   result: 'allowed' | 'denied' | 'recorded';
   detail: string;
 };
@@ -57,8 +79,8 @@ export type State = {
 export type Decision = {
   allowed: boolean;
   detail: string;
-  grantId: string | null;
-  lineage: string[];
+  grantId: GrantId | null;
+  lineage: GrantId[];
 };
 
 export type CreateGrantInput = Omit<Grant, 'id' | 'revokedAt'>;
@@ -66,14 +88,22 @@ export type CreateResourceInput = Omit<Resource, 'id' | 'deletedAt'>;
 export type AuthorityView = {
   valid: boolean;
   detail: string;
-  grantId: string | null;
-  lineage: string[];
+  grantId: GrantId | null;
+  lineage: GrantId[];
   permissions: Record<string, Permission[]>;
 };
 
 export class RgapError extends Error {
   constructor(public code: string, message: string) {
     super(message);
+    this.name = new.target.name;
+  }
+}
+
+/** Thrown when creating or amending a grant whose parent is missing, revoked, or expired. */
+export class InvalidParentError extends RgapError {
+  constructor(code: 'missing_parent' | 'inactive_parent', message: string) {
+    super(code, message);
   }
 }
 
@@ -84,9 +114,9 @@ export const liveResources = (resources: State['resources']) => Object.values(re
 const active = (item: { revokedAt: string | null; expiresAt: string | null }, now: string) =>
   !item.revokedAt && (!item.expiresAt || item.expiresAt > now);
 
-export function isWithin(resources: State['resources'], id: string, rootId: string) {
+export function isWithin(resources: State['resources'], id: ResourceId, rootId: ResourceId) {
   const seen = new Set<string>();
-  for (let current: string | null = id; current; current = resources[current]?.parentId ?? null) {
+  for (let current: ResourceId | null = id; current; current = resources[current]?.parentId ?? null) {
     if (current === rootId) return true;
     if (seen.has(current)) throw new RgapError('resource_cycle', 'Resource tree contains a cycle.');
     seen.add(current);
@@ -94,10 +124,10 @@ export function isWithin(resources: State['resources'], id: string, rootId: stri
   return false;
 }
 
-export function resourcePath(resources: State['resources'], id: string) {
+export function resourcePath(resources: State['resources'], id: ResourceId) {
   const names: string[] = [];
   const seen = new Set<string>();
-  for (let current: string | null = id; current; current = resources[current]?.parentId ?? null) {
+  for (let current: ResourceId | null = id; current; current = resources[current]?.parentId ?? null) {
     if (seen.has(current)) throw new RgapError('resource_cycle', 'Resource tree contains a cycle.');
     const resource = resources[current];
     if (!resource) throw new RgapError('missing_resource', `Resource ${current} does not exist.`);
@@ -111,7 +141,7 @@ export function resourcePath(resources: State['resources'], id: string) {
  * The path of a resource whose record may be absent. A correct state retains every record so that
  * every referenced ID resolves, so this returns null only for a state that broke that rule.
  */
-export function tryResourcePath(resources: State['resources'], id: string) {
+export function tryResourcePath(resources: State['resources'], id: ResourceId) {
   try {
     return resourcePath(resources, id);
   } catch {
@@ -148,7 +178,7 @@ export function stateIntegrity(state: State) {
 
 /** Resolves a path to a stable resource ID. The root is not a resource, so an empty path resolves to null. */
 export function resourceIdAtPath(resources: State['resources'], path: string) {
-  let parentId: string | null = null;
+  let parentId: ResourceId | null = null;
   for (const name of pathParts(path)) {
     const match = liveResources(resources).find((item) => item.parentId === parentId && item.name === name);
     if (!match) return null;
@@ -175,12 +205,12 @@ function targetResourceId(capability: Capability, resources: State['resources'])
 export function capabilityAuthorizes(
   capability: Capability,
   resources: State['resources'],
-  resourceId: string,
+  id: ResourceId,
   permission: Permission,
 ) {
   if (!capability.permissions.includes(permission)) return false;
   const rootId = targetResourceId(capability, resources);
-  return Boolean(rootId && (rootId === resourceId || (capability.descendants && isWithin(resources, resourceId, rootId))));
+  return Boolean(rootId && (rootId === id || (capability.descendants && isWithin(resources, id, rootId))));
 }
 
 function pathContains(parent: Capability, child: Capability) {
@@ -219,14 +249,21 @@ function normalizeCapabilities(capabilities: Capability[], resources: State['res
   });
 }
 
-function lineage(state: State, grantId: string) {
+function requireActiveParent(state: State, parentId: GrantId, at: string) {
+  const parent = state.grants[parentId];
+  if (!parent) throw new InvalidParentError('missing_parent', 'Parent grant does not exist.');
+  if (!active(parent, at)) throw new InvalidParentError('inactive_parent', 'Parent grant is revoked or expired.');
+  return parent;
+}
+
+function lineage(state: State, id: GrantId) {
   const result: Grant[] = [];
   const seen = new Set<string>();
-  for (let id: string | null = grantId; id; id = state.grants[id]?.parentId ?? null) {
-    if (seen.has(id)) throw new RgapError('grant_cycle', 'Grant tree contains a cycle.');
-    const grant = state.grants[id];
-    if (!grant) throw new RgapError('missing_parent', `Grant ${id} does not exist.`);
-    seen.add(id);
+  for (let current: GrantId | null = id; current; current = state.grants[current]?.parentId ?? null) {
+    if (seen.has(current)) throw new RgapError('grant_cycle', 'Grant tree contains a cycle.');
+    const grant = state.grants[current];
+    if (!grant) throw new RgapError('missing_parent', `Grant ${current} does not exist.`);
+    seen.add(current);
     result.push(grant);
   }
   return result;
@@ -236,8 +273,8 @@ function audit(state: State, event: Omit<AuditEvent, 'id'>) {
   state.audit.unshift({ id: `${event.at}:${event.action}:${state.audit.length}`, ...event });
 }
 
-function revokeBranch(state: State, grantId: string, at: string) {
-  const ids = new Set([grantId]);
+function revokeBranch(state: State, id: GrantId, at: string) {
+  const ids = new Set([id]);
   let changed = true;
   while (changed) {
     changed = false;
@@ -254,7 +291,7 @@ function revokeBranch(state: State, grantId: string, at: string) {
 export function createResource(
   state: State,
   input: CreateResourceInput,
-  id: string,
+  id: ResourceId,
   at: string,
 ) {
   if (!input.name.trim()) throw new RgapError('invalid_name', 'Resource name is required.');
@@ -270,7 +307,7 @@ export function createResource(
   return next;
 }
 
-export function moveResource(state: State, id: string, parentId: string | null, at: string) {
+export function moveResource(state: State, id: ResourceId, parentId: ResourceId | null, at: string) {
   const resource = state.resources[id];
   if (!isLive(resource)) throw new RgapError('missing_resource', 'Resource does not exist.');
   if (parentId && !isLive(state.resources[parentId])) throw new RgapError('missing_parent', 'Parent resource does not exist.');
@@ -283,7 +320,7 @@ export function moveResource(state: State, id: string, parentId: string | null, 
   return next;
 }
 
-export function deleteResource(state: State, id: string, at: string) {
+export function deleteResource(state: State, id: ResourceId, at: string) {
   const resource = state.resources[id];
   if (!isLive(resource)) throw new RgapError('missing_resource', 'Resource does not exist.');
   const removed = liveResources(state.resources)
@@ -295,12 +332,11 @@ export function deleteResource(state: State, id: string, at: string) {
   return next;
 }
 
-export function createGrant(state: State, input: CreateGrantInput, id: string, at: string) {
+export function createGrant(state: State, input: CreateGrantInput, id: GrantId, at: string) {
   if (!input.name.trim()) throw new RgapError('invalid_grant', 'Grant name is required.');
   const capabilities = normalizeCapabilities(input.capabilities, state.resources);
   if (input.parentId) {
-    const parent = state.grants[input.parentId];
-    if (!parent || !active(parent, at)) throw new RgapError('inactive_parent', 'Parent grant is missing or inactive.');
+    const parent = requireActiveParent(state, input.parentId, at);
     if (parent.expiresAt && (!input.expiresAt || input.expiresAt > parent.expiresAt)) {
       throw new RgapError('expiration_expands', 'Child expiration must not exceed its parent.');
     }
@@ -323,14 +359,13 @@ export function createGrant(state: State, input: CreateGrantInput, id: string, a
  * are fixed at issue; what a grant reaches is not, so this runs the same downscoping proof as issue
  * at the moment the set changes, and revokes any child the new set no longer covers.
  */
-export function setCapabilities(state: State, grantId: string, capabilities: Capability[], at: string) {
+export function setCapabilities(state: State, grantId: GrantId, capabilities: Capability[], at: string) {
   const grant = state.grants[grantId];
   if (!grant) throw new RgapError('missing_grant', 'Grant does not exist.');
   if (!active(grant, at)) throw new RgapError('inactive_grant', 'A revoked or expired grant is not amended.');
   const normalized = normalizeCapabilities(capabilities, state.resources);
   if (grant.parentId) {
-    const parent = state.grants[grant.parentId];
-    if (!parent || !active(parent, at)) throw new RgapError('inactive_parent', 'Parent grant is missing or inactive.');
+    const parent = requireActiveParent(state, grant.parentId, at);
     normalized.forEach((cap) => {
       if (!parent.capabilities.some((parentCap) => covers(parentCap, cap, state.resources))) {
         throw new RgapError('authority_expands', 'Capability is not covered by the parent grant.');
@@ -364,7 +399,7 @@ export function recordToken(state: State, token: Token, at: string) {
   return next;
 }
 
-export function revokeToken(state: State, id: string, at: string) {
+export function revokeToken(state: State, id: TokenId, at: string) {
   if (!state.tokens[id]) throw new RgapError('missing_token', 'Token does not exist.');
   const next = copy(state);
   next.tokens[id].revokedAt ||= at;
@@ -372,7 +407,7 @@ export function revokeToken(state: State, id: string, at: string) {
   return next;
 }
 
-export function revokeGrant(state: State, id: string, at: string) {
+export function revokeGrant(state: State, id: GrantId, at: string) {
   if (!state.grants[id]) throw new RgapError('missing_grant', 'Grant does not exist.');
   const next = copy(state);
   revokeBranch(next, id, at);
@@ -380,16 +415,16 @@ export function revokeGrant(state: State, id: string, at: string) {
   return next;
 }
 
-export function authorize(state: State, tokenHash: string, resourceId: string, permission: Permission, at: string): Decision {
-  if (!isLive(state.resources[resourceId])) return { allowed: false, detail: 'Resource does not exist.', grantId: null, lineage: [] };
-  const token = Object.values(state.tokens).find((item) => item.hash === tokenHash);
+export function authorize(state: State, hash: TokenHash, id: ResourceId, permission: Permission, at: string): Decision {
+  if (!isLive(state.resources[id])) return { allowed: false, detail: 'Resource does not exist.', grantId: null, lineage: [] };
+  const token = Object.values(state.tokens).find((item) => item.hash === hash);
   if (!token || !active(token, at)) return { allowed: false, detail: 'Token is unknown, expired, or revoked.', grantId: null, lineage: [] };
   const chain = lineage(state, token.grantId);
   if (chain.some((grant) => !active(grant, at))) {
     return { allowed: false, detail: 'A grant in the delegation chain is expired or revoked.', grantId: token.grantId, lineage: chain.map((grant) => grant.id) };
   }
   const allowed = chain.every((grant) =>
-    grant.capabilities.some((capability) => capabilityAuthorizes(capability, state.resources, resourceId, permission)),
+    grant.capabilities.some((capability) => capabilityAuthorizes(capability, state.resources, id, permission)),
   );
   return {
     allowed,
@@ -399,8 +434,8 @@ export function authorize(state: State, tokenHash: string, resourceId: string, p
   };
 }
 
-export function inspectAuthority(state: State, tokenHash: string, at: string): AuthorityView {
-  const token = Object.values(state.tokens).find((item) => item.hash === tokenHash);
+export function inspectAuthority(state: State, hash: TokenHash, at: string): AuthorityView {
+  const token = Object.values(state.tokens).find((item) => item.hash === hash);
   if (!token || !active(token, at)) {
     return { valid: false, detail: 'Token is unknown, expired, or revoked.', grantId: null, lineage: [], permissions: {} };
   }
@@ -408,9 +443,9 @@ export function inspectAuthority(state: State, tokenHash: string, at: string): A
   if (chain.some((grant) => !active(grant, at))) {
     return { valid: false, detail: 'A grant in the delegation chain is expired or revoked.', grantId: token.grantId, lineage: chain.map((grant) => grant.id), permissions: {} };
   }
-  const effective = Object.fromEntries(liveResources(state.resources).map((resource) => resource.id).flatMap((resourceId) => {
-    const allowed = permissions.filter((permission) => authorize(state, tokenHash, resourceId, permission, at).allowed);
-    return allowed.length ? [[resourceId, allowed]] : [];
+  const effective = Object.fromEntries(liveResources(state.resources).map((resource) => resource.id).flatMap((id) => {
+    const allowed = permissions.filter((permission) => authorize(state, hash, id, permission, at).allowed);
+    return allowed.length ? [[id, allowed]] : [];
   }));
   return {
     valid: true,
@@ -426,8 +461,8 @@ const pathParts = (path: string) => path.split('/').map((part) => part.trim()).f
 /** Mints a readable, unused stable ID from a resource name. */
 export function availableId(state: State, name: string) {
   const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'resource';
-  let id = base;
+  let id = resourceId(base);
   let suffix = 2;
-  while (state.resources[id]) id = `${base}-${suffix++}`;
+  while (state.resources[id]) id = resourceId(`${base}-${suffix++}`);
   return id;
 }

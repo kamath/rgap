@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { permissions, requireResourceId, type Permission } from '@rgap/core';
+import { permissions, requireResourceId, tokenValue, type Permission } from '@rgap/core';
 import { useRgapClient, useRgapSnapshot } from '@rgap/react';
 import { Execute, Json, Pane, PageTitle, ResponsePane, useOperation } from '../panes';
 import { useShell } from '../shell';
@@ -28,7 +28,7 @@ function Authorize() {
             onSubmit={(event) => {
               event.preventDefault();
               void execute('authorize', () =>
-                client.authorize(bearer, requireResourceId(snapshot.resources, path), permission),
+                client.authorize(tokenValue(bearer), requireResourceId(snapshot.resources, path), permission),
               );
             }}
           >

@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
+import { resourceId } from '@rgap/core';
 import type { RgapRepository, State } from '@rgap/core';
 import { RgapClient } from './index';
 
 const state = (names: string[]): State => ({
   resources: Object.fromEntries(names.map((name) => [name, {
-    id: name, parentId: null, name, deletedAt: null,
+    id: resourceId(name), parentId: null, name, deletedAt: null,
   }])),
   grants: {},
   tokens: {},

@@ -11,23 +11,33 @@ import {
   createGrant as addGrant,
   createResource as addResource,
   deleteResource as removeResource,
+  grantId,
   guardCommands,
   inspectAuthority,
   moveResource as move,
   permissions as canonicalPermissions,
   recordToken,
+  resourceId,
   revokeGrant as revokeGrantBranch,
   revokeToken as revokeTokenRecord,
   setCapabilities as amendCapabilities,
+  tokenHash,
+  tokenId,
+  tokenValue,
   RgapError,
   type Capability,
   type CreateGrantInput,
   type CreateResourceInput,
+  type GrantId,
   type Permission,
+  type RecordId,
+  type ResourceId,
   type RgapRepository,
   type RgapStore,
   type State,
   type Token,
+  type TokenId,
+  type TokenValue,
 } from '@rgap/core';
 import * as schema from './schema';
 
@@ -51,7 +61,7 @@ export class SqliteRgapStore implements RgapStore {
     return this.repository;
   }
 
-  as(token: string): RgapRepository {
+  as(token: TokenValue): RgapRepository {
     return guardCommands(this.repository, token);
   }
 
@@ -89,67 +99,67 @@ class SqliteBackingRepository implements RgapRepository {
     });
   }
 
-  async moveResource(id: string, parentId: string | null) {
+  async moveResource(id: ResourceId, parentId: ResourceId | null) {
     return this.commit((state) => ({
       state: move(state, id, parentId, now()),
       pick: (committed) => committed.resources[id],
     }));
   }
 
-  async deleteResource(id: string) {
+  async deleteResource(id: ResourceId) {
     this.commit((state) => ({ state: removeResource(state, id, now()), pick: () => undefined }));
   }
 
   async createGrant(input: CreateGrantInput) {
-    const id = randomUUID();
+    const id = grantId(randomUUID());
     return this.commit((state) => ({
       state: addGrant(state, input, id, now()),
       pick: (committed) => committed.grants[id],
     }));
   }
 
-  async setCapabilities(grantId: string, capabilities: Capability[]) {
+  async setCapabilities(id: GrantId, capabilities: Capability[]) {
     return this.commit((state) => ({
-      state: amendCapabilities(state, grantId, capabilities, now()),
-      pick: (committed) => committed.grants[grantId],
+      state: amendCapabilities(state, id, capabilities, now()),
+      pick: (committed) => committed.grants[id],
     }));
   }
 
-  async issueToken(grantId: string, label: string) {
-    const value = `rgap_${randomUUID().replaceAll('-', '')}`;
-    const id = randomUUID();
+  async issueToken(id: GrantId, label: string) {
+    const value = tokenValue(`rgap_${randomUUID().replaceAll('-', '')}`);
+    const tokenRecordId = tokenId(randomUUID());
     const record = this.commit((state) => {
       const token: Token = {
-        id,
-        grantId,
+        id: tokenRecordId,
+        grantId: id,
         label: label.trim() || 'unnamed token',
-        hash: hash(value),
-        expiresAt: state.grants[grantId]?.expiresAt ?? null,
+        hash: digest(value),
+        expiresAt: state.grants[id]?.expiresAt ?? null,
         revokedAt: null,
       };
-      return { state: recordToken(state, token, now()), pick: (committed) => committed.tokens[id] };
+      return { state: recordToken(state, token, now()), pick: (committed) => committed.tokens[tokenRecordId] };
     });
     return { record, value };
   }
 
-  async revokeToken(id: string) {
+  async revokeToken(id: TokenId) {
     this.commit((state) => ({ state: revokeTokenRecord(state, id, now()), pick: () => undefined }));
   }
 
-  async revokeGrant(id: string) {
+  async revokeGrant(id: GrantId) {
     this.commit((state) => ({ state: revokeGrantBranch(state, id, now()), pick: () => undefined }));
   }
 
-  async authorize(token: string, resourceId: string, permission: Permission) {
+  async authorize(token: TokenValue, id: ResourceId, permission: Permission) {
     const at = now();
     return this.commit((state) => {
-      const decision = decide(state, hash(token), resourceId, permission, at);
+      const decision = decide(state, digest(token), id, permission, at);
       const next = structuredClone(state);
       next.audit.unshift({
         id: randomUUID(),
         at,
         action: 'authorize',
-        target: resourceId,
+        target: id,
         result: decision.allowed ? 'allowed' : 'denied',
         detail: decision.detail,
       });
@@ -157,8 +167,8 @@ class SqliteBackingRepository implements RgapRepository {
     });
   }
 
-  async inspectToken(token: string) {
-    return inspectAuthority(this.read(), hash(token), now());
+  async inspectToken(token: TokenValue) {
+    return inspectAuthority(this.read(), digest(token), now());
   }
 
   async reset() {
@@ -187,8 +197,8 @@ class SqliteBackingRepository implements RgapRepository {
 
     this.db.select().from(schema.resources).orderBy(asc(schema.resources.id)).all().forEach((row) => {
       state.resources[row.id] = {
-        id: row.id,
-        parentId: row.parentId,
+        id: resourceId(row.id),
+        parentId: row.parentId ? resourceId(row.parentId) : null,
         name: row.name,
         deletedAt: row.deletedAt,
       };
@@ -196,9 +206,9 @@ class SqliteBackingRepository implements RgapRepository {
 
     this.db.select().from(schema.grants).orderBy(asc(schema.grants.id)).all().forEach((row) => {
       state.grants[row.id] = {
-        id: row.id,
+        id: grantId(row.id),
         name: row.name,
-        parentId: row.parentId,
+        parentId: row.parentId ? grantId(row.parentId) : null,
         capabilities: [],
         expiresAt: row.expiresAt,
         revokedAt: row.revokedAt,
@@ -221,7 +231,7 @@ class SqliteBackingRepository implements RgapRepository {
       .forEach((row) => {
         const carried = held.get(entryKey(row.grantId, row.position));
         const target: Capability['target'] = row.targetType === 'resource'
-          ? { type: 'resource', resourceId: row.resourceId! }
+          ? { type: 'resource', resourceId: resourceId(row.resourceId!) }
           : { type: 'path', path: row.path! };
         state.grants[row.grantId].capabilities.push({
           target,
@@ -233,10 +243,10 @@ class SqliteBackingRepository implements RgapRepository {
 
     this.db.select().from(schema.tokens).orderBy(asc(schema.tokens.id)).all().forEach((row) => {
       state.tokens[row.id] = {
-        id: row.id,
-        grantId: row.grantId,
+        id: tokenId(row.id),
+        grantId: grantId(row.grantId),
         label: row.label,
-        hash: row.hash,
+        hash: tokenHash(row.hash),
         expiresAt: row.expiresAt,
         revokedAt: row.revokedAt,
       };
@@ -247,7 +257,7 @@ class SqliteBackingRepository implements RgapRepository {
         id: row.id,
         at: row.at,
         action: row.action,
-        target: row.target,
+        target: row.target as RecordId,
         result: row.result,
         detail: row.detail,
       });
@@ -309,6 +319,7 @@ const emptyState = (): State => ({ resources: {}, grants: {}, tokens: {}, audit:
 const now = () => new Date().toISOString();
 const entryKey = (grantId: string, position: number) => `${grantId}:${position}`;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+const digest = (value: string) => tokenHash(hash(value));
 
 /**
  * Records ordered so that every parent precedes its children, which is what lets the foreign keys
