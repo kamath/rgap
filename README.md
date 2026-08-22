@@ -128,7 +128,9 @@ const admin = store.admin();         // unrestricted administrative commands
 
 The store does not authenticate the process allowed to call `admin()`. A host protects the store object with its module and process boundary and protects any remote administrative surface with infrastructure authentication. Administrative commands remain explicit and are recorded in the audit log.
 
-`as(token)` guards commands; it does not filter `readState`. The read-side lens is `inspectToken(token)`, which reports the resources a token reaches and the permissions it holds on each. A host shapes reads from that authority view. `authorize(token, resourceId, permission)` remains an explicit decision query about any presented token rather than inheriting the repository's command token.
+`as(token)` guards commands and scopes queries. A query answers with what its plane may see: everything on the administrative plane, and on a token plane the resources that token reaches together with the ancestors that explain their paths, each annotated with the permissions the token holds there. A grant query on a token plane answers with the grants that token explains, which are the lineage above its own grant and everything delegated from it, and an audit query answers with the events whose target the plane may see. A host renders what a query returns rather than filtering it, because a boundary that hands back rows the caller must discard has already leaked the thing it was guarding.
+
+`inspectToken(token)` reports whether a presented bearer is usable and which grant and lineage it references. `authorize(token, resourceId, permission)` answers one decision about it. Both concern any presented bearer rather than inheriting the repository's command token.
 
 ## Security invariant
 
@@ -207,7 +209,7 @@ The application is dark, typographic, and flat. Structure comes from hairline ru
 
 Every command runs through the same request-and-response pair. The request holds the form and, under it, the exact call the form will make as monospace JSON: a collection method on the repository, a method on a resource, grant, or token handle, or `grant.tokens.create`. The response holds the returned record, decision, or error as monospace JSON. The request preview is a read-only rendering of the form, not a JSON editor, so the domain rules always receive typed input.
 
-Every command names resources by stable ID, never by path. A handle is that ID plus the collections and methods that act on it. Forms still accept a path, because a path is what a person can read and type; the interface resolves it against the current tree and looks up the handle, and the request preview shows that ID. A path that resolves to nothing has no ID to show, so the request preview omits it and the form marks it; executing anyway reports it in the response before any command is sent.
+Every command names resources by stable ID, never by path. A handle is that ID plus the collections and methods that act on it. Forms still accept a path, because a path is what a person can read and type; the interface resolves it with `resources.at`, and the request preview shows the ID that handle carries. A path that resolves to nothing has no ID to show, so the request preview omits it and the form marks it; executing anyway reports it in the response before any command is sent.
 
 Routes present their operations one of two ways. An operations pane sits beside a response pane and is always open, which suits the simulator, whose whole purpose is the form. A drawer holds one operation, opens from a named button in an action bar, and closes when that operation is finished or abandoned, so a route with drawers shows no form until one is asked for.
 
@@ -224,9 +226,9 @@ Routes present their operations one of two ways. An operations pane sits beside 
 
 Two routes are built the same way, so browsing resources and walking grants read as one interface.
 
-A listing is the route's main view. It shows one record's contents at a time, the way a file viewer does, and spans the full width of the route. A breadcrumb above it walks back out of the tree, and under the breadcrumb one monospace line states the facts of the record the route addresses.
+A listing is the route's main view. It shows one record's contents at a time, the way a file viewer does, and spans the full width of the route. A breadcrumb above it walks back out of the tree, and under the breadcrumb one monospace line states the facts of the record the route addresses. A listing renders one page of a query's answer and continues with the cursor that answer carries, so a location holding many records is read a page at a time.
 
-Every listing row carries a checkbox, and clicking a row anywhere but its link checks it. A checkbox in the listing head checks and unchecks every row at once. A leading `..` row navigates to the parent. The selection covers only the location the listing shows: navigating clears it, because the listing is what the checkboxes describe. Reading the selection back out of the listing on every render drops whatever a committed command removed from it.
+Every listing row carries a checkbox, and clicking a row anywhere but its link checks it. A checkbox in the listing head checks and unchecks every row at once. A leading `..` row navigates to the parent. The selection covers only the page the listing shows: navigating, and continuing to the next page, clears it, because the listing is what the checkboxes describe. Reading the selection back out of the listing on every render drops whatever a committed command removed from it.
 
 An action bar in the listing head holds that listing's operations. One of them creates a record inside the record the route addresses and is always available. The rest act on the selection, name the count they would act on, as `Delete 3`, and are unavailable while nothing is checked. An action bar may also hold a link rather than an operation, which navigates instead of opening a drawer.
 
@@ -282,11 +284,11 @@ This is the one operation that does not open in a drawer. A drawer exists so a f
 
 ### Choosing targets
 
-Each entry explicitly selects `resource ID` or `path`. ID targets use the resource picker: a breadcrumb walks the current tree, rows select live resources, and a whole-path filter reaches deep resources directly. Path targets use a normalized path field and do not require the path to be occupied, so a grant can reserve authority for a location that is currently empty.
+Each entry explicitly selects `resource ID` or `path`. ID targets use the resource picker: a breadcrumb walks the current tree, rows select live resources, and a whole-path filter reaches deep resources directly through `resources.search`. Path targets use a normalized path field and do not require the path to be occupied, so a grant can reserve authority for a location that is currently empty.
 
 Under the target controls is one row per entry, in order, stating whether it names a `resourceId` or a `path`, that value, and its permission checkbox set. Permissions default to none, and the form marks an entry that has none, because an entry with no permission is not valid. Every entry covers the target and its subtree; there is no per-entry extent control.
 
-For a child grant, available targets and permissions are bounded by the parent grant. A child ID target must currently resolve within a covering parent entry. A child path target may be delegated while empty when a parent path entry lexically covers it; otherwise it must currently resolve within a covering parent entry. The domain check remains authoritative, and authorization checks every grant in the lineage against the requested live resource so later moves cannot expand delegated authority.
+For a child grant, available targets and permissions are bounded by the parent grant, and the form learns those bounds from `grant.delegable` on that parent. A child ID target must currently resolve within a covering parent entry. A child path target may be delegated while empty when a parent path entry lexically covers it; otherwise it must currently resolve within a covering parent entry. The domain check remains authoritative, and authorization checks every grant in the lineage against the requested live resource so later moves cannot expand delegated authority.
 
 Tokens is a listing with its own checkboxes and action bar, holding one row per issued token with its label, status, and hash prefix. Its action bar issues and revokes. `Issue token` takes a label and issues a token for the grant the route addresses. Only a hash of that token is stored, so the bearer value the command returns is the only copy there will ever be: the drawer stays open after it commits, states the value on a line of its own, and offers a control that copies it. The value also becomes the active token immediately, so the header carries it until it is replaced or cleared, and the drawer says plainly that dismissing it is the last chance to read the value. `Revoke token` revokes each checked token, which disables that credential and leaves the grant intact.
 
@@ -294,7 +296,7 @@ Tokens is a listing with its own checkboxes and action bar, holding one row per 
 
 The simulator is the plainest operations pane: its request takes a token, a resource path, and a permission, and its response reports whether the request is allowed, the explanation, the grant it resolved to, and the grant lineage it checked. The verdict is stated in the accent colour when allowed and in red when denied.
 
-The audit route is one full-width log pane. It lists recorded events in monospace with their timestamp, action, target, result, and detail, so a move that revoked a delegated branch or a denied request is visible after the fact.
+The audit route is one full-width log pane. It lists recorded events in monospace with their timestamp, action, target, result, and detail, so a move that revoked a delegated branch or a denied request is visible after the fact. It pages the newest events first and continues with the cursor its query carries, because a log is the one collection that only grows.
 
 ### Architecture
 
@@ -314,7 +316,7 @@ Browser storage, a SQLite database, or an HTTP API
 
 `@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, and asynchronous `RgapStore` and `RgapRepository` contracts. Identities in that TypeScript surface are branded (`ResourceId`, `GrantId`, `TokenId`, `TokenValue`, `TokenHash`); they serialize as ordinary strings. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. `as` takes a `TokenValue`. Neither contract exposes a subscription or requires a streaming transport. The package has no dependency on React, Zustand, browser storage, or a transport.
 
-A repository is the request-response interface returned by `as` or `admin`. It exposes collections, looks up existing records, reads current state, and answers decision queries. Creating a grant or a resource is one command; the parent is an argument. TypeScript fills that argument from the receiver so the caller does not pass it.
+A repository is the request-response interface returned by `as` or `admin`. It exposes collections, looks up existing records, answers bounded queries about them, and answers decision queries. Creating a grant or a resource is one command; the parent is an argument. TypeScript fills that argument from the receiver so the caller does not pass it.
 
 A resource root comes from `resources.create`; a resource child comes from the parent handle. A grant's collection create mints the grant this plane may create: a root on the administrative plane, a child of the acting grant on a token plane. `grant.create` mints a child of that handle, and on a token plane that call is allowed only when the handle is the acting grant.
 
@@ -348,6 +350,40 @@ await notes.delete();
 
 A handle carries the record's fields plus the collections and methods that act on it: a resource `create`s children, `move`s, and `delete`s; a grant `create`s child grants, `capabilities.set`s, `tokens.create`s, and `revoke`s; a token `revoke`s.
 
+### Queries
+
+Every read is a query with a bounded answer. No call returns the store. A read that grows with everything the store has ever held cannot be served over a network, cached, or paged, and it hands a caller the records its plane exists to withhold.
+
+A query hangs off the record it concerns, the way a command does. A resource lists its children. A grant lists what it delegates, its lineage, the branch a revocation would reach, and the tokens issued against it. The collections answer for the tree roots and for the lookups that are anchored to no record: resolving a path, and searching for a resource by path.
+
+```ts
+type Page<T> = { items: T[]; nextCursor: string | null };
+type PageRequest = { cursor?: string; limit?: number };
+type CapabilityTarget = { resourceId: ResourceId } | { path: string };
+
+resources.at(path: string): Promise<ResourceHandle | null>;
+resources.roots(page?: PageRequest): Promise<Page<ResourceHandle>>;
+resources.search(filter: string, page?: PageRequest): Promise<Page<ResourceHandle>>;
+resource.children(page?: PageRequest): Promise<Page<ResourceHandle>>;
+
+grants.roots(page?: PageRequest): Promise<Page<GrantHandle>>;
+grant.delegates(page?: PageRequest): Promise<Page<GrantHandle>>;
+grant.lineage(): Promise<GrantHandle[]>;
+grant.branch(page?: PageRequest): Promise<Page<GrantHandle>>;
+grant.tokens.list(page?: PageRequest): Promise<Page<TokenHandle>>;
+grant.delegable(target: CapabilityTarget): Promise<Permission[]>;
+
+audit.list(page?: PageRequest): Promise<Page<AuditEvent>>;
+```
+
+A paged query takes a cursor and a limit and answers with its items and the cursor that continues them. Limits are bounded, so a caller that omits one still receives a page rather than a table. Resources and grants page in name order, and audit events page newest first. `lineage` is the one unpaged query, because a delegation chain is bounded by its depth and reading it whole is what makes downscoping legible.
+
+A query answers with handles, so a listing row is a handle and an operation acts on it directly rather than resolving it again. A resource handle carries its path, its live child count, and the permissions its plane holds on it. A grant handle carries the number of grants delegated from it, its status within its lineage — `active`, `revoked`, `expired`, or `inactive ancestor` — and its capability entries, each paired with the path its target currently names and whether that target is live, empty, deleted, or missing. Resolution belongs to the answer because it is a fact about the current tree, and a caller holding one page has no tree of its own to resolve against.
+
+`grant.delegable` answers what a delegating grant permits at one target, which is the bound a child grant's entries must respect. A form offers those permissions and marks an entry that asks for more; the domain check at issue remains authoritative.
+
+`State` remains the shape of a store's seed and of browser persistence. It is not something a query answers with.
+
 An HTTP adapter is the same commands as paths. Creating a grant or a resource is always one collection:
 
 ```text
@@ -366,19 +402,40 @@ DELETE /resources/:id
 POST /tokens/:id/revoke
 ```
 
-`readState` still returns plain serializable records, not handles. Persistence, snapshots, and the HTTP bodies stay JSON-compatible records and IDs; handles are the TypeScript command surface. A handle method that returns a record returns an updated handle.
+Each query is one `GET` of the record or collection it concerns:
+
+```text
+GET /resources                        the tree roots
+GET /resources?path=acme/drive        the resource at one path
+GET /resources?search=design          resources whose path matches a filter
+GET /resources/:id
+GET /resources/:id/children
+GET /grants
+GET /grants/:id
+GET /grants/:id/delegates
+GET /grants/:id/lineage
+GET /grants/:id/branch
+GET /grants/:id/tokens
+GET /grants/:id/delegable?path=acme/drive
+GET /tokens/:id
+GET /audit
+```
+
+`cursor` and `limit` are query parameters on every paged route, and a page answers with its items and the cursor that continues them. Two queries take a bearer as their subject rather than as their credential: `authorize` is `POST /authorize` with `{ token, resourceId, permission }`, and `inspectToken` is `POST /authority` with `{ token }`. Both are posted because a secret belongs in a request body rather than in a URL.
+
+Queries answer with plain serializable records, resolved paths, and page cursors, not handles. Persistence and the HTTP bodies stay JSON-compatible records and IDs; handles are the TypeScript surface over those calls. A handle method that returns a record returns an updated handle.
 
 `authorize` and `inspectToken` remain repository queries about a presented bearer rather than methods on a token handle, because the caller often has only the secret, not a stored record.
 
-Every command addresses resources by `ResourceId`. A resource path describes only where a resource currently sits, so it is a presentation concern: `@rgap/core` exports the pure helpers that render a resource's path and resolve a path to an ID, and callers use them before they look up a handle or issue a command. Keeping resolution outside the boundary means a command can never act on whatever happens to occupy a path at the moment it arrives.
+Every command addresses resources by `ResourceId`. A resource path describes only where a resource currently sits, so resolving one is a query: `resources.at(path)` answers with the handle at that path or null, and the caller issues its command against the ID that handle carries. Resolution is a separate round trip from the command, so a command can never act on whatever happens to occupy a path at the moment it arrives. `normalizePath` stays a pure helper, because normalizing a path is a fact about the string rather than about the tree.
 
 `@rgap/browser` implements `BrowserRgapStore` over local storage. It accepts initial state from its caller, so the package has no dependency on the reference application's example data.
 
-`@rgap/react` provides an `RgapClient` that owns a cached snapshot, a client-local subscription, and the repository used to load and mutate state. It also provides a client context plus hooks for the current snapshot, the same handle-based commands, and token-derived authority. After a command completes — including a method invoked on a handle the client returned — the client reloads the repository state and notifies its local subscribers. React components therefore retain reactive snapshots without requiring the repository or a remote backend to implement SSE, WebSockets, or another push protocol. The Vite application owns only its example seed, interface components, and styles.
+`@rgap/react` provides an `RgapClient` that caches each query's most recent answer under a key derived from the query and its arguments, a client-local subscription, and the repository queries and commands run against. It also provides a client context plus hooks for a query's current answer, the same handle-based commands, and token-derived authority. After a command completes — including a method invoked on a handle the client returned — the client invalidates the cache, refetches the queries its subscribers currently hold, and notifies them. React components therefore stay current without requiring the repository or a remote backend to implement SSE, WebSockets, or another push protocol, and a refresh costs one bounded query per mounted view. The Vite application owns only its example seed, interface components, and styles.
 
-The store contains resources, grants, token records, and audit events in normalized collections. Repository snapshots contain only this serializable application data; Zustand actions and other functions remain private to the adapter and never cross into domain operations. Each command computes and commits its complete state change atomically. Local persistence, when enabled, serializes the same application-state schema to browser storage. Stored state is loaded only when every ID it refers to resolves to a record; state that refers to resources, grants, or tokens it does not contain cannot be read at all, so it is discarded for the example seed rather than loaded into records that name things that are gone. Raw bearer-token values exist only in transient UI memory; persisted token records contain only token hashes.
+The store contains resources, grants, token records, and audit events in normalized collections. Queries answer with that serializable application data; Zustand actions and other functions remain private to the adapter and never cross into domain operations. Each command computes and commits its complete state change atomically. Local persistence, when enabled, serializes the same application-state schema to browser storage. Stored state is loaded only when every ID it refers to resolves to a record; state that refers to resources, grants, or tokens it does not contain cannot be read at all, so it is discarded for the example seed rather than loaded into records that name things that are gone. Raw bearer-token values exist only in transient UI memory; persisted token records contain only token hashes.
 
-The repository contract is asynchronous even though the browser implementation is local. Command inputs and `readState` outputs are JSON-compatible records and IDs; handles are a TypeScript surface over those same calls. An HTTP-backed store implements the same plane selection and the same create-with-parentId routes, and can replace `BrowserRgapStore` without changing pages, components, or domain types. Live updates from changes made by other clients are optional client behavior. A client may refresh on demand, on window focus, or on an interval, and may add a streaming transport when an application specifically needs one. Backend-specific concerns such as transport, durable storage, concurrent transactions, authentication, and secret management remain outside the browser implementation.
+The repository contract is asynchronous even though the browser implementation is local. Command inputs, query arguments, and query answers are JSON-compatible records, IDs, and cursors; handles are a TypeScript surface over those same calls. An HTTP-backed store implements the same plane selection, the same create-with-parentId routes, and the same queries, and can replace `BrowserRgapStore` without changing pages, components, or domain types. Live updates from changes made by other clients are optional client behavior. A client may refresh on demand, on window focus, or on an interval, and may add a streaming transport when an application specifically needs one. Backend-specific concerns such as transport, durable storage, concurrent transactions, authentication, and secret management remain outside the browser implementation.
 
 The reference application does not expose a JSON API and is not a production authorization service. Browser state is appropriate for demonstrating the model, not for enforcing access between mutually untrusted parties.
 
@@ -435,6 +492,10 @@ The schema is declared once as Drizzle tables, and `drizzle-kit` generates the D
 A command is one SQLite transaction. It reads the complete state, applies the same pure `@rgap/core` rule the browser adapter applies, and replaces the stored rows with the state that rule returns. Nothing observes a partially updated authorization state, and a refused command writes nothing at all, because the rule rejects before the write begins.
 
 Rows are written parents before children, so the foreign keys hold at every statement rather than only at the end of the transaction.
+
+### Answering queries
+
+A query is SQL against these tables rather than a filter over a loaded state. A resource's path and a grant's lineage are recursive walks up the parent column; a grant's branch and a resource's subtree are recursive walks down it. Resolving a path steps through `(parent_id, name)` one segment at a time. A page cursor is a keyset range over the ordering the query pages by, so answering a page reads the rows in that page rather than the rows before it.
 
 ### Scratchpad
 
