@@ -2,7 +2,7 @@ import { serve } from '@hono/node-server';
 import { SqliteRgapStore } from '@rgap/sqlite';
 import { createApp } from './app';
 
-const adminToken = process.env.RGAP_ADMIN_TOKEN;
+const adminToken = process.env.RGAP_ADMIN_TOKEN ?? 'test';
 
 const store = new SqliteRgapStore({
   url: process.env.RGAP_DATABASE_URL ?? 'rgap.db',

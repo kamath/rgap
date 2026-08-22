@@ -70,10 +70,11 @@ export class HttpRgapStore implements RgapStore {
   }
 
   admin(): RgapRepository {
-    if (!this.options.adminToken) {
-      throw new RgapError('missing_admin_token', 'HttpRgapStore requires an adminToken for admin().');
-    }
-    return repositoryFrom(new HttpRgapCommands(this.client, tokenValue(this.options.adminToken), true));
+    return repositoryFrom(new HttpRgapCommands(
+      this.client,
+      tokenValue(this.options.adminToken ?? 'test'),
+      true,
+    ));
   }
 
   as(token: TokenValue): RgapRepository {

@@ -186,7 +186,7 @@ const resetRoute = commandRoute({
   responses: { 204: { description: 'Store reset' }, ...errors },
 });
 
-export function createApp({ store, adminToken }: AppOptions) {
+export function createApp({ store, adminToken = 'test' }: AppOptions) {
   const base = new OpenAPIHono<Env>({
     defaultHook(result, c) {
       if (result.success) return;

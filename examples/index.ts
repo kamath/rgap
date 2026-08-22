@@ -16,7 +16,7 @@ import { SqliteRgapStore } from '@rgap/sqlite';
 type TreeNode<Id extends string> = { id: Id; parentId: Id | null; name: string };
 
 // To use Hono, replace the next line with:
-// const store = new HttpRgapStore({ baseUrl: 'http://localhost:3000', adminToken: process.env.RGAP_ADMIN_TOKEN! });
+// const store = new HttpRgapStore({ baseUrl: 'http://localhost:3000', adminToken: process.env.RGAP_ADMIN_TOKEN ?? 'test' });
 const store = new SqliteRgapStore({ url: fileURLToPath(new URL('scratch.db', import.meta.url)) });
 const root = store.admin();
 
