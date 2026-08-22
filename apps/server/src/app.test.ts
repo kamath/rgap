@@ -72,6 +72,9 @@ function executableTestApp() {
     async handle(id) {
       return { resourceId: id, kind: 'secret' };
     },
+    async resolve() {
+      return 'protected';
+    },
   };
   const credentials = new Map<string, number>();
   const credentialStore: RuntimeCredentialStore = {
