@@ -1,3 +1,5 @@
+import { SqliteRgapStore } from '@rgap/sqlite';
+
 export function requiredEnvironment(name: string) {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name} is required.`);
@@ -15,3 +17,5 @@ export function serverPort() {
   }
   return value;
 }
+
+export const store = new SqliteRgapStore({ url: databaseUrl() });

@@ -1,5 +1,5 @@
 import type { ResourceHandle, RgapRepository } from '@rgap/core';
-import { store } from './store';
+import { store } from './config';
 
 try {
   const admin = store.admin();

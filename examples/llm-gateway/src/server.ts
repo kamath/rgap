@@ -1,8 +1,7 @@
 import { serve } from '@hono/node-server';
 import { resourceId } from '@rgap/core';
 import { createLlmGateway } from './app';
-import { requiredEnvironment, serverPort } from './config';
-import { store } from './store';
+import { requiredEnvironment, serverPort, store } from './config';
 
 const port = serverPort();
 const app = createLlmGateway({
