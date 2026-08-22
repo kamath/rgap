@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import { swaggerUI } from '@hono/swagger-ui';
 import { createRoute, OpenAPIHono, type RouteConfig, z } from '@hono/zod-openapi';
 import {
   grantId,
@@ -199,7 +200,7 @@ export function createApp({ store, adminToken }: AppOptions) {
   });
 
   base.use('*', async (c, next) => {
-    if (c.req.path === '/openapi.json') return next();
+    if (c.req.path === '/openapi.json' || c.req.path === '/ui') return next();
     const authorization = c.req.header('authorization');
     const bearer = authorization?.match(/^Bearer (\S+)$/)?.[1];
     if (!bearer) return apiError(c, 401, 'unauthorized', 'A bearer token is required.');
@@ -349,6 +350,7 @@ export function createApp({ store, adminToken }: AppOptions) {
     type: 'http',
     scheme: 'bearer',
   });
+  app.get('/ui', swaggerUI({ url: '/openapi.json' }));
 
   return app;
 }

@@ -55,6 +55,10 @@ describe('RGAP Hono API', () => {
     expect(response.status).toBe(200);
     expect(operationIds.sort()).toEqual([...expectedOperations].sort());
     expect(expectedOperations.every((operation) => typeof sdk[operation] === 'function')).toBe(true);
+
+    const ui = await app.request('/ui');
+    expect(ui.status).toBe(200);
+    expect(await ui.text()).toContain('/openapi.json');
   });
 
   it('validates input and selects only valid bearer planes', async () => {
