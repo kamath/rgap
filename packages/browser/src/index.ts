@@ -10,6 +10,7 @@ import {
   guardCommands,
   inspectAuthority,
   moveResource as move,
+  paginateRecords,
   recordToken,
   revokeGrant as revokeGrantBranch,
   stateIntegrity,
@@ -24,12 +25,16 @@ import {
   type CreateResourceInput,
   type GrantId,
   type Permission,
+  type AuditListQuery,
+  type GrantListQuery,
   type RgapCommands,
   type RgapStore,
   type ResourceId,
+  type ResourceListQuery,
   type State,
   type Token,
   type TokenId,
+  type TokenListQuery,
   type TokenValue,
   type RgapRepository,
 } from '@rgap/core';
@@ -79,8 +84,41 @@ class BrowserBackingRepository implements RgapCommands {
     this.store = createStore(creator);
   }
 
-  async readState(): Promise<State> {
-    return structuredClone(this.currentState());
+  async getResource(id: ResourceId) {
+    return clone(this.currentState().resources[id]);
+  }
+
+  async listResources(query: ResourceListQuery = {}) {
+    const records = Object.values(this.currentState().resources)
+      .filter((resource) => !resource.deletedAt && (query.parentId === undefined || resource.parentId === query.parentId))
+      .sort(byId);
+    return clone(paginateRecords(records, query));
+  }
+
+  async getGrant(id: GrantId) {
+    return clone(this.currentState().grants[id]);
+  }
+
+  async listGrants(query: GrantListQuery = {}) {
+    const records = Object.values(this.currentState().grants)
+      .filter((grant) => query.parentId === undefined || grant.parentId === query.parentId)
+      .sort(byId);
+    return clone(paginateRecords(records, query));
+  }
+
+  async getToken(id: TokenId) {
+    return clone(this.currentState().tokens[id]);
+  }
+
+  async listTokens(query: TokenListQuery = {}) {
+    const records = Object.values(this.currentState().tokens)
+      .filter((token) => query.grantId === undefined || token.grantId === query.grantId)
+      .sort(byId);
+    return clone(paginateRecords(records, query));
+  }
+
+  async listAudit(query: AuditListQuery = {}) {
+    return clone(paginateRecords(this.currentState().audit, query));
   }
 
   async createResource(input: CreateResourceInput) {
@@ -157,6 +195,8 @@ class BrowserBackingRepository implements RgapCommands {
 }
 
 const now = () => new Date().toISOString();
+const byId = <T extends { id: string }>(left: T, right: T) => left.id.localeCompare(right.id);
+const clone = <T>(value: T): T => value === undefined ? value : structuredClone(value);
 
 async function hash(value: string) {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));

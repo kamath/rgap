@@ -44,6 +44,16 @@ describe('RGAP domain', () => {
     expect(tryResourcePath(state.resources, r('search-files'))).toBe(null);
   });
 
+  it('walks resource arrays returned by collection queries directly', () => {
+    const resources = Object.values(fixture().resources);
+
+    expect(resourcePath(resources, r('search-files'))).toBe('acme/drive/search-files');
+    expect(resourceIdAtPath(resources, 'acme/drive/read-file')).toBe('read-file');
+    expect(requireResourceId(resources, 'acme/drive')).toBe('drive');
+    expect(isWithin(resources, r('read-file'), r('acme'))).toBe(true);
+    expect(liveResources(resources)).toHaveLength(resources.length);
+  });
+
   it('reports every reference that no longer resolves to a record', () => {
     expect(stateIntegrity(fixture())).toEqual([]);
 

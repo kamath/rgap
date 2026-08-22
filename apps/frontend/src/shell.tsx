@@ -75,7 +75,7 @@ function Header() {
               // Reset is chrome, not an operation: it always runs on the administrative plane.
               await store.admin().reset();
               setToken('');
-              await client.refresh();
+              client.setRepository(store.admin());
             }}
           >
             Reset example

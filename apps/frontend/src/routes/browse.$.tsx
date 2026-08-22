@@ -1,24 +1,25 @@
 import { useState } from 'react';
 import { Link, createFileRoute } from '@tanstack/react-router';
-import { useRgapAuthority, useRgapSnapshot } from '@rgap/react';
+import { useAllResources, useRgapAuthority, useResolvedPath, useResourceRecords } from '@rgap/react';
 import { Action, Actions, Check, ObjectLine, Pane, PageTitle, useSelection } from '../panes';
 import { ResourceDrawer, type ResourceOperation } from '../resource-ops';
 import { useShell } from '../shell';
-import { canonical, childrenOf, parentPath, pathOf, resolvePath, segments, visibleIds } from '../tree';
+import { canonical, parentPath, pathOf, segments } from '../tree';
 
 export const Route = createFileRoute('/browse/$')({ component: Browse });
 
 function Browse() {
   const { _splat } = Route.useParams();
   const path = canonical(_splat ?? '');
-  const snapshot = useRgapSnapshot();
+  const resources = useResourceRecords();
   const { token } = useShell();
   const { authority } = useRgapAuthority(token);
-  const visible = visibleIds(snapshot.resources, authority);
-  const currentId = resolvePath(snapshot.resources, path);
-  const current = currentId ? snapshot.resources[currentId] : null;
-  const missing = Boolean(path) && !current;
-  const listing = childrenOf(snapshot.resources, currentId).filter((child) => !visible || visible.has(child.id));
+  const resolved = useResolvedPath(path);
+  const currentId = resolved.resourceId;
+  const current = currentId ? resources[currentId] : null;
+  const missing = Boolean(path) && resolved.missing;
+  const listing = useAllResources({ parentId: currentId });
+  const visible = Boolean(token.trim());
   const granted = (id: string) => authority?.permissions[id]?.join(' ') ?? '';
 
   const selection = useSelection(path, listing);
@@ -121,7 +122,7 @@ function Browse() {
                         <td>
                           <Link
                             to="/browse/$"
-                            params={{ _splat: pathOf(snapshot.resources, child.id) }}
+                            params={{ _splat: pathOf(resources, child.id) }}
                             onClick={(event) => event.stopPropagation()}
                           >
                             {child.name}
@@ -149,7 +150,7 @@ function Browse() {
             path={path}
             parentId={currentId}
             targets={targets}
-            resources={snapshot.resources}
+            resources={resources}
             onClose={() => setOperation(null)}
           />
         ) : null}

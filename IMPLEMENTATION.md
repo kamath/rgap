@@ -53,7 +53,7 @@ The contract stays asynchronous and JSON-compatible even though its browser impl
 
 `examples/index.ts` is a workspace package that consumes `@rgap/sqlite` the way any caller does. It is a scratchpad for arranging grants and printing decisions, not a fixture anything depends on.
 
-`@rgap/react` exports `RgapClient`, `RgapProvider`, `useRgapClient`, `useRgapSnapshot`, and `useRgapAuthority`. `RgapClient` loads and caches repository state, exposes a client-local subscription for React, and refreshes its snapshot after every completed command. `setRepository` swaps the repository its commands run against, which is how the interface moves between the administrative plane and a guarded one as the active token changes. Components never access Zustand or the browser adapter directly.
+`@rgap/react` exports `RgapClient`, `RgapProvider`, focused resource, grant, token, and audit query hooks, and `useRgapAuthority`. `RgapClient` keeps a normalized record cache, exposes a client-local subscription for React, and invalidates affected collection queries after each completed command. `setRepository` swaps the repository its commands and queries run against, clears cached records, and moves the interface between the administrative plane and a guarded one as the active token changes. Components never access Zustand or the browser adapter directly.
 
 ## Supported operations
 

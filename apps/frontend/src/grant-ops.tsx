@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Grant, Token } from '@rgap/core';
-import { useRgapClient, useRgapSnapshot } from '@rgap/react';
+import { useAllGrants, useGrantRecords, useRgapClient } from '@rgap/react';
 import { GrantFields } from './grant-form';
 import { Drawer, Execute, Form, Json, ResponseBlock, Targets, plural, useOperation } from './panes';
 import { usePlane, useShell } from './shell';
@@ -28,12 +28,13 @@ export function CreateGrantDrawer({ parent, onClose }: { parent: Grant | null; o
 
 export function RevokeGrantsDrawer({ targets, onClose }: { targets: Grant[]; onClose: () => void }) {
   const client = useRgapClient();
-  const snapshot = useRgapSnapshot();
+  const grants = useGrantRecords();
+  useAllGrants();
   const plane = usePlane();
   const { response, executeEach } = useOperation();
   const request = { method: 'revoke', calls: targets.map((target) => ({ grant: target.id })) };
   // Revocation reaches the whole subtree, so the drawer states that extent before the command runs.
-  const extent = targets.map((target) => ({ target, descendants: grantDescendants(snapshot.grants, target.id) }));
+  const extent = targets.map((target) => ({ target, descendants: grantDescendants(grants, target.id) }));
   const reached = new Set(extent.flatMap(({ target, descendants }) => [target.id, ...descendants.map((g) => g.id)]));
 
   const submit = async () => {

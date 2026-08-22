@@ -1,23 +1,21 @@
 import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { permissions, requireResourceId, tokenValue, type Permission } from '@rgap/core';
-import { useRgapClient, useRgapSnapshot } from '@rgap/react';
+import { permissions, RgapError, tokenValue, type Permission } from '@rgap/core';
+import { useResolvedPath, useRgapClient } from '@rgap/react';
 import { Execute, Json, Pane, PageTitle, ResponsePane, useOperation } from '../panes';
 import { useShell } from '../shell';
-import { resolvePath } from '../tree';
 
 export const Route = createFileRoute('/authorize')({ component: Authorize });
 
 function Authorize() {
   const client = useRgapClient();
-  const snapshot = useRgapSnapshot();
   const { token: activeToken } = useShell();
   const { response, execute } = useOperation();
   const [token, setToken] = useState('');
   const [path, setPath] = useState('');
   const [permission, setPermission] = useState<Permission>('invoke');
   const bearer = token || activeToken;
-  const resourceId = resolvePath(snapshot.resources, path);
+  const { resourceId } = useResolvedPath(path);
 
   return (
     <>
@@ -27,9 +25,10 @@ function Authorize() {
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              void execute('authorize', () =>
-                client.authorize(tokenValue(bearer), requireResourceId(snapshot.resources, path), permission),
-              );
+              void execute('authorize', () => {
+                if (!resourceId) throw new RgapError('missing_resource', 'Resource does not exist.');
+                return client.authorize(tokenValue(bearer), resourceId, permission);
+              });
             }}
           >
             <label>

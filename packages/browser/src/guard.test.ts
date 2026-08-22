@@ -50,14 +50,13 @@ describe('BrowserRgapStore token plane', () => {
 
     const created = await (await repo.resources.get(resourceId('tools'))).create({ name: 'read_file' });
 
-    expect((await admin.readState()).resources[created.id].parentId).toBe('tools');
+    expect((await admin.resources.get(created.id)).parentId).toBe('tools');
   });
 
   it('refuses a command outside the token authority, with the decision explanation', async () => {
     const { repo } = await guarded();
 
-    await expect((await repo.resources.get(resourceId('slack'))).create({ name: 'intruder' }))
-      .rejects.toThrow('No write capability survives the complete grant chain.');
+    await expect(repo.resources.get(resourceId('slack'))).rejects.toThrow('outside this token');
   });
 
   it('lets a token set what a grant below it reaches, but never its own grant', async () => {
@@ -91,15 +90,15 @@ describe('BrowserRgapStore token plane', () => {
       name: 'Below beside', expiresAt: null, capabilities: [],
     });
 
-    await expect((await repo.grants.get(beside.id)).capabilities.set([])).rejects.toThrow('administrative operation');
-    await expect((await repo.grants.get(below.id)).capabilities.set([])).rejects.toThrow('neither this token\'s grant nor delegated from it');
+    await expect(repo.grants.get(beside.id)).rejects.toThrow('outside this token');
+    await expect(repo.grants.get(below.id)).rejects.toThrow('outside this token');
   });
 
   it('requires authority at both ends of a move', async () => {
     const { repo, admin } = await guarded();
 
     await expect((await repo.resources.get(resourceId('tools'))).move(resourceId('slack'))).rejects.toThrow('No write capability survives');
-    expect((await admin.readState()).resources.tools.parentId).toBe('drive');
+    expect((await admin.resources.get(resourceId('tools'))).parentId).toBe('drive');
     expect((await (await repo.resources.get(resourceId('tools'))).move(resourceId('drive'))).parentId).toBe('drive');
   });
 
@@ -126,13 +125,13 @@ describe('BrowserRgapStore token plane', () => {
       name: 'Outsider', expiresAt: null,
       capabilities: [{ resourceId: resourceId('slack'), permissions: ['read'] }],
     });
-    await expect((await repo.grants.get(outsider.id)).tokens.create({ label: 'nope' })).rejects.toThrow('neither this token');
-    await expect((await repo.grants.get(outsider.id)).revoke()).rejects.toThrow('neither this token');
+    await expect(repo.grants.get(outsider.id)).rejects.toThrow('outside this token');
 
     await child.revoke();
-    expect((await admin.readState()).grants[child.id].revokedAt).not.toBe(null);
+    expect((await admin.grants.get(child.id)).revokedAt).not.toBe(null);
 
-    expect(requireResourceId((await repo.readState()).resources, 'Acme/Drive/Tools')).toBe('tools');
+    const resources = await repo.resources.list();
+    expect(requireResourceId(resources, 'Acme/Drive/Tools')).toBe('tools');
     expect((await repo.inspectToken(token)).valid).toBe(true);
   });
 
@@ -140,11 +139,11 @@ describe('BrowserRgapStore token plane', () => {
     const { admin, repo, store, token } = await guarded();
     const unknown = store.as(tokenValue('rgap_not_a_token'));
 
-    await expect((await unknown.resources.get(resourceId('tools'))).delete()).rejects.toThrow('unknown, expired, or revoked');
-    await expect((await unknown.grants.get(grantId('owner'))).revoke()).rejects.toThrow('unknown, expired, or revoked');
+    await expect(unknown.resources.get(resourceId('tools'))).rejects.toThrow('outside this token');
+    await expect(unknown.grants.get(grantId('owner'))).rejects.toThrow('outside this token');
 
-    const record = Object.values((await admin.readState()).tokens).find((item) => item.grantId === grantId('owner'));
+    const record = (await admin.tokens.list({ grantId: grantId('owner') }))[0];
     await (await admin.tokens.get(record!.id)).revoke();
-    await expect((await repo.resources.get(resourceId('tools'))).delete()).rejects.toThrow('unknown, expired, or revoked');
+    await expect(repo.resources.get(resourceId('tools'))).rejects.toThrow('outside this token');
   });
 });
