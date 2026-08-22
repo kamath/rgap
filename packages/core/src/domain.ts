@@ -1,5 +1,5 @@
 /** Permissions understood by the reference RGAP contract. */
-export const permissions = ['read', 'write', 'use', 'invoke', 'move', 'delete'] as const;
+export const permissions = ['read', 'write', 'invoke', 'move', 'delete'] as const;
 export type Permission = (typeof permissions)[number];
 
 declare const identityBrand: unique symbol;

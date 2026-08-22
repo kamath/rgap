@@ -71,7 +71,7 @@ const companyGrant = await root.grants.create({
   name: 'Company',
   capabilities: [{
     resourceId: acme.id,
-    permissions: ['read', 'write', 'use', 'delete', 'move', 'invoke'],
+    permissions: ['read', 'write', 'delete', 'move', 'invoke'],
   }],
   expiresAt: null,
 });

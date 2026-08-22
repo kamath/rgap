@@ -17,7 +17,7 @@ const cap = (id: string, permissions: Capability['permissions']): Capability =>
 /** The demo token references `coordinator`, which holds every permission across the drive subtree. */
 function state(): State {
   const base = fixture();
-  base.grants.coordinator.capabilities = [cap('drive', ['read', 'write', 'use', 'delete', 'move', 'invoke'])];
+  base.grants.coordinator.capabilities = [cap('drive', ['read', 'write', 'delete', 'move', 'invoke'])];
   base.grants.researcher.capabilities = [
     { resourceId: r('search-files'), permissions: ['invoke'] },
   ];

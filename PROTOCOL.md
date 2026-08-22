@@ -94,7 +94,7 @@ type AuditEvent = {
 };
 ```
 
-`Permission` is `'read' | 'write' | 'use' | 'invoke' | 'move' | 'delete'`.
+`Permission` is `'read' | 'write' | 'invoke' | 'move' | 'delete'`.
 
 Every persisted record is JSON-compatible. Executable programs and schemas are JSON-compatible values. Timestamps are RFC 3339 strings compared lexicographically, which requires them to be UTC with a fixed number of fractional digits.
 
@@ -150,7 +150,6 @@ Every read skips resources that are not live: path resolution, listings, capabil
 | --- | --- |
 | `read` | Reading the resource and listing its children. |
 | `write` | Modifying what the resource refers to, and creating children under it. |
-| `use` | Supplying the resource as an opaque invocation binding. |
 | `invoke` | Calling the resource, such as executing a tool. |
 | `move` | Relocating the resource to a different parent. |
 | `delete` | Deleting the resource together with its descendants. |
@@ -163,7 +162,7 @@ Each operation requires this authority:
 | --- | --- |
 | Read a resource, list its children | `read` on the resource |
 | Invoke a resource | `invoke` on the resource |
-| Bind a resource to an invocation | `use` on the bound resource |
+| Bind a resource to an invocation | `invoke` on the bound resource |
 | Read executable revisions | `read` on the resource |
 | Publish or delete an executable | `write` on the resource |
 | Create a child resource | `write` on the intended parent |
@@ -387,12 +386,12 @@ Invocation is one ordered decision and lifecycle:
 2. Authorize `invoke` on the executable resource using the complete grant lineage.
 3. Validate input against `inputSchema`.
 4. Reject undeclared bindings and missing required slots.
-5. For every supplied binding, authorize `use` on its live resource using the complete lineage.
+5. For every supplied binding, authorize `invoke` on its live resource using the complete lineage.
 6. Resolve the registered runtime, validate its program again, and intersect revision limits with immutable host ceilings. A revision may narrow but not expand a ceiling.
 7. Invoke the runtime with an abort signal and opaque `{ resourceId, kind }` bindings.
 8. Validate every `data` event against `outputSchema` when it is not null, forward events in order, and record completion, error, or cancellation.
 
-Binding kinds are runtime-defined strings. Invocation authorization is independent for the executable and every binding. Holding `invoke` does not imply `use`. Revocation affects the next decision. Cancellation propagates to the runtime through `AbortSignal`.
+Binding kinds are runtime-defined strings. Invocation authorizes every resource it exercises, including the executable and each binding, with `invoke`. Revocation affects the next decision. Cancellation propagates to the runtime through `AbortSignal`.
 
 ## Invocation auditing and redaction
 
@@ -423,7 +422,7 @@ An implementation conforms when:
 8. Resource operations and capability amendments commit their record changes and audit events as one atomic transition; capability amendments also commit any resulting child-grant revocations.
 9. Deleted resources are retained as tombstones, excluded from every read, and their IDs stay permanently taken.
 10. Stores expose command methods only through explicit `as(token)` or `admin()` plane selection.
-11. `use` is a distinct permission with no implication, and every invocation binding requires it.
+11. Every invocation binding requires `invoke` on its bound resource through the complete lineage.
 12. Executable revisions are immutable, belong to exactly one resource, are validated by a registered runtime at publish and invoke, and remain retained after executable deletion.
 13. Runtime registration and host ceilings are deployment configuration that repository commands cannot mutate.
 14. Invocation resolves one revision, validates schemas and bindings, authorizes the executable and every binding through the complete lineage, passes only opaque resource bindings, forwards the defined event union in order, propagates cancellation, and records its result.

@@ -208,7 +208,7 @@ describe('invocation orchestration', () => {
 
     expect(events).toEqual([{ type: 'data', value: { ok: true } }, { type: 'done' }]);
     expect(order.slice(0, 4)).toEqual([
-      'authorize:invoke', 'authorize:use', 'authorize:use', 'validate',
+      'authorize:invoke', 'authorize:invoke', 'authorize:invoke', 'validate',
     ]);
     expect(base.recordInvocation).toHaveBeenCalledWith(expect.objectContaining({
       resourceId: executableId,

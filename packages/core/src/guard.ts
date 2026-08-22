@@ -99,7 +99,7 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
 
   const authorizeInvocation = async (id: ResourceId, input: Parameters<RgapRepository['invoke']>[1]) => {
     const invocation = await permit(id, 'invoke');
-    for (const boundId of Object.values(input.bindings ?? {})) await permit(boundId, 'use');
+    for (const boundId of Object.values(input.bindings ?? {})) await permit(boundId, 'invoke');
     return invocation.lineage;
   };
 

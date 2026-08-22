@@ -46,7 +46,7 @@ The core package contains no built-in runtime implementation. A deployment regis
 | --- | --- |
 | `resources` | Stable resource records and tombstones. |
 | `grants` | Grant identity, ancestry, expiration, and revocation. |
-| `capabilities`, `capability_permissions` | Capability targets and normalized permission sets, including `use`. |
+| `capabilities`, `capability_permissions` | Capability targets and normalized permission sets. |
 | `tokens` | Token records and bearer hashes. |
 | `executables` | Resource attachment, active revision, and deletion marker. |
 | `executable_revisions` | Immutable runtime, program, schemas, binding schema, limits, and creation time. |
@@ -54,7 +54,7 @@ The core package contains no built-in runtime implementation. A deployment regis
 
 ## Invocation lifecycle
 
-The token plane authorizes `invoke` on the executable resource and `use` on every supplied binding. The orchestrator then:
+The token plane authorizes `invoke` on the executable resource and every supplied binding. The orchestrator then:
 
 1. Resolves the selected or active immutable revision.
 2. Validates input, exact binding names, required bindings, and effective host ceilings.

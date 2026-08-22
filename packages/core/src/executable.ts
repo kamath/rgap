@@ -223,7 +223,7 @@ export async function* invokeExecutable(
   const supplied = input.bindings ?? {};
   validateBindings(revision.bindingSchema, supplied);
   for (const boundId of Object.values(supplied)) {
-    await services.authorize(boundId, 'use');
+    await services.authorize(boundId, 'invoke');
   }
 
   const runtime = services.runtimes.get(revision.runtime);

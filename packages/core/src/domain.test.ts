@@ -627,7 +627,7 @@ describe('inspecting the authority behind a token', () => {
   });
 
   it('lists every permission the contract understands', () => {
-    expect(permissions).toEqual(['read', 'write', 'use', 'invoke', 'move', 'delete']);
+    expect(permissions).toEqual(['read', 'write', 'invoke', 'move', 'delete']);
   });
 });
 
