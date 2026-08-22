@@ -3,7 +3,6 @@ import { SqliteRgapStore } from '@rgap/sqlite';
 import { createApp } from './app';
 
 const adminToken = process.env.RGAP_ADMIN_TOKEN;
-if (!adminToken) throw new Error('RGAP_ADMIN_TOKEN is required.');
 
 const store = new SqliteRgapStore({
   url: process.env.RGAP_DATABASE_URL ?? 'rgap.db',

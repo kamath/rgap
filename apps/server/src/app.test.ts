@@ -74,6 +74,17 @@ describe('RGAP Hono API', () => {
     expect(await invalid.json()).toMatchObject({ error: { code: 'validation_error' } });
   });
 
+  it('starts without a remote administrative bearer', async () => {
+    store = new SqliteRgapStore();
+    const app = createApp({ store });
+
+    expect((await app.request('/openapi.json')).status).toBe(200);
+    expect((await app.request('/reset', {
+      method: 'POST',
+      headers: { authorization },
+    })).status).toBe(401);
+  });
+
   it('uses RGAP bearers for guarded commands and reserves root commands for the admin bearer', async () => {
     const app = testApp();
     const request = (path: string, body: unknown, bearer = adminToken) => app.request(path, {

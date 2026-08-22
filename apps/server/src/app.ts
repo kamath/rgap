@@ -46,7 +46,7 @@ type Env = {
 
 export type AppOptions = {
   store: RgapStore;
-  adminToken: string;
+  adminToken?: string;
 };
 
 const bearerSecurity = [{ bearerAuth: [] }];
@@ -186,8 +186,6 @@ const resetRoute = commandRoute({
 });
 
 export function createApp({ store, adminToken }: AppOptions) {
-  if (!adminToken) throw new Error('adminToken must not be empty.');
-
   const base = new OpenAPIHono<Env>({
     defaultHook(result, c) {
       if (result.success) return;
@@ -206,7 +204,7 @@ export function createApp({ store, adminToken }: AppOptions) {
     const bearer = authorization?.match(/^Bearer (\S+)$/)?.[1];
     if (!bearer) return apiError(c, 401, 'unauthorized', 'A bearer token is required.');
 
-    const admin = secretsEqual(bearer, adminToken);
+    const admin = adminToken !== undefined && secretsEqual(bearer, adminToken);
     const repository = admin ? store.admin() : store.as(tokenValue(bearer));
     if (!admin && !(await repository.inspectToken(tokenValue(bearer))).valid) {
       return apiError(c, 401, 'unauthorized', 'The bearer token is unknown, expired, or revoked.');
