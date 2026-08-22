@@ -125,7 +125,7 @@ type ExecutableRevision = {
   resourceId: ResourceId;
   runtime: string;
   program: unknown;
-  inputSchema: JsonSchema;
+  inputSchema: JsonSchema | null;
   outputSchema: JsonSchema | null;
   bindingSchema: Record<string, {
     kind: string;
@@ -135,15 +135,25 @@ type ExecutableRevision = {
   createdAt: string;
 };
 
-interface InvokeRuntime {
-  validate(program: unknown): void;
-  invoke(context: RuntimeInvocation): AsyncIterable<InvocationEvent>;
+type RuntimeResult<T> = T | AsyncIterable<T>;
+
+interface InvokeRuntime<
+  TProgram = unknown,
+  TInput = unknown,
+  TOutput = unknown,
+> {
+  validate(program: unknown): asserts program is TProgram;
+  invoke(
+    context: RuntimeInvocation<TProgram, TInput>,
+  ): RuntimeResult<TOutput> | Promise<RuntimeResult<TOutput>>;
 }
 ```
 
 The deployment configures a runtime registry once. Grants and executable programs cannot modify it. The core package defines no runtime implementations.
 
-`resource.invoke({ input, bindings, revisionId })` authorizes `invoke` on the executable resource and every bound resource through the complete grant lineage. A binding is another resource exercised by the invocation; it need not be a tree child of the executable. The command validates input and exact binding names, resolves the configured runtime, and returns `AsyncIterable<InvocationEvent>`. The runtime receives only the program, input, limits, cancellation signal, and opaque `{ resourceId, kind }` bindings.
+`resource.invoke({ input, bindings, revisionId })` authorizes `invoke` on the executable resource and every bound resource through the complete grant lineage. A binding is another resource exercised by the invocation; it need not be a tree child of the executable. The runtime receives only the typed program, input, limits, cancellation signal, and opaque `{ resourceId, kind }` bindings.
+
+Core validates input when `inputSchema` is non-null, invokes the runtime, and normalizes its result. A single value or promise becomes one `data` event; an async iterable becomes one `data` event per yielded value. Core validates each value when `outputSchema` is non-null, emits `done` automatically, and returns the normalized `AsyncIterable<InvocationEvent>`. Runtime exceptions terminate the stream and are recorded as invocation errors.
 
 Binding kinds are runtime-defined strings. RGAP treats every supplied binding as an opaque resource reference.
 
