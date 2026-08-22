@@ -128,7 +128,7 @@ const admin = store.admin();         // unrestricted administrative commands
 
 The store does not authenticate the process allowed to call `admin()`. A host protects the store object with its module and process boundary and protects any remote administrative surface with infrastructure authentication. Administrative commands remain explicit and are recorded in the audit log.
 
-`as(token)` guards commands; it does not filter `readState`. The read-side lens is `inspectToken(token)`, which reports the resources a token reaches and the permissions it holds on each. A host shapes reads from that authority view. `authorize(token, resourceId, permission)` remains an explicit decision query about any presented token rather than inheriting the repository's command token.
+`as(token)` guards commands and collection queries. Its resource queries return the resources the acting token reaches together with the ancestors needed to describe their paths. Its grant queries return the acting grant's lineage and delegated descendants. The administrative plane queries every record. `inspectToken(token)` reports the resources a presented token reaches and the permissions it holds on each. `authorize(token, resourceId, permission)` remains an explicit decision query about any presented token rather than inheriting the repository's command token.
 
 ## Security invariant
 
@@ -366,7 +366,19 @@ DELETE /resources/:id
 POST /tokens/:id/revoke
 ```
 
-`readState` still returns plain serializable records, not handles. Persistence, snapshots, and the HTTP bodies stay JSON-compatible records and IDs; handles are the TypeScript command surface. A handle method that returns a record returns an updated handle.
+Repository reads use collection queries rather than returning the complete store:
+
+```text
+GET /resources/:id
+GET /resources?parentId=…&cursor=…&limit=…
+GET /grants/:id
+GET /grants?parentId=…&cursor=…&limit=…
+GET /tokens/:id
+GET /tokens?grantId=…&cursor=…&limit=…
+GET /audit?cursor=…&limit=…
+```
+
+Collection responses contain plain serializable records, a continuation cursor, and no handles. Queries accept a bounded page size. A missing `parentId` or `grantId` filter does not turn a collection endpoint into an unbounded state dump; it returns one page in stable ID order. Handles remain the TypeScript command surface, and a handle method that returns a record returns an updated handle.
 
 `authorize` and `inspectToken` remain repository queries about a presented bearer rather than methods on a token handle, because the caller often has only the secret, not a stored record.
 
@@ -374,11 +386,11 @@ Every command addresses resources by `ResourceId`. A resource path describes onl
 
 `@rgap/browser` implements `BrowserRgapStore` over local storage. It accepts initial state from its caller, so the package has no dependency on the reference application's example data.
 
-`@rgap/react` provides an `RgapClient` that owns a cached snapshot, a client-local subscription, and the repository used to load and mutate state. It also provides a client context plus hooks for the current snapshot, the same handle-based commands, and token-derived authority. After a command completes — including a method invoked on a handle the client returned — the client reloads the repository state and notifies its local subscribers. React components therefore retain reactive snapshots without requiring the repository or a remote backend to implement SSE, WebSockets, or another push protocol. The Vite application owns only its example seed, interface components, and styles.
+`@rgap/react` provides an `RgapClient` that owns a normalized record cache, a client-local subscription, and the repository used to query and mutate state. It also provides a client context, focused collection hooks, the same handle-based commands, and token-derived authority. Each route loads the records it presents: resource and grant listings load one parent and its children, grant inspection loads its lineage and tokens, and the audit route loads paginated events. After a command completes — including a method invoked on a handle the client returned — the client updates the returned record and invalidates affected collection queries. React components therefore stay reactive without reloading the complete store or requiring a remote backend to implement SSE, WebSockets, or another push protocol. The Vite application owns only its example seed, interface components, and styles.
 
-The store contains resources, grants, token records, and audit events in normalized collections. Repository snapshots contain only this serializable application data; Zustand actions and other functions remain private to the adapter and never cross into domain operations. Each command computes and commits its complete state change atomically. Local persistence, when enabled, serializes the same application-state schema to browser storage. Stored state is loaded only when every ID it refers to resolves to a record; state that refers to resources, grants, or tokens it does not contain cannot be read at all, so it is discarded for the example seed rather than loaded into records that name things that are gone. Raw bearer-token values exist only in transient UI memory; persisted token records contain only token hashes.
+The store contains resources, grants, token records, and audit events in normalized collections. Repository queries return only serializable application records; Zustand actions and other functions remain private to the adapter and never cross into domain operations. Each command computes and commits its complete state change atomically. Local persistence, when enabled, serializes the application-state schema to browser storage. Stored state is loaded only when every ID it refers to resolves to a record; state that refers to resources, grants, or tokens it does not contain cannot be read at all, so it is discarded for the example seed rather than loaded into records that name things that are gone. Raw bearer-token values exist only in transient UI memory; persisted token records contain only token hashes.
 
-The repository contract is asynchronous even though the browser implementation is local. Command inputs and `readState` outputs are JSON-compatible records and IDs; handles are a TypeScript surface over those same calls. An HTTP-backed store implements the same plane selection and the same create-with-parentId routes, and can replace `BrowserRgapStore` without changing pages, components, or domain types. Live updates from changes made by other clients are optional client behavior. A client may refresh on demand, on window focus, or on an interval, and may add a streaming transport when an application specifically needs one. Backend-specific concerns such as transport, durable storage, concurrent transactions, authentication, and secret management remain outside the browser implementation.
+The repository contract is asynchronous even though the browser implementation is local. Command inputs and query outputs are JSON-compatible records, pages, and IDs; handles are a TypeScript surface over those same calls. An HTTP-backed store implements the same plane selection, collection queries, and create-with-parentId routes, and can replace `BrowserRgapStore` without changing the command examples or domain types. Live updates from changes made by other clients are optional client behavior. A client may invalidate queries on demand, on window focus, or on an interval, and may add a streaming transport when an application specifically needs one. Backend-specific concerns such as transport, durable storage, concurrent transactions, authentication, and secret management remain outside the browser implementation.
 
 The reference application does not expose a JSON API and is not a production authorization service. Browser state is appropriate for demonstrating the model, not for enforcing access between mutually untrusted parties.
 
