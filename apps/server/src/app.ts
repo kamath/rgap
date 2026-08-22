@@ -351,15 +351,23 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
     .openapi(getExecutableRevisionRoute, async (c) => {
       const { id } = c.req.valid('param');
       const revision = await repository(c).executables.getRevision(executableRevisionId(id));
-      return c.json(requireRecord(revision, 'missing_revision', 'Executable revision does not exist.'), 200);
+      return c.json(ExecutableRevisionSchema.parse(
+        requireRecord(revision, 'missing_revision', 'Executable revision does not exist.'),
+      ), 200);
     })
     .openapi(listExecutableRevisionsRoute, async (c) => {
       const { id } = c.req.valid('param');
-      return c.json(await repository(c).executables.revisions(resourceId(id)), 200);
+      return c.json(
+        (await repository(c).executables.revisions(resourceId(id))).map((revision) =>
+          ExecutableRevisionSchema.parse(revision)),
+        200,
+      );
     })
     .openapi(publishExecutableRoute, async (c) => {
       const { id } = c.req.valid('param');
-      return c.json(await repository(c).executables.publish(resourceId(id), c.req.valid('json')), 200);
+      return c.json(ExecutableRevisionSchema.parse(
+        await repository(c).executables.publish(resourceId(id), c.req.valid('json')),
+      ), 200);
     })
     .openapi(deleteExecutableRoute, async (c) => {
       const { id } = c.req.valid('param');
@@ -398,6 +406,8 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
     .openapi(invokeRoute, async (c) => {
       const { id } = c.req.valid('param');
       const { input, bindings, revisionId } = c.req.valid('json');
+      // @hono/zod-openapi does not express a typed streaming body, although the route schema
+      // documents each NDJSON event. Runtime validation and integration tests cover the stream.
       return invocationResponse(c.req.raw.signal, (signal) => repository(c).invoke(resourceId(id), {
         input,
         bindings: bindings
@@ -405,7 +415,7 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
           : undefined,
         revisionId: revisionId ? executableRevisionId(revisionId) : undefined,
         signal,
-      }));
+      })) as never;
     })
     .openapi(getGrantRoute, async (c) => {
       const { id } = c.req.valid('param');
