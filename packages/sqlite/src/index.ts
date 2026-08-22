@@ -10,18 +10,27 @@ import {
   availableId,
   createGrant as addGrant,
   createResource as addResource,
+  deleteExecutable as removeExecutable,
   deleteResource as removeResource,
+  deleteSecretMetadata,
+  executableRevisionId,
   grantId,
   guardCommands,
   inspectAuthority,
+  invokeExecutable,
   isPathCapability,
   moveResource as move,
   pageLimit,
   permissions as canonicalPermissions,
+  publishExecutable as addExecutableRevision,
+  recordRuntimePrivateMetadata,
+  recordSecretMetadata,
   recordToken,
   resourceId,
   revokeGrant as revokeGrantBranch,
   revokeToken as revokeTokenRecord,
+  RuntimeRegistry,
+  runtimeMetadataKey,
   setCapabilities as amendCapabilities,
   tokenHash,
   tokenId,
@@ -31,8 +40,15 @@ import {
   type Capability,
   type CreateGrantInput,
   type CreateResourceInput,
+  type ExecutableRevisionId,
+  type ExecutionLimits,
   type GrantId,
+  type InvocationRecord,
+  type InvokeInput,
+  type InvokeRuntime,
+  type JsonSchemaValidator,
   type Permission,
+  type PublishExecutableInput,
   type AuditListQuery,
   type RecordId,
   type ResourceId,
@@ -40,6 +56,8 @@ import {
   type RgapCommands,
   type RgapRepository,
   type RgapStore,
+  type RuntimeCredentialStore,
+  type SecretStore,
   type State,
   type Token,
   type TokenId,
@@ -56,6 +74,16 @@ export type SqliteRgapStoreOptions = {
   url?: string;
   /** What an empty database is initialized with, and what `reset` restores. */
   initialState?: State;
+  /** Deployment-owned runtime implementations. They are configuration, not repository state. */
+  runtimes?: RuntimeRegistry | Readonly<Record<string, InvokeRuntime>>;
+  /** Host JSON Schema implementation used at invocation boundaries. */
+  validator?: JsonSchemaValidator;
+  /** Per-runtime host ceilings. An omitted runtime has no configured ceilings. */
+  runtimeLimits?: Readonly<Record<string, ExecutionLimits>> | ((runtime: string) => ExecutionLimits);
+  /** Protected-value persistence. SQLite receives only the metadata it returns. */
+  secrets?: SecretStore;
+  /** Runtime-private persistence. SQLite receives only synchronized public metadata. */
+  credentials?: RuntimeCredentialStore;
 };
 
 export class SqliteRgapStore implements RgapStore {
@@ -83,9 +111,23 @@ class SqliteBackingRepository implements RgapCommands {
   private connection: Database.Database;
   private db: BetterSQLite3Database;
   private initialState: State;
+  private readonly runtimes: RuntimeRegistry;
+  private readonly validator: JsonSchemaValidator;
+  private readonly runtimeLimits: (runtime: string) => ExecutionLimits;
+  private readonly secrets: SecretStore;
+  private readonly credentials: RuntimeCredentialStore;
 
   constructor(options: SqliteRgapStoreOptions = {}) {
-    this.initialState = structuredClone(options.initialState ?? emptyState());
+    this.initialState = completeState(options.initialState);
+    this.runtimes = options.runtimes instanceof RuntimeRegistry
+      ? options.runtimes
+      : new RuntimeRegistry(options.runtimes);
+    this.validator = options.validator ?? unavailableValidator;
+    this.runtimeLimits = typeof options.runtimeLimits === 'function'
+      ? options.runtimeLimits
+      : (runtime) => structuredClone(options.runtimeLimits?.[runtime] ?? {});
+    this.secrets = options.secrets ?? unavailableSecrets;
+    this.credentials = options.credentials ?? unavailableCredentials;
     this.connection = new Database(options.url ?? ':memory:');
     this.connection.pragma('foreign_keys = ON');
     this.db = drizzle(this.connection);
@@ -177,6 +219,105 @@ class SqliteBackingRepository implements RgapCommands {
     this.commit((state) => ({ state: removeResource(state, id, now()), pick: () => undefined }));
   }
 
+  async getExecutable(id: ResourceId) {
+    const row = this.db.select().from(schema.executables).where(eq(schema.executables.resourceId, id)).get();
+    return row ? {
+      resourceId: resourceId(row.resourceId),
+      activeRevisionId: row.activeRevisionId ? executableRevisionId(row.activeRevisionId) : null,
+      deletedAt: row.deletedAt,
+    } : undefined;
+  }
+
+  async getExecutableRevision(id: ExecutableRevisionId) {
+    const row = this.db.select().from(schema.executableRevisions)
+      .where(eq(schema.executableRevisions.id, id)).get();
+    return row ? executableRevisionRecord(row) : undefined;
+  }
+
+  async listExecutableRevisions(id: ResourceId) {
+    return this.db.select().from(schema.executableRevisions)
+      .where(eq(schema.executableRevisions.resourceId, id))
+      .orderBy(asc(schema.executableRevisions.createdAt), asc(schema.executableRevisions.id))
+      .all().map(executableRevisionRecord);
+  }
+
+  async publishExecutable(id: ResourceId, input: PublishExecutableInput) {
+    const revisionId = executableRevisionId(randomUUID());
+    return this.commit((state) => ({
+      state: addExecutableRevision(
+        state, id, input, revisionId, now(),
+        (runtime, program) => this.runtimes.get(runtime).validate(program),
+      ),
+      pick: (committed) => committed.executableRevisions[revisionId],
+    }));
+  }
+
+  async deleteExecutable(id: ResourceId) {
+    this.commit((state) => ({ state: removeExecutable(state, id, now()), pick: () => undefined }));
+  }
+
+  async getSecretMetadata(id: ResourceId) {
+    const row = this.db.select().from(schema.secretMetadata)
+      .where(eq(schema.secretMetadata.resourceId, id)).get();
+    return row ? {
+      resourceId: resourceId(row.resourceId), version: row.version, updatedAt: row.updatedAt,
+    } : undefined;
+  }
+
+  async writeSecret(id: ResourceId, value: string) {
+    this.requireLiveResource(id);
+    const metadata = await this.secrets.write(id, value);
+    if (metadata.resourceId !== id) {
+      throw new RgapError('invalid_secret_metadata', 'Secret store returned metadata for another resource.');
+    }
+    return this.commit((state) => ({
+      state: recordSecretMetadata(state, metadata),
+      pick: (committed) => committed.secretMetadata[id],
+    }));
+  }
+
+  async deleteSecret(id: ResourceId) {
+    this.requireLiveResource(id);
+    await this.secrets.delete(id);
+    this.commit((state) => ({ state: deleteSecretMetadata(state, id), pick: () => undefined }));
+  }
+
+  async getRuntimePrivateMetadata(runtime: string, id: ResourceId) {
+    const row = this.db.select().from(schema.runtimePrivateMetadata).where(and(
+      eq(schema.runtimePrivateMetadata.runtime, runtime),
+      eq(schema.runtimePrivateMetadata.resourceId, id),
+    )).get();
+    return row ? {
+      runtime: row.runtime, resourceId: resourceId(row.resourceId), version: row.version, updatedAt: row.updatedAt,
+    } : undefined;
+  }
+
+  invoke(id: ResourceId, input: InvokeInput) {
+    const repository = this;
+    return (async function* () {
+      // Surface an absent deployment runtime before another optional host service obscures it.
+      const definition = await repository.getExecutable(id);
+      const revisionId = input.revisionId ?? definition?.activeRevisionId;
+      const revision = revisionId ? await repository.getExecutableRevision(revisionId) : undefined;
+      if (revision?.resourceId === id) repository.runtimes.get(revision.runtime);
+      yield* invokeExecutable({
+        getDefinition: (resource) => repository.getExecutable(resource),
+        getRevision: (selected) => repository.getExecutableRevision(selected),
+        // The selected repository plane already authorized invocation. The admin plane is unrestricted.
+        authorize: async (resource) => {
+          repository.requireLiveResource(resource);
+          return { lineage: [] };
+        },
+        runtimes: repository.runtimes,
+        validator: repository.validator,
+        runtimeLimits: (runtime) => structuredClone(repository.runtimeLimits(runtime)),
+        secrets: repository.secrets,
+        credentials: repository.synchronizedCredentials(),
+        recordInvocation: (record) => repository.recordInvocation(record),
+      }, id, input);
+    })();
+  }
+
   async createGrant(input: CreateGrantInput) {
     const id = grantId(randomUUID());
     return this.commit((state) => ({
@@ -239,12 +380,80 @@ class SqliteBackingRepository implements RgapCommands {
   }
 
   async reset() {
+    const state = this.read();
+    await Promise.allSettled([
+      ...Object.values(state.secretMetadata).map(({ resourceId }) => this.secrets.delete(resourceId)),
+      ...Object.values(state.runtimePrivateMetadata)
+        .map(({ runtime, resourceId }) => this.credentials.delete(runtime, resourceId)),
+    ]);
     this.commit(() => ({ state: structuredClone(this.initialState), pick: () => undefined }));
   }
 
   /** Releases the connection. A `:memory:` database ceases to exist with it. */
   close() {
     this.connection.close();
+  }
+
+  private requireLiveResource(id: ResourceId) {
+    const resource = this.read().resources[id];
+    if (!resource || resource.deletedAt) throw new RgapError('missing_resource', 'Resource does not exist.');
+  }
+
+  /**
+   * Runtime code receives this synchronized facade through core's slot-scoped view, never either
+   * backing store. External mutation completes before its public metadata is committed.
+   */
+  private synchronizedCredentials(): RuntimeCredentialStore {
+    return {
+      metadata: (runtime, id) => this.getRuntimePrivateMetadata(runtime, id),
+      handle: (runtime, id) => this.credentials.handle(runtime, id),
+      write: async (runtime, id, value) => {
+        this.requireLiveResource(id);
+        const metadata = await this.credentials.write(runtime, id, value);
+        if (metadata.runtime !== runtime || metadata.resourceId !== id) {
+          throw new RgapError(
+            'invalid_runtime_metadata',
+            'Runtime credential store returned metadata for another runtime or resource.',
+          );
+        }
+        return this.commit((state) => ({
+          state: recordRuntimePrivateMetadata(state, metadata),
+          pick: (committed) => committed.runtimePrivateMetadata[runtimeMetadataKey(runtime, id)],
+        }));
+      },
+      delete: async (runtime, id) => {
+        this.requireLiveResource(id);
+        await this.credentials.delete(runtime, id);
+        this.commit((state) => {
+          const next = structuredClone(state);
+          delete next.runtimePrivateMetadata[runtimeMetadataKey(runtime, id)];
+          return { state: next, pick: () => undefined };
+        });
+      },
+    };
+  }
+
+  private async recordInvocation(record: InvocationRecord) {
+    this.commit((state) => {
+      const next = structuredClone(state);
+      next.audit.unshift({
+        id: randomUUID(),
+        at: record.finishedAt,
+        action: 'executable.invoke',
+        target: record.resourceId,
+        result: 'recorded',
+        detail: JSON.stringify({
+          revisionId: record.revisionId,
+          runtime: record.runtime,
+          grantLineageIds: record.grantLineage,
+          bindingResourceIds: Object.values(record.bindings),
+          startedAt: record.startedAt,
+          finishedAt: record.finishedAt,
+          result: record.result,
+        }),
+      });
+      return { state: next, pick: () => undefined };
+    });
   }
 
   private grantRecord(row: typeof schema.grants.$inferSelect) {
@@ -345,6 +554,39 @@ class SqliteBackingRepository implements RgapCommands {
       };
     });
 
+    this.db.select().from(schema.executableRevisions)
+      .orderBy(asc(schema.executableRevisions.id)).all().forEach((row) => {
+        state.executableRevisions[row.id] = executableRevisionRecord(row);
+      });
+
+    this.db.select().from(schema.executables).orderBy(asc(schema.executables.resourceId)).all().forEach((row) => {
+      state.executables[row.resourceId] = {
+        resourceId: resourceId(row.resourceId),
+        activeRevisionId: row.activeRevisionId ? executableRevisionId(row.activeRevisionId) : null,
+        deletedAt: row.deletedAt,
+      };
+    });
+
+    this.db.select().from(schema.secretMetadata).orderBy(asc(schema.secretMetadata.resourceId)).all().forEach((row) => {
+      state.secretMetadata[row.resourceId] = {
+        resourceId: resourceId(row.resourceId),
+        version: row.version,
+        updatedAt: row.updatedAt,
+      };
+    });
+
+    this.db.select().from(schema.runtimePrivateMetadata)
+      .orderBy(asc(schema.runtimePrivateMetadata.runtime), asc(schema.runtimePrivateMetadata.resourceId))
+      .all().forEach((row) => {
+        const metadata = {
+          runtime: row.runtime,
+          resourceId: resourceId(row.resourceId),
+          version: row.version,
+          updatedAt: row.updatedAt,
+        };
+        state.runtimePrivateMetadata[runtimeMetadataKey(metadata.runtime, metadata.resourceId)] = metadata;
+      });
+
     this.db.select().from(schema.audit).orderBy(asc(schema.audit.seq)).all().forEach((row) => {
       state.audit.push({
         id: row.id,
@@ -364,6 +606,10 @@ class SqliteBackingRepository implements RgapCommands {
     this.db.delete(schema.capabilityPermissions).run();
     this.db.delete(schema.capabilities).run();
     this.db.delete(schema.tokens).run();
+    this.db.delete(schema.executables).run();
+    this.db.delete(schema.executableRevisions).run();
+    this.db.delete(schema.secretMetadata).run();
+    this.db.delete(schema.runtimePrivateMetadata).run();
     this.db.delete(schema.audit).run();
     this.db.delete(schema.grants).run();
     this.db.delete(schema.resources).run();
@@ -396,17 +642,47 @@ class SqliteBackingRepository implements RgapCommands {
     insert(this.db, schema.capabilityPermissions, carried);
 
     insert(this.db, schema.tokens, Object.values(state.tokens));
+    insert(this.db, schema.executableRevisions, Object.values(state.executableRevisions).map((revision) => ({
+      id: revision.id,
+      resourceId: revision.resourceId,
+      runtime: revision.runtime,
+      program: encodeJson(revision.program),
+      inputSchema: encodeJson(revision.inputSchema),
+      outputSchema: revision.outputSchema === null ? null : encodeJson(revision.outputSchema),
+      bindingSchema: encodeJson(revision.bindingSchema),
+      limits: encodeJson(revision.limits),
+      createdAt: revision.createdAt,
+    })));
+    insert(this.db, schema.executables, Object.values(state.executables));
+    insert(this.db, schema.secretMetadata, Object.values(state.secretMetadata));
+    insert(this.db, schema.runtimePrivateMetadata, Object.values(state.runtimePrivateMetadata));
     insert(this.db, schema.audit, state.audit.map((event, seq) => ({ ...event, seq })));
   }
 
   private isEmpty() {
-    return [schema.resources, schema.grants, schema.tokens, schema.audit].every(
+    return [
+      schema.resources, schema.grants, schema.tokens, schema.executables, schema.executableRevisions,
+      schema.secretMetadata, schema.runtimePrivateMetadata, schema.audit,
+    ].every(
       (table) => this.db.select().from(table).limit(1).all().length === 0,
     );
   }
 }
 
-const emptyState = (): State => ({ resources: {}, grants: {}, tokens: {}, audit: [] });
+const emptyState = (): State => ({
+  resources: {},
+  grants: {},
+  tokens: {},
+  executables: {},
+  executableRevisions: {},
+  secretMetadata: {},
+  runtimePrivateMetadata: {},
+  audit: [],
+});
+const completeState = (state?: State): State => ({
+  ...emptyState(),
+  ...structuredClone(state ?? {}),
+});
 const now = () => new Date().toISOString();
 const entryKey = (grantId: string, position: number) => `${grantId}:${position}`;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -433,6 +709,40 @@ const auditRecord = (row: typeof schema.audit.$inferSelect) => ({
   result: row.result,
   detail: row.detail,
 });
+const encodeJson = (value: unknown) => {
+  const encoded = JSON.stringify(value);
+  if (encoded === undefined) throw new RgapError('invalid_json', 'Executable values must be JSON-compatible.');
+  return encoded;
+};
+const executableRevisionRecord = (row: typeof schema.executableRevisions.$inferSelect) => ({
+  id: executableRevisionId(row.id),
+  resourceId: resourceId(row.resourceId),
+  runtime: row.runtime,
+  program: JSON.parse(row.program) as unknown,
+  inputSchema: JSON.parse(row.inputSchema),
+  outputSchema: row.outputSchema === null ? null : JSON.parse(row.outputSchema),
+  bindingSchema: JSON.parse(row.bindingSchema),
+  limits: JSON.parse(row.limits),
+  createdAt: row.createdAt,
+});
+
+const unavailable = (service: string): never => {
+  throw new RgapError('service_unavailable', `${service} is not configured.`);
+};
+const unavailableValidator: JsonSchemaValidator = {
+  validate: () => unavailable('JSON Schema validator'),
+};
+const unavailableSecrets: SecretStore = {
+  write: async () => unavailable('Secret store'),
+  delete: async () => unavailable('Secret store'),
+  handle: async () => unavailable('Secret store'),
+};
+const unavailableCredentials: RuntimeCredentialStore = {
+  metadata: async () => undefined,
+  handle: async () => unavailable('Runtime credential store'),
+  write: async () => unavailable('Runtime credential store'),
+  delete: async () => unavailable('Runtime credential store'),
+};
 
 /**
  * Records ordered so that every parent precedes its children, which is what lets the foreign keys

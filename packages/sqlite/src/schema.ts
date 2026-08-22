@@ -63,6 +63,43 @@ export const tokens = sqliteTable('tokens', {
   revokedAt: text('revoked_at'),
 });
 
+/** Immutable executable payloads are JSON text; their identity and resource relationship stay relational. */
+export const executableRevisions = sqliteTable('executable_revisions', {
+  id: text('id').primaryKey(),
+  resourceId: text('resource_id').notNull().references(() => resources.id),
+  runtime: text('runtime').notNull(),
+  program: text('program').notNull(),
+  inputSchema: text('input_schema').notNull(),
+  outputSchema: text('output_schema'),
+  bindingSchema: text('binding_schema').notNull(),
+  limits: text('limits').notNull(),
+  createdAt: text('created_at').notNull(),
+});
+
+export const executables = sqliteTable('executables', {
+  resourceId: text('resource_id').primaryKey().references(() => resources.id),
+  activeRevisionId: text('active_revision_id').references(() => executableRevisions.id),
+  deletedAt: text('deleted_at'),
+});
+
+/** Only public metadata is persisted; secret and runtime-private values never enter SQLite. */
+export const secretMetadata = sqliteTable('secret_metadata', {
+  resourceId: text('resource_id').primaryKey().references(() => resources.id),
+  version: text('version').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const runtimePrivateMetadata = sqliteTable(
+  'runtime_private_metadata',
+  {
+    runtime: text('runtime').notNull(),
+    resourceId: text('resource_id').notNull().references(() => resources.id),
+    version: text('version').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.runtime, table.resourceId] })],
+);
+
 /** The log's order is stored rather than inferred, so a read returns the events in the order they were recorded. */
 export const audit = sqliteTable('audit', {
   seq: integer('seq').primaryKey(),

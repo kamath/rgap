@@ -2,11 +2,23 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, describe, expect, expectTypeOf, it } from 'vitest';
-import { RgapError, resourceId, tokenValue, type RgapRepository, type State } from '@rgap/core';
-import { SqliteRgapStore } from './index';
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
+import {
+  RgapError,
+  RuntimeRegistry,
+  resourceId,
+  tokenValue,
+  type InvokeRuntime,
+  type JsonSchemaValidator,
+  type RgapRepository,
+  type ResourceId,
+  type RuntimeCredentialStore,
+  type SecretStore,
+  type State,
+} from '@rgap/core';
+import { SqliteRgapStore, type SqliteRgapStoreOptions } from './index';
 
-const open = (options?: { url?: string; initialState?: State }) => {
+const open = (options?: SqliteRgapStoreOptions) => {
   const store = new SqliteRgapStore(options);
   opened.push(store);
   return store;
@@ -33,6 +45,10 @@ const acme = (): State => ({
   },
   grants: {},
   tokens: {},
+  executables: {},
+  executableRevisions: {},
+  secretMetadata: {},
+  runtimePrivateMetadata: {},
   audit: [],
 });
 
@@ -67,9 +83,94 @@ async function queriedState(repository: RgapRepository): Promise<State> {
     resources: Object.fromEntries(resources.map((record) => [record.id, record])),
     grants: Object.fromEntries(grants.map((record) => [record.id, record])),
     tokens: Object.fromEntries(tokens.map((record) => [record.id, record])),
+    executables: {},
+    executableRevisions: {},
+    secretMetadata: {},
+    runtimePrivateMetadata: {},
     audit,
   };
 }
+
+const validator: JsonSchemaValidator = {
+  validate: (schema) => schema === false
+    ? { valid: false, errors: ['false schema'] }
+    : { valid: true },
+};
+
+class FakeSecrets implements SecretStore {
+  readonly values = new Map<string, string>();
+  readonly deleted: string[] = [];
+  rejectWrites = false;
+
+  async write(id: ResourceId, value: string) {
+    if (this.rejectWrites) throw new Error('secret backend rejected write');
+    this.values.set(id, value);
+    return { resourceId: id, version: `v${this.values.size}`, updatedAt: '2026-08-22T08:00:00.000Z' };
+  }
+
+  async delete(id: ResourceId) {
+    this.deleted.push(id);
+    this.values.delete(id);
+  }
+
+  async handle(id: ResourceId) {
+    return { kind: 'secret' as const, resourceId: id };
+  }
+}
+
+class FakeCredentials implements RuntimeCredentialStore {
+  readonly values = new Map<string, unknown>();
+  readonly deleted: string[] = [];
+  rejectWrites = false;
+  private key(runtime: string, id: ResourceId) {
+    return `${runtime}\u0000${id}`;
+  }
+
+  async metadata(runtime: string, id: ResourceId) {
+    return this.values.has(this.key(runtime, id))
+      ? { runtime, resourceId: id, version: 'credential-v1', updatedAt: '2026-08-22T08:00:00.000Z' }
+      : undefined;
+  }
+
+  async handle(runtime: string, id: ResourceId) {
+    return this.values.has(this.key(runtime, id))
+      ? { kind: 'runtime-credential' as const, runtime, resourceId: id }
+      : undefined;
+  }
+
+  async write(runtime: string, id: ResourceId, value: unknown) {
+    if (this.rejectWrites) throw new Error('credential backend rejected write');
+    this.values.set(this.key(runtime, id), value);
+    return {
+      runtime, resourceId: id, version: 'credential-v1', updatedAt: '2026-08-22T08:00:00.000Z',
+    };
+  }
+
+  async delete(runtime: string, id: ResourceId) {
+    const key = this.key(runtime, id);
+    this.deleted.push(key);
+    this.values.delete(key);
+  }
+}
+
+const publication = (bindingSchema: Record<string, {
+  kind: 'resource' | 'secret' | 'runtime-private';
+  access: 'use' | 'write';
+  required?: boolean;
+}> = {}) => ({
+  runtime: 'test',
+  program: { operation: 'echo' },
+  inputSchema: true,
+  outputSchema: true,
+  bindingSchema,
+  limits: { timeoutMs: 50 },
+});
+
+const collect = async <T>(iterable: AsyncIterable<T>) => {
+  const values: T[] = [];
+  for await (const value of iterable) values.push(value);
+  return values;
+};
 
 describe('SqliteRgapStore', () => {
   it('exposes command planes and close rather than repository commands', () => {
@@ -94,6 +195,182 @@ describe('SqliteRgapStore', () => {
       { path: 'acme/future-tool', permissions: ['invoke'] },
     ]);
     expect(state.tokens[issued.id]).toEqual(tokenRecord(issued));
+  });
+
+  it('persists executable definitions and immutable revisions across restart', async () => {
+    const url = file();
+    const runtime: InvokeRuntime = { validate: vi.fn(), async *invoke() { yield { type: 'done' }; } };
+    const options = {
+      url,
+      initialState: acme(),
+      runtimes: new RuntimeRegistry({ test: runtime }),
+      validator,
+    };
+    const firstStore = open(options);
+    const first = firstStore.admin();
+    const drive = await first.resources.get(resourceId('drive'));
+    const revisionOne = await drive.executable.publish(publication());
+    const revisionTwo = await drive.executable.publish({
+      ...publication(), program: { operation: 'echo-again' },
+    });
+    expect((await drive.executable.get())?.activeRevisionId).toBe(revisionTwo.id);
+    expect((await drive.executable.revisions()).map(({ id }) => id).sort())
+      .toEqual([revisionOne.id, revisionTwo.id].sort());
+    firstStore.close();
+
+    const second = open({ ...options, initialState: undefined }).admin();
+    expect(await second.executables.getRevision(revisionOne.id)).toEqual(revisionOne);
+    expect((await second.executables.get(resourceId('drive')))?.activeRevisionId).toBe(revisionTwo.id);
+    await second.executables.delete(resourceId('drive'));
+    expect((await second.executables.get(resourceId('drive')))?.deletedAt).not.toBeNull();
+    expect(await second.executables.revisions(resourceId('drive'))).toHaveLength(2);
+  });
+
+  it('fails clearly when executable publication names an unknown runtime', async () => {
+    const repository = open({ initialState: acme() }).admin();
+    await expect(repository.executables.publish(resourceId('drive'), publication()))
+      .rejects.toMatchObject({ code: 'unknown_runtime' });
+  });
+
+  it('keeps secret plaintext in the injected store and preserves metadata after a rejected write', async () => {
+    const url = file();
+    const secrets = new FakeSecrets();
+    const repository = open({ url, initialState: acme(), secrets }).admin();
+    const plaintext = 'plaintext-must-not-enter-sqlite';
+    const metadata = await repository.secrets.write(resourceId('drive'), plaintext);
+    expect(secrets.values.get('drive')).toBe(plaintext);
+    expect(await repository.secrets.metadata(resourceId('drive'))).toEqual(metadata);
+
+    secrets.rejectWrites = true;
+    await expect(repository.secrets.write(resourceId('drive'), 'rejected-plaintext'))
+      .rejects.toThrow('backend rejected');
+    expect(await repository.secrets.metadata(resourceId('drive'))).toEqual(metadata);
+
+    const connection = new Database(url, { readonly: true });
+    const persisted = JSON.stringify({
+      metadata: connection.prepare('select * from secret_metadata').all(),
+      audit: connection.prepare('select * from audit').all(),
+    });
+    connection.close();
+    expect(persisted).not.toContain(plaintext);
+    expect(persisted).not.toContain('rejected-plaintext');
+  });
+
+  it('synchronizes runtime-owned credential metadata and records audit-safe invoke facts', async () => {
+    const url = file();
+    const credentials = new FakeCredentials();
+    const inputMarker = 'private-invocation-input';
+    const outputMarker = 'private-runtime-output';
+    let eraseCredential = false;
+    const runtime: InvokeRuntime = {
+      validate() {},
+      async *invoke(context) {
+        expect(context.limits.timeoutMs).toBe(50);
+        if (eraseCredential) await context.credentials.delete('connection');
+        else await context.credentials.write('connection', { refreshToken: 'private-credential-value' });
+        yield { type: 'data', value: outputMarker };
+        yield { type: 'done' };
+      },
+    };
+    const options: SqliteRgapStoreOptions = {
+      url,
+      initialState: acme(),
+      runtimes: { test: runtime },
+      validator,
+      runtimeLimits: { test: { timeoutMs: 100 } },
+      credentials,
+    };
+    const firstStore = open(options);
+    const first = firstStore.admin();
+    await first.executables.publish(resourceId('drive'), publication({
+      connection: { kind: 'runtime-private', access: 'write' },
+    }));
+    expect(await collect(first.invoke(resourceId('drive'), {
+      input: inputMarker,
+      bindings: { connection: resourceId('acme') },
+    }))).toEqual([{ type: 'data', value: outputMarker }, { type: 'done' }]);
+    expect(await first.runtimePrivateMetadata('test', resourceId('acme'))).toEqual({
+      runtime: 'test',
+      resourceId: resourceId('acme'),
+      version: 'credential-v1',
+      updatedAt: '2026-08-22T08:00:00.000Z',
+    });
+    const invokeAudit = (await first.audit.list()).find(({ action }) => action === 'invoke')!;
+    expect(invokeAudit.detail).toContain('"runtime":"test"');
+    expect(invokeAudit.detail).toContain('"result":"done"');
+    expect(invokeAudit.detail).not.toContain(inputMarker);
+    expect(invokeAudit.detail).not.toContain(outputMarker);
+    expect(invokeAudit.detail).not.toContain('private-credential-value');
+    firstStore.close();
+
+    const restarted = open({ ...options, initialState: undefined }).admin();
+    expect((await restarted.runtimePrivateMetadata('test', resourceId('acme')))?.version)
+      .toBe('credential-v1');
+    credentials.rejectWrites = true;
+    await expect(collect(restarted.invoke(resourceId('drive'), {
+      input: {}, bindings: { connection: resourceId('acme') },
+    }))).rejects.toThrow('credential backend rejected');
+    expect((await restarted.runtimePrivateMetadata('test', resourceId('acme')))?.version)
+      .toBe('credential-v1');
+    credentials.rejectWrites = false;
+    eraseCredential = true;
+    await collect(restarted.invoke(resourceId('drive'), {
+      input: {}, bindings: { connection: resourceId('acme') },
+    }));
+    expect(await restarted.runtimePrivateMetadata('test', resourceId('acme'))).toBeUndefined();
+    expect(credentials.deleted).toContain('test\u0000acme');
+  });
+
+  it('authorizes invocation through the guarded plane while admin remains unrestricted', async () => {
+    const runtime: InvokeRuntime = { validate() {}, async *invoke() { yield { type: 'done' }; } };
+    const store = open({ initialState: acme(), runtimes: { test: runtime }, validator });
+    const admin = store.admin();
+    await admin.executables.publish(resourceId('drive'), publication());
+    expect(await collect(admin.invoke(resourceId('drive'), { input: {} }))).toEqual([{ type: 'done' }]);
+
+    const grant = await rootGrant(admin);
+    await grant.capabilities.set([{ resourceId: resourceId('drive'), permissions: ['read'] }]);
+    const { value } = await grant.tokens.create({ label: 'reader' });
+    await expect(collect(store.as(value).invoke(resourceId('drive'), { input: {} })))
+      .rejects.toMatchObject({ code: 'unauthorized' });
+
+    const invoker = await rootGrant(admin);
+    await invoker.capabilities.set([{ resourceId: resourceId('drive'), permissions: ['invoke'] }]);
+    const allowed = await invoker.tokens.create({ label: 'invoker' });
+    expect(await collect(store.as(allowed.value).invoke(resourceId('drive'), { input: {} })))
+      .toEqual([{ type: 'done' }]);
+  });
+
+  it('reset clears tracked metadata through injected stores and cannot discover untracked values', async () => {
+    const secrets = new FakeSecrets();
+    const credentials = new FakeCredentials();
+    const runtime: InvokeRuntime = {
+      validate() {},
+      async *invoke(context) {
+        await context.credentials.write('connection', { protected: true });
+        yield { type: 'done' };
+      },
+    };
+    const repository = open({
+      initialState: acme(), secrets, credentials, runtimes: { test: runtime }, validator,
+    }).admin();
+    await repository.secrets.write(resourceId('drive'), 'tracked-secret');
+    secrets.values.set('external-untracked', 'preserved');
+    credentials.values.set('test\u0000external-untracked', { preserved: true });
+    await repository.executables.publish(resourceId('drive'), publication({
+      connection: { kind: 'runtime-private', access: 'write' },
+    }));
+    await collect(repository.invoke(resourceId('drive'), {
+      input: {}, bindings: { connection: resourceId('acme') },
+    }));
+
+    await repository.reset();
+    expect(await queriedState(repository)).toEqual(acme());
+    expect(secrets.deleted).toContain('drive');
+    expect(credentials.deleted).toContain('test\u0000acme');
+    // The interfaces expose no bulk discovery API, so values absent from SQLite metadata are preserved.
+    expect(secrets.values.get('external-untracked')).toBe('preserved');
+    expect(credentials.values.get('test\u0000external-untracked')).toEqual({ preserved: true });
   });
 
   it('reads a permission set in the protocol canonical order', async () => {
@@ -136,7 +413,11 @@ describe('SqliteRgapStore', () => {
 
     // A database that already holds records is opened as it stands, so this initial state is not applied.
     const second = open({
-      url, initialState: { resources: {}, grants: {}, tokens: {}, audit: [] },
+      url,
+      initialState: {
+        resources: {}, grants: {}, tokens: {}, executables: {}, executableRevisions: {},
+        secretMetadata: {}, runtimePrivateMetadata: {}, audit: [],
+      },
     }).admin();
     const state = await queriedState(second);
     expect(state.resources[created.id]).toEqual(resourceRecord(created));
@@ -152,7 +433,10 @@ describe('SqliteRgapStore', () => {
 
   it('opens an empty store with no initial state at all', async () => {
     const repository = open().admin();
-    expect(await queriedState(repository)).toEqual({ resources: {}, grants: {}, tokens: {}, audit: [] });
+    expect(await queriedState(repository)).toEqual({
+      resources: {}, grants: {}, tokens: {}, executables: {}, executableRevisions: {},
+      secretMetadata: {}, runtimePrivateMetadata: {}, audit: [],
+    });
   });
 
   it('writes nothing when a command is refused', async () => {
@@ -254,7 +538,10 @@ describe('SqliteRgapStore', () => {
   });
 
   it('writes a state larger than one insert statement', async () => {
-    const initialState: State = { resources: {}, grants: {}, tokens: {}, audit: [] };
+    const initialState: State = {
+      resources: {}, grants: {}, tokens: {}, executables: {}, executableRevisions: {},
+      secretMetadata: {}, runtimePrivateMetadata: {}, audit: [],
+    };
     for (let index = 0; index < 250; index += 1) {
       const id = resourceId(`resource-${index}`);
       initialState.resources[id] = {
@@ -274,7 +561,8 @@ describe('SqliteRgapStore', () => {
         a: { id: resourceId('a'), parentId: resourceId('b'), name: 'a', deletedAt: null },
         b: { id: resourceId('b'), parentId: resourceId('a'), name: 'b', deletedAt: null },
       },
-      grants: {}, tokens: {}, audit: [],
+      grants: {}, tokens: {}, executables: {}, executableRevisions: {},
+      secretMetadata: {}, runtimePrivateMetadata: {}, audit: [],
     };
     expect(() => open({ initialState })).toThrow(RgapError);
   });
