@@ -172,11 +172,13 @@ describe('invocation orchestration', () => {
       secrets: {
         write: vi.fn(),
         delete: vi.fn(),
-        handle: vi.fn(async (resourceId) => ({ kind: 'secret', resourceId })),
+        handle: vi.fn(async (resourceId) => ({ kind: 'secret' as const, resourceId })),
       },
       credentials: {
         metadata: vi.fn(async (name, resourceId) => ({ runtime: name, resourceId, version: 'one', updatedAt: at })),
-        handle: vi.fn(async (name, resourceId) => ({ kind: 'runtime-credential', runtime: name, resourceId })),
+        handle: vi.fn(async (name, resourceId) => ({
+          kind: 'runtime-credential' as const, runtime: name, resourceId,
+        })),
         write: vi.fn(async (name, resourceId) => ({ runtime: name, resourceId, version: 'two', updatedAt: at })),
         delete: vi.fn(async () => undefined),
       },
@@ -209,7 +211,7 @@ describe('invocation orchestration', () => {
     });
     base.secrets.handle = vi.fn(async (resourceId) => {
       order.push('secret');
-      return { kind: 'secret', resourceId };
+      return { kind: 'secret' as const, resourceId };
     });
     const events = await collect(invokeExecutable(base, executableId, {
       input: { query: 'x' },
@@ -242,8 +244,8 @@ describe('invocation orchestration', () => {
     const runtime: InvokeRuntime = {
       validate() {},
       async *invoke(context) {
-        await expect(context.credentials.write('connection', {})).rejects.toThrow('does not permit');
-        await expect(context.credentials.handle('missing')).rejects.toThrow('not runtime-private');
+        expect(() => context.credentials.write('connection', {})).toThrow('does not permit');
+        expect(() => context.credentials.handle('missing')).toThrow('not runtime-private');
         yield { type: 'done' };
       },
     };
