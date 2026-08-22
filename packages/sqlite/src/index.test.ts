@@ -11,9 +11,6 @@ import {
   type InvokeRuntime,
   type JsonSchemaValidator,
   type RgapRepository,
-  type ResourceId,
-  type RuntimeCredentialStore,
-  type SecretStore,
   type State,
 } from '@rgap/core';
 import { SqliteRgapStore, type SqliteRgapStoreOptions } from './index';
@@ -47,8 +44,6 @@ const acme = (): State => ({
   tokens: {},
   executables: {},
   executableRevisions: {},
-  secretMetadata: {},
-  runtimePrivateMetadata: {},
   audit: [],
 });
 
@@ -85,8 +80,6 @@ async function queriedState(repository: RgapRepository): Promise<State> {
     tokens: Object.fromEntries(tokens.map((record) => [record.id, record])),
     executables: {},
     executableRevisions: {},
-    secretMetadata: {},
-    runtimePrivateMetadata: {},
     audit,
   };
 }
@@ -97,75 +90,8 @@ const validator: JsonSchemaValidator = {
     : { valid: true },
 };
 
-const secretKey = () => new Uint8Array(32).fill(7);
-
-class FakeSecrets implements SecretStore {
-  readonly values = new Map<string, string>();
-  readonly deleted: string[] = [];
-  readonly handled: string[] = [];
-  rejectWrites = false;
-
-  async write(id: ResourceId, value: string) {
-    if (this.rejectWrites) throw new Error('secret backend rejected write');
-    this.values.set(id, value);
-    return { resourceId: id, version: `v${this.values.size}`, updatedAt: '2026-08-22T08:00:00.000Z' };
-  }
-
-  async delete(id: ResourceId) {
-    this.deleted.push(id);
-    this.values.delete(id);
-  }
-
-  async handle(id: ResourceId) {
-    this.handled.push(id);
-    return { kind: 'secret' as const, resourceId: id };
-  }
-
-  async resolve(id: ResourceId) {
-    const value = this.values.get(id);
-    if (value === undefined) throw new Error('missing fake secret');
-    return value;
-  }
-}
-
-class FakeCredentials implements RuntimeCredentialStore {
-  readonly values = new Map<string, unknown>();
-  readonly deleted: string[] = [];
-  rejectWrites = false;
-  private key(runtime: string, id: ResourceId) {
-    return `${runtime}\u0000${id}`;
-  }
-
-  async metadata(runtime: string, id: ResourceId) {
-    return this.values.has(this.key(runtime, id))
-      ? { runtime, resourceId: id, version: 'credential-v1', updatedAt: '2026-08-22T08:00:00.000Z' }
-      : undefined;
-  }
-
-  async handle(runtime: string, id: ResourceId) {
-    return this.values.has(this.key(runtime, id))
-      ? { kind: 'runtime-credential' as const, runtime, resourceId: id }
-      : undefined;
-  }
-
-  async write(runtime: string, id: ResourceId, value: unknown) {
-    if (this.rejectWrites) throw new Error('credential backend rejected write');
-    this.values.set(this.key(runtime, id), value);
-    return {
-      runtime, resourceId: id, version: 'credential-v1', updatedAt: '2026-08-22T08:00:00.000Z',
-    };
-  }
-
-  async delete(runtime: string, id: ResourceId) {
-    const key = this.key(runtime, id);
-    this.deleted.push(key);
-    this.values.delete(key);
-  }
-}
-
 const publication = (bindingSchema: Record<string, {
-  kind: 'resource' | 'secret' | 'runtime-private';
-  access: 'use' | 'write';
+  kind: string;
   required?: boolean;
 }> = {}) => ({
   runtime: 'test',
@@ -184,12 +110,9 @@ const collect = async <T>(iterable: AsyncIterable<T>) => {
 
 describe('SqliteRgapStore', () => {
   it('exposes command planes and close rather than repository commands', () => {
-    const store = open({ secretKey });
-    expectTypeOf<Exclude<Extract<keyof SqliteRgapStore, keyof RgapRepository>, 'secrets'>>()
-      .toEqualTypeOf<never>();
+    const store = open();
+    expectTypeOf<Extract<keyof SqliteRgapStore, keyof RgapRepository>>().toEqualTypeOf<never>();
     expect(store).not.toHaveProperty('resources');
-    expect(store.secrets.resolve).toBeTypeOf('function');
-    expect(store.admin().secrets).not.toHaveProperty('resolve');
   });
 
   it('round-trips a complete state through SQL', async () => {
@@ -256,186 +179,15 @@ describe('SqliteRgapStore', () => {
     expect(await repository.executables.get(resourceId('drive'))).toBeUndefined();
   });
 
-  it('keeps secret plaintext in the injected store and preserves metadata after a rejected write', async () => {
+  it('records audit-safe invoke facts without exposing input, output, or binding kinds', async () => {
     const url = file();
-    const secrets = new FakeSecrets();
-    const repository = open({ url, initialState: acme(), secrets }).admin();
-    const plaintext = 'plaintext-must-not-enter-sqlite';
-    const metadata = await repository.secrets.write(resourceId('drive'), plaintext);
-    expect(secrets.values.get('drive')).toBe(plaintext);
-    expect(await repository.secrets.metadata(resourceId('drive'))).toEqual(metadata);
-
-    secrets.rejectWrites = true;
-    await expect(repository.secrets.write(resourceId('drive'), 'rejected-plaintext'))
-      .rejects.toThrow('backend rejected');
-    expect(await repository.secrets.metadata(resourceId('drive'))).toEqual(metadata);
-
-    const connection = new Database(url, { readonly: true });
-    const persisted = JSON.stringify({
-      metadata: connection.prepare('select * from secret_metadata').all(),
-      audit: connection.prepare('select * from audit').all(),
-    });
-    connection.close();
-    expect(persisted).not.toContain(plaintext);
-    expect(persisted).not.toContain('rejected-plaintext');
-  });
-
-  it('encrypts internal secrets at rest, rotates versions, and resolves only through the store', async () => {
-    const url = file();
-    const store = open({ url, initialState: acme(), secretKey });
-    const repository = store.admin();
-    const first = await repository.secrets.write(resourceId('drive'), 'first-plaintext');
-    expect(await store.secrets.resolve(resourceId('drive'))).toBe('first-plaintext');
-    expect(await store.secrets.handle(resourceId('drive'))).toEqual({
-      kind: 'secret',
-      resourceId: resourceId('drive'),
-    });
-
-    const second = await store.secrets.write(resourceId('drive'), 'rotated-plaintext');
-    expect(second.version).not.toBe(first.version);
-    expect(await repository.secrets.metadata(resourceId('drive'))).toEqual(second);
-    expect(await store.secrets.resolve(resourceId('drive'))).toBe('rotated-plaintext');
-
-    const connection = new Database(url, { readonly: true });
-    const row = connection.prepare('select * from secret_envelopes where resource_id = ?').get('drive');
-    connection.close();
-    const persisted = JSON.stringify(row);
-    expect(persisted).not.toContain('first-plaintext');
-    expect(persisted).not.toContain('rotated-plaintext');
-    expect(row).toMatchObject({
-      resource_id: 'drive',
-      ciphertext: expect.any(String),
-      nonce: expect.any(String),
-      tag: expect.any(String),
-      version: second.version,
-      updated_at: second.updatedAt,
-    });
-  });
-
-  it('rolls metadata back when an internal envelope write cannot commit', async () => {
-    const url = file();
-    const store = open({ url, initialState: acme(), secretKey });
-    const repository = store.admin();
-    const first = await repository.secrets.write(resourceId('drive'), 'first');
-    const connection = new Database(url);
-    connection.exec(`
-      create trigger reject_secret_rotation before update on secret_envelopes
-      begin select raise(abort, 'rejected envelope'); end
-    `);
-    connection.close();
-
-    await expect(repository.secrets.write(resourceId('drive'), 'second'))
-      .rejects.toThrow('rejected envelope');
-    expect(await repository.secrets.metadata(resourceId('drive'))).toEqual(first);
-    expect(await store.secrets.resolve(resourceId('drive'))).toBe('first');
-  });
-
-  it('fails safely for tampered envelopes and the wrong key', async () => {
-    const url = file();
-    const first = open({ url, initialState: acme(), secretKey });
-    await first.admin().secrets.write(resourceId('drive'), 'protected');
-    first.close();
-
-    const wrongKey = open({ url, secretKey: () => new Uint8Array(32).fill(8) });
-    await expect(wrongKey.secrets.resolve(resourceId('drive')))
-      .rejects.toMatchObject({ code: 'invalid_secret_envelope' });
-    wrongKey.close();
-
-    const connection = new Database(url);
-    connection.prepare("update secret_envelopes set ciphertext = 'AA==' where resource_id = ?").run('drive');
-    connection.close();
-    const tampered = open({ url, secretKey });
-    await expect(tampered.secrets.resolve(resourceId('drive')))
-      .rejects.toMatchObject({
-        code: 'invalid_secret_envelope',
-        message: 'Secret envelope authentication failed.',
-      });
-  });
-
-  it('keeps secret-key access lazy and requires it only for internal cryptography', async () => {
-    const provider = vi.fn(secretKey);
-    const store = open({ initialState: acme(), secretKey: provider });
-    const repository = store.admin();
-    await repository.resources.list();
-    await rootGrant(repository);
-    expect(provider).not.toHaveBeenCalled();
-
-    await repository.secrets.write(resourceId('drive'), 'protected');
-    expect(provider).toHaveBeenCalledTimes(1);
-    await store.secrets.resolve(resourceId('drive'));
-    expect(provider).toHaveBeenCalledTimes(2);
-    await store.secrets.delete(resourceId('drive'));
-    expect(provider).toHaveBeenCalledTimes(2);
-    await expect(store.secrets.resolve(resourceId('drive')))
-      .rejects.toMatchObject({ code: 'missing_secret' });
-    expect(provider).toHaveBeenCalledTimes(2);
-  });
-
-  it('fails clearly when internal secret cryptography has no configured key', async () => {
-    const store = open({ initialState: acme() });
-    await expect(store.admin().secrets.write(resourceId('drive'), 'protected'))
-      .rejects.toMatchObject({
-        code: 'service_unavailable',
-        message: 'Secret key is not configured.',
-      });
-  });
-
-  it('accepts an asynchronous CryptoKey provider', async () => {
-    const cryptoKey = await crypto.subtle.generateKey(
-      { name: 'AES-GCM', length: 256 },
-      false,
-      ['encrypt', 'decrypt'],
-    );
-    const store = open({
-      initialState: acme(),
-      secretKey: async () => cryptoKey,
-    });
-    await store.admin().secrets.write(resourceId('drive'), 'crypto-key-value');
-    expect(await store.secrets.resolve(resourceId('drive'))).toBe('crypto-key-value');
-  });
-
-  it('keeps external SecretStore compatibility on repository, trusted, and runtime surfaces', async () => {
-    const secrets = new FakeSecrets();
-    let resolved: string | undefined;
-    const runtime: InvokeRuntime = {
-      validate() {},
-      async *invoke(context) {
-        resolved = await secrets.resolve(context.bindings.token.secret!.resourceId);
-        yield { type: 'done' };
-      },
-    };
-    const store = open({
-      initialState: acme(),
-      secrets,
-      runtimes: { test: runtime },
-      validator,
-    });
-    const repository = store.admin();
-    await repository.secrets.write(resourceId('acme'), 'external-value');
-    expect(await store.secrets.resolve(resourceId('acme'))).toBe('external-value');
-    await repository.executables.publish(resourceId('drive'), publication({
-      token: { kind: 'secret', access: 'use' },
-    }));
-    await collect(repository.invoke(resourceId('drive'), {
-      input: {},
-      bindings: { token: resourceId('acme') },
-    }));
-    expect(resolved).toBe('external-value');
-    expect(secrets.handled).toContain('acme');
-  });
-
-  it('synchronizes runtime-owned credential metadata and records audit-safe invoke facts', async () => {
-    const url = file();
-    const credentials = new FakeCredentials();
     const inputMarker = 'private-invocation-input';
     const outputMarker = 'private-runtime-output';
-    let eraseCredential = false;
     const runtime: InvokeRuntime = {
       validate() {},
       async *invoke(context) {
         expect(context.limits.timeoutMs).toBe(50);
-        if (eraseCredential) await context.credentials.delete('connection');
-        else await context.credentials.write('connection', { refreshToken: 'private-credential-value' });
+        expect(context.bindings.source).toEqual({ resourceId: resourceId('acme'), kind: 'document' });
         yield { type: 'data', value: outputMarker };
         yield { type: 'done' };
       },
@@ -446,47 +198,21 @@ describe('SqliteRgapStore', () => {
       runtimes: { test: runtime },
       validator,
       runtimeLimits: { test: { timeoutMs: 100 } },
-      credentials,
     };
-    const firstStore = open(options);
-    const first = firstStore.admin();
+    const first = open(options).admin();
     await first.executables.publish(resourceId('drive'), publication({
-      connection: { kind: 'runtime-private', access: 'write' },
+      source: { kind: 'document' },
     }));
     expect(await collect(first.invoke(resourceId('drive'), {
       input: inputMarker,
-      bindings: { connection: resourceId('acme') },
+      bindings: { source: resourceId('acme') },
     }))).toEqual([{ type: 'data', value: outputMarker }, { type: 'done' }]);
-    expect(await first.runtimePrivateMetadata('test', resourceId('acme'))).toEqual({
-      runtime: 'test',
-      resourceId: resourceId('acme'),
-      version: 'credential-v1',
-      updatedAt: '2026-08-22T08:00:00.000Z',
-    });
     const invokeAudit = (await first.audit.list()).find(({ action }) => action === 'executable.invoke')!;
     expect(invokeAudit.detail).toContain('"runtime":"test"');
     expect(invokeAudit.detail).toContain('"result":"done"');
     expect(invokeAudit.detail).not.toContain(inputMarker);
     expect(invokeAudit.detail).not.toContain(outputMarker);
-    expect(invokeAudit.detail).not.toContain('private-credential-value');
-    firstStore.close();
-
-    const restarted = open({ ...options, initialState: undefined }).admin();
-    expect((await restarted.runtimePrivateMetadata('test', resourceId('acme')))?.version)
-      .toBe('credential-v1');
-    credentials.rejectWrites = true;
-    await expect(collect(restarted.invoke(resourceId('drive'), {
-      input: {}, bindings: { connection: resourceId('acme') },
-    }))).rejects.toThrow('credential backend rejected');
-    expect((await restarted.runtimePrivateMetadata('test', resourceId('acme')))?.version)
-      .toBe('credential-v1');
-    credentials.rejectWrites = false;
-    eraseCredential = true;
-    await collect(restarted.invoke(resourceId('drive'), {
-      input: {}, bindings: { connection: resourceId('acme') },
-    }));
-    expect(await restarted.runtimePrivateMetadata('test', resourceId('acme'))).toBeUndefined();
-    expect(credentials.deleted).toContain('test\u0000acme');
+    expect(invokeAudit.detail).not.toContain('document');
   });
 
   it('authorizes invocation through the guarded plane while admin remains unrestricted', async () => {
@@ -509,38 +235,6 @@ describe('SqliteRgapStore', () => {
       .toEqual([{ type: 'done' }]);
     const invocation = (await admin.audit.list()).find(({ action }) => action === 'executable.invoke')!;
     expect(JSON.parse(invocation.detail).grantLineageIds).toEqual([invoker.id]);
-  });
-
-  it('reset clears tracked metadata through injected stores and cannot discover untracked values', async () => {
-    const secrets = new FakeSecrets();
-    const credentials = new FakeCredentials();
-    const runtime: InvokeRuntime = {
-      validate() {},
-      async *invoke(context) {
-        await context.credentials.write('connection', { protected: true });
-        yield { type: 'done' };
-      },
-    };
-    const repository = open({
-      initialState: acme(), secrets, credentials, runtimes: { test: runtime }, validator,
-    }).admin();
-    await repository.secrets.write(resourceId('drive'), 'tracked-secret');
-    secrets.values.set('external-untracked', 'preserved');
-    credentials.values.set('test\u0000external-untracked', { preserved: true });
-    await repository.executables.publish(resourceId('drive'), publication({
-      connection: { kind: 'runtime-private', access: 'write' },
-    }));
-    await collect(repository.invoke(resourceId('drive'), {
-      input: {}, bindings: { connection: resourceId('acme') },
-    }));
-
-    await repository.reset();
-    expect(await queriedState(repository)).toEqual(acme());
-    expect(secrets.deleted).toContain('drive');
-    expect(credentials.deleted).toContain('test\u0000acme');
-    // The interfaces expose no bulk discovery API, so values absent from SQLite metadata are preserved.
-    expect(secrets.values.get('external-untracked')).toBe('preserved');
-    expect(credentials.values.get('test\u0000external-untracked')).toEqual({ preserved: true });
   });
 
   it('reads a permission set in the protocol canonical order', async () => {
@@ -586,7 +280,7 @@ describe('SqliteRgapStore', () => {
       url,
       initialState: {
         resources: {}, grants: {}, tokens: {}, executables: {}, executableRevisions: {},
-        secretMetadata: {}, runtimePrivateMetadata: {}, audit: [],
+        audit: [],
       },
     }).admin();
     const state = await queriedState(second);
@@ -596,24 +290,18 @@ describe('SqliteRgapStore', () => {
 
   it('restores the initial state on reset', async () => {
     const url = file();
-    const store = open({ url, initialState: acme(), secretKey });
+    const store = open({ url, initialState: acme() });
     const repository = store.admin();
     await (await repository.resources.get(resourceId('acme'))).create({ name: 'mcp' });
-    await repository.secrets.write(resourceId('drive'), 'removed-by-reset');
     await repository.reset();
     expect(await queriedState(repository)).toEqual(acme());
-    await expect(store.secrets.resolve(resourceId('drive')))
-      .rejects.toMatchObject({ code: 'missing_secret' });
-    const connection = new Database(url, { readonly: true });
-    expect(connection.prepare('select count(*) as count from secret_envelopes').get()).toEqual({ count: 0 });
-    connection.close();
   });
 
   it('opens an empty store with no initial state at all', async () => {
     const repository = open().admin();
     expect(await queriedState(repository)).toEqual({
       resources: {}, grants: {}, tokens: {}, executables: {}, executableRevisions: {},
-      secretMetadata: {}, runtimePrivateMetadata: {}, audit: [],
+      audit: [],
     });
   });
 
@@ -718,7 +406,7 @@ describe('SqliteRgapStore', () => {
   it('writes a state larger than one insert statement', async () => {
     const initialState: State = {
       resources: {}, grants: {}, tokens: {}, executables: {}, executableRevisions: {},
-      secretMetadata: {}, runtimePrivateMetadata: {}, audit: [],
+      audit: [],
     };
     for (let index = 0; index < 250; index += 1) {
       const id = resourceId(`resource-${index}`);
@@ -740,7 +428,7 @@ describe('SqliteRgapStore', () => {
         b: { id: resourceId('b'), parentId: resourceId('a'), name: 'b', deletedAt: null },
       },
       grants: {}, tokens: {}, executables: {}, executableRevisions: {},
-      secretMetadata: {}, runtimePrivateMetadata: {}, audit: [],
+      audit: [],
     };
     expect(() => open({ initialState })).toThrow(RgapError);
   });

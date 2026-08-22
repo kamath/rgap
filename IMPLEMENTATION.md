@@ -13,13 +13,13 @@ examples/            # editable scratchpad
 
 `@rgap/core` separates five modules:
 
-- `domain.ts` defines resources, grants, tokens, executable definitions and immutable revisions, public secret and runtime-private metadata, audit events, permission algebra, and pure resource/grant rules.
+- `domain.ts` defines resources, grants, tokens, executable definitions and immutable revisions, audit events, permission algebra, and pure resource/grant rules.
 - `repository.ts` defines the ID-based `RgapCommands` adapter contract, `RgapStore`, `RgapRepository`, and resource/grant/token handles.
 - `guard.ts` constructs the bearer-token command plane and enforces read visibility and command authority.
 - `executable.ts` validates executable revisions, binding maps, schemas, and limits and orchestrates invocation.
-- `runtime.ts` defines invocation events, opaque protected-value handles, injected host contracts, and the deployment-owned `RuntimeRegistry`.
+- `runtime.ts` defines invocation events, opaque resource bindings, and the deployment-owned `RuntimeRegistry`.
 
-A store exposes only `as(token)` and `admin()`. Both return the same repository interface. `repositoryFrom` turns an adapter's `RgapCommands` into handles. Resource handles expose `executable.publish`, `secret.write`, `runtimePrivateMetadata`, and streaming `invoke` in addition to tree operations. Equivalent top-level collections are available as `repository.executables`, `repository.secrets`, and `repository.invoke`.
+A store exposes only `as(token)` and `admin()`. Both return the same repository interface. `repositoryFrom` turns an adapter's `RgapCommands` into handles. Resource handles expose executable reads, publishing, deletion, and streaming `invoke` in addition to tree operations. Equivalent top-level operations are available as `repository.executables` and `repository.invoke`.
 
 Most methods are asynchronous request-response operations. Invocation is intentionally different: `invoke(resourceId, input)` and `resource.invoke(input)` return `AsyncIterable<InvocationEvent>`, where events are `data`, `error`, or `done`.
 
@@ -33,18 +33,14 @@ new SqliteRgapStore({
   runtimes,       // RuntimeRegistry or name -> InvokeRuntime
   validator,      // JsonSchemaValidator
   runtimeLimits,  // per-runtime host ceilings
-  secretKey,      // lazy AES-256-GCM key provider
-  credentials,    // RuntimeCredentialStore
 });
 ```
 
-The core package contains no built-in fetch, GitHub, OpenAI, or other provider runtime. A deployment registers trusted `InvokeRuntime` implementations. Publishing calls that runtime's `validate(program)`, and invocation validates the program again.
-
-Core defines the universal `SecretEnvelope`, AES-256-GCM encryption and decryption helpers, and trusted `SecretStore.resolve` contract. SQLite stores encrypted envelopes internally and exposes resolution only on the concrete store object's trusted `secrets` surface. Repository and HTTP reads return `SecretMetadata`, never plaintext. An external vault-compatible `SecretStore` may replace internal envelopes. `RuntimeCredentialStore` remains deployment-owned; runtime code receives opaque handles and a slot-scoped private-state interface.
+The core package contains no built-in runtime implementation. A deployment registers trusted `InvokeRuntime` implementations. Publishing calls that runtime's `validate(program)`, and invocation validates the program again.
 
 ## SQLite store
 
-`@rgap/sqlite` exports `SqliteRgapStore`. Its constructor opens a file or `:memory:`, enables foreign keys, and applies the generated migrations in `drizzle/`. The current migration adds executable definitions, immutable executable revisions, secret metadata, and runtime-private metadata to the existing resource, grant, capability, token, and audit schema.
+`@rgap/sqlite` exports `SqliteRgapStore`. Its constructor opens a file or `:memory:`, enables foreign keys, and applies the generated migrations in `drizzle/`. The schema adds executable definitions and immutable executable revisions to the resource, grant, capability, token, and audit tables.
 
 | Table | Contents |
 | --- | --- |
@@ -54,25 +50,19 @@ Core defines the universal `SecretEnvelope`, AES-256-GCM encryption and decrypti
 | `tokens` | Token records and bearer hashes. |
 | `executables` | Resource attachment, active revision, and deletion marker. |
 | `executable_revisions` | Immutable runtime, program, schemas, binding schema, limits, and creation time. |
-| `secret_metadata` | Public secret version and update time. |
-| `secret_envelopes` | Portable AES-256-GCM ciphertext, nonce, tag, version, and update time. |
-| `runtime_private_metadata` | Public version and update time keyed by runtime and resource. |
 | `audit` | Ordered authorization, mutation, and invocation events. |
-
-Metadata transitions use the same whole-state SQLite transaction mechanism as the rest of the store. Internal secret writes encrypt first and atomically commit the envelope and public metadata in one SQLite transaction. Internal reset clears all envelopes. An external vault override completes its mutation before SQLite commits returned public metadata.
 
 ## Invocation lifecycle
 
-The token plane authorizes `invoke` on the executable resource, `use` on every supplied binding, and also `write` for each binding whose declared access is `write`. The orchestrator then:
+The token plane authorizes `invoke` on the executable resource and `use` on every supplied binding. The orchestrator then:
 
 1. Resolves the selected or active immutable revision.
 2. Validates input, exact binding names, required bindings, and effective host ceilings.
-3. Resolves opaque secret and runtime-private handles only after authorization.
-4. Calls the registered runtime with an `AbortSignal`, immutable revision, input, bindings, limits, and slot-scoped credential state.
-5. Validates each `data` event against the output schema when one exists.
-6. Records redacted invocation facts in a `finally` block as `done`, `error`, or `cancelled`.
+3. Calls the registered runtime with an `AbortSignal`, immutable revision, input, opaque `{ resourceId, kind }` bindings, and limits.
+4. Validates each `data` event against the output schema when one exists.
+5. Records redacted invocation facts in a `finally` block as `done`, `error`, or `cancelled`.
 
-Audit details include IDs, runtime, timing, and result. They exclude invocation input, output values, secret material, credential material, and handles. Cancelling iteration or the caller's signal aborts runtime work.
+Audit details include IDs, runtime, timing, and result. They exclude invocation input and output values. Cancelling iteration or the caller's signal aborts runtime work.
 
 ## HTTP server
 
@@ -84,10 +74,6 @@ GET    /resources/{id}/executable/revisions
 GET    /executable-revisions/{id}
 POST   /resources/{id}/executable/revisions
 DELETE /resources/{id}/executable
-GET    /resources/{id}/secret
-PUT    /resources/{id}/secret
-DELETE /resources/{id}/secret
-GET    /resources/{id}/runtime-private/{runtime}
 POST   /resources/{id}/invoke
 ```
 

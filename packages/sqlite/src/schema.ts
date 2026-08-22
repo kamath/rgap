@@ -82,37 +82,6 @@ export const executables = sqliteTable('executables', {
   deletedAt: text('deleted_at'),
 });
 
-/** Public metadata is safe to expose through repository command planes. */
-export const secretMetadata = sqliteTable('secret_metadata', {
-  resourceId: text('resource_id').primaryKey().references(() => resources.id),
-  version: text('version').notNull(),
-  updatedAt: text('updated_at').notNull(),
-});
-
-/**
- * Internal ciphertext deliberately has no resource foreign key: whole-state replacement rewrites
- * resource rows while leaving envelopes untouched.
- */
-export const secretEnvelopes = sqliteTable('secret_envelopes', {
-  resourceId: text('resource_id').primaryKey(),
-  ciphertext: text('ciphertext').notNull(),
-  nonce: text('nonce').notNull(),
-  tag: text('tag').notNull(),
-  version: text('version').notNull(),
-  updatedAt: text('updated_at').notNull(),
-});
-
-export const runtimePrivateMetadata = sqliteTable(
-  'runtime_private_metadata',
-  {
-    runtime: text('runtime').notNull(),
-    resourceId: text('resource_id').notNull().references(() => resources.id),
-    version: text('version').notNull(),
-    updatedAt: text('updated_at').notNull(),
-  },
-  (table) => [primaryKey({ columns: [table.runtime, table.resourceId] })],
-);
-
 /** The log's order is stored rather than inferred, so a read returns the events in the order they were recorded. */
 export const audit = sqliteTable('audit', {
   seq: integer('seq').primaryKey(),

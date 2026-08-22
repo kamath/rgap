@@ -16,13 +16,11 @@ import {
   type Permission,
   type RecordId,
   type Resource,
-  type RuntimePrivateMetadata,
   type RgapCommands,
   type RgapRepository,
   type RgapStore,
   type Token,
   type TokenValue,
-  type SecretMetadata,
 } from '@rgap/core';
 import {
   authorize,
@@ -30,13 +28,10 @@ import {
   createResource,
   deleteExecutable,
   deleteResource,
-  deleteSecret,
   getExecutable,
   getExecutableRevision,
   getGrant,
   getResource,
-  getRuntimePrivateMetadata,
-  getSecretMetadata,
   getToken,
   inspectToken,
   issueToken,
@@ -50,7 +45,6 @@ import {
   revokeGrant,
   revokeToken,
   setCapabilities,
-  writeSecret,
   listExecutableRevisions,
 } from './client/generated/sdk.gen';
 import { createClient, type Client } from './client/generated/client';
@@ -62,8 +56,6 @@ import type {
   ExecutableRevision as HttpExecutableRevision,
   Grant as HttpGrant,
   Resource as HttpResource,
-  RuntimePrivateMetadata as HttpRuntimePrivateMetadata,
-  SecretMetadata as HttpSecretMetadata,
   Token as HttpToken,
 } from './client/generated/types.gen';
 
@@ -194,27 +186,6 @@ class HttpRgapCommands implements RgapCommands {
 
   async deleteExecutable(id: ReturnType<typeof resourceId>) {
     unwrap<void>(await deleteExecutable(this.options({ path: { id } })));
-  }
-
-  async getSecretMetadata(id: ReturnType<typeof resourceId>) {
-    const result = await getSecretMetadata(this.options({ path: { id } }));
-    return result.response?.status === 404 ? undefined : asSecretMetadata(unwrap(result));
-  }
-
-  async writeSecret(id: ReturnType<typeof resourceId>, value: string) {
-    return asSecretMetadata(unwrap(await writeSecret(this.options({
-      path: { id },
-      body: { value },
-    }))));
-  }
-
-  async deleteSecret(id: ReturnType<typeof resourceId>) {
-    unwrap<void>(await deleteSecret(this.options({ path: { id } })));
-  }
-
-  async getRuntimePrivateMetadata(runtime: string, id: ReturnType<typeof resourceId>) {
-    const result = await getRuntimePrivateMetadata(this.options({ path: { id, runtime } }));
-    return result.response?.status === 404 ? undefined : asRuntimePrivateMetadata(unwrap(result));
   }
 
   invoke(id: ReturnType<typeof resourceId>, input: Parameters<RgapCommands['invoke']>[1]) {
@@ -401,14 +372,6 @@ function asExecutableRevision(record: HttpExecutableRevision): ExecutableRevisio
     id: executableRevisionId(record.id),
     resourceId: resourceId(record.resourceId),
   };
-}
-
-function asSecretMetadata(metadata: HttpSecretMetadata): SecretMetadata {
-  return { ...metadata, resourceId: resourceId(metadata.resourceId) };
-}
-
-function asRuntimePrivateMetadata(metadata: HttpRuntimePrivateMetadata): RuntimePrivateMetadata {
-  return { ...metadata, resourceId: resourceId(metadata.resourceId) };
 }
 
 function asInvocationEvent(value: unknown): InvocationEvent {

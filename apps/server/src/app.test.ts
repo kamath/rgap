@@ -3,8 +3,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   resourceId,
   type InvokeRuntime,
-  type RuntimeCredentialStore,
-  type SecretStore,
 } from '@rgap/core';
 import { SqliteRgapStore } from '@rgap/sqlite';
 import { createApp, type AppType } from './app';
@@ -26,10 +24,6 @@ const expectedOperations = [
   'listExecutableRevisions',
   'publishExecutable',
   'deleteExecutable',
-  'getSecretMetadata',
-  'writeSecret',
-  'deleteSecret',
-  'getRuntimePrivateMetadata',
   'invoke',
   'getGrant',
   'listGrants',
@@ -59,50 +53,9 @@ function testApp() {
 }
 
 function executableTestApp() {
-  const versions = new Map<string, number>();
-  const secrets: SecretStore = {
-    async write(id) {
-      const version = (versions.get(id) ?? 0) + 1;
-      versions.set(id, version);
-      return { resourceId: id, version: String(version), updatedAt: new Date().toISOString() };
-    },
-    async delete(id) {
-      versions.delete(id);
-    },
-    async handle(id) {
-      return { resourceId: id, kind: 'secret' };
-    },
-    async resolve() {
-      return 'protected';
-    },
-  };
-  const credentials = new Map<string, number>();
-  const credentialStore: RuntimeCredentialStore = {
-    async metadata(runtime, id) {
-      const version = credentials.get(`${runtime}:${id}`);
-      return version === undefined ? undefined : {
-        runtime, resourceId: id, version: String(version), updatedAt: new Date().toISOString(),
-      };
-    },
-    async handle(runtime, id) {
-      return credentials.has(`${runtime}:${id}`)
-        ? { runtime, resourceId: id, kind: 'runtime-credential' }
-        : undefined;
-    },
-    async write(runtime, id) {
-      const key = `${runtime}:${id}`;
-      const version = (credentials.get(key) ?? 0) + 1;
-      credentials.set(key, version);
-      return { runtime, resourceId: id, version: String(version), updatedAt: new Date().toISOString() };
-    },
-    async delete(runtime, id) {
-      credentials.delete(`${runtime}:${id}`);
-    },
-  };
   const runtime: InvokeRuntime = {
     validate() {},
     async *invoke(context) {
-      if (context.bindings.credential) await context.credentials.write('credential', { refreshed: true });
       yield { type: 'data', value: context.input };
       yield { type: 'done' };
     },
@@ -110,8 +63,6 @@ function executableTestApp() {
   store = new SqliteRgapStore({
     runtimes: { test: runtime },
     validator: { validate: () => ({ valid: true }) },
-    secrets,
-    credentials: credentialStore,
   });
   return createApp({ store, adminToken });
 }
@@ -208,7 +159,7 @@ describe('RGAP Hono API', () => {
     }, issued.value)).status).toBe(403);
   });
 
-  it('serves executable, secret metadata, runtime metadata, and NDJSON invocation commands', async () => {
+  it('serves executable commands and NDJSON invocation', async () => {
     const app = executableTestApp();
     const request = (path: string, method: string, body?: unknown, bearer = adminToken) => app.request(path, {
       method,
@@ -222,8 +173,8 @@ describe('RGAP Hono API', () => {
       name: 'echo',
       parentId: null,
     })).json() as { id: string };
-    const credential = await (await request('/resources', 'POST', {
-      name: 'credential',
+    const source = await (await request('/resources', 'POST', {
+      name: 'source',
       parentId: null,
     })).json() as { id: string };
     const publication = {
@@ -232,7 +183,7 @@ describe('RGAP Hono API', () => {
       inputSchema: true,
       outputSchema: true,
       bindingSchema: {
-        credential: { kind: 'runtime-private', access: 'write' },
+        source: { kind: 'document' },
       },
       limits: { timeoutMs: 1000 },
     };
@@ -252,44 +203,14 @@ describe('RGAP Hono API', () => {
     expect(await (await request(`/resources/${executable.id}/executable/revisions`, 'GET')).json())
       .toHaveLength(1);
 
-    const secretWriterGrant = await (await request('/grants', 'POST', {
-      name: 'secret writer',
-      parentId: null,
-      capabilities: [{ resourceId: credential.id, permissions: ['write'] }],
-      expiresAt: null,
-    })).json() as { id: string };
-    const secretWriter = await (await request(`/grants/${secretWriterGrant.id}/tokens`, 'POST', {
-      label: 'secret writer',
-    })).json() as { value: string };
-    const secretValue = 'must-never-be-returned';
-    const secretResponse = await request(`/resources/${credential.id}/secret`, 'PUT', {
-      value: secretValue,
-    }, secretWriter.value);
-    const secretMetadata = await secretResponse.json() as Record<string, unknown>;
-    expect(secretResponse.status).toBe(200);
-    expect(secretMetadata).toEqual({
-      resourceId: credential.id,
-      version: '1',
-      updatedAt: expect.any(String),
-    });
-    expect(JSON.stringify(secretMetadata)).not.toContain(secretValue);
-    expect((await request(
-      `/resources/${credential.id}/secret`,
-      'GET',
-      undefined,
-      secretWriter.value,
-    )).status).toBe(403);
-    expect(await (await request(`/resources/${credential.id}/secret`, 'GET')).json())
-      .toEqual(secretMetadata);
-
     expect((await request(`/resources/${executable.id}/invoke`, 'POST', {
       input: {},
-      bindings: { credential: credential.id },
+      bindings: { source: source.id },
       signal: {},
     })).status).toBe(400);
     const invoked = await request(`/resources/${executable.id}/invoke`, 'POST', {
       input: { message: 'hello' },
-      bindings: { credential: credential.id },
+      bindings: { source: source.id },
       revisionId: revision.id,
     });
     expect(invoked.status).toBe(200);
@@ -298,15 +219,6 @@ describe('RGAP Hono API', () => {
       { type: 'data', value: { message: 'hello' } },
       { type: 'done' },
     ]);
-    expect(await (await request(
-      `/resources/${credential.id}/runtime-private/test`,
-      'GET',
-    )).json()).toMatchObject({
-      runtime: 'test',
-      resourceId: credential.id,
-      version: '1',
-    });
-
     const readerGrant = await (await request('/grants', 'POST', {
       name: 'reader',
       parentId: null,
@@ -327,11 +239,10 @@ describe('RGAP Hono API', () => {
     expect((await request(
       `/resources/${executable.id}/invoke`,
       'POST',
-      { input: {}, bindings: { credential: credential.id } },
+      { input: {}, bindings: { source: source.id } },
       reader.value,
     )).status).toBe(403);
 
-    expect((await request(`/resources/${credential.id}/secret`, 'DELETE')).status).toBe(204);
     expect((await request(`/resources/${executable.id}/executable`, 'DELETE')).status).toBe(204);
     expect((await request(`/resources/${executable.id}/executable`, 'GET')).status).toBe(200);
   });
@@ -455,7 +366,6 @@ describe('RGAP Hono API', () => {
     });
     const admin = remote.admin();
     const executable = await admin.resources.create({ name: 'remote-echo' });
-    const secret = await admin.resources.create({ name: 'remote-secret' });
     const revision = await executable.executable.publish({
       runtime: 'test',
       program: { operation: 'echo' },
@@ -467,11 +377,6 @@ describe('RGAP Hono API', () => {
 
     expect((await executable.executable.get())?.activeRevisionId).toBe(revision.id);
     expect((await executable.executable.revisions()).map(({ id }) => id)).toEqual([revision.id]);
-    expect(await secret.secret.write('remote-value')).toMatchObject({
-      resourceId: secret.id,
-      version: '1',
-    });
-    expect(await secret.secret.metadata()).toMatchObject({ resourceId: secret.id });
     const events = [];
     for await (const event of executable.invoke({ input: { remote: true }, revisionId: revision.id })) {
       events.push(event);
@@ -480,7 +385,6 @@ describe('RGAP Hono API', () => {
       { type: 'data', value: { remote: true } },
       { type: 'done' },
     ]);
-    await secret.secret.delete();
     await executable.executable.delete();
   });
 

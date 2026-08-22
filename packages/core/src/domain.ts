@@ -30,11 +30,8 @@ export const executableRevisionId = (id: string): ExecutableRevisionId => id as 
 /** JSON Schema is either a boolean schema or a JSON-compatible schema object. */
 export type JsonSchema = boolean | Readonly<Record<string, unknown>>;
 
-export type BindingKind = 'resource' | 'secret' | 'runtime-private';
 export type BindingSlot = {
-  kind: BindingKind;
-  /** Every binding requires `use`; `write` additionally requires `write`. */
-  access: 'use' | 'write';
+  kind: string;
   required?: boolean;
 };
 
@@ -67,21 +64,6 @@ export type ExecutableRevision = {
   bindingSchema: Record<string, BindingSlot>;
   limits: ExecutionLimits;
   createdAt: string;
-};
-
-/** Public information about a protected value. It never includes that value. */
-export type SecretMetadata = {
-  resourceId: ResourceId;
-  version: string;
-  updatedAt: string;
-};
-
-/** Public information about credential state owned by one registered runtime. */
-export type RuntimePrivateMetadata = {
-  runtime: string;
-  resourceId: ResourceId;
-  version: string;
-  updatedAt: string;
 };
 
 export type Resource = {
@@ -137,8 +119,6 @@ export type State = {
   tokens: Record<string, Token>;
   executables: Record<string, ExecutableDefinition>;
   executableRevisions: Record<string, ExecutableRevision>;
-  secretMetadata: Record<string, SecretMetadata>;
-  runtimePrivateMetadata: Record<string, RuntimePrivateMetadata>;
   audit: AuditEvent[];
 };
 
@@ -262,16 +242,6 @@ export function stateIntegrity(state: State) {
   Object.values(state.executableRevisions).forEach((revision) => {
     if (!state.resources[revision.resourceId]) {
       problems.push(`Executable revision ${revision.id} refers to missing resource ${revision.resourceId}.`);
-    }
-  });
-  Object.values(state.secretMetadata).forEach((metadata) => {
-    if (!state.resources[metadata.resourceId]) {
-      problems.push(`Secret metadata refers to missing resource ${metadata.resourceId}.`);
-    }
-  });
-  Object.values(state.runtimePrivateMetadata).forEach((metadata) => {
-    if (!state.resources[metadata.resourceId]) {
-      problems.push(`Runtime-private metadata refers to missing resource ${metadata.resourceId}.`);
     }
   });
   return problems;

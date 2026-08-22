@@ -35,8 +35,7 @@ export const JsonSchemaSchema = z.union([
 ]).openapi('JsonSchema');
 
 export const BindingSlotSchema = z.object({
-  kind: z.enum(['resource', 'secret', 'runtime-private']),
-  access: z.enum(['use', 'write']),
+  kind: z.string().min(1),
   required: z.boolean().optional(),
 }).strict().openapi('BindingSlot');
 
@@ -67,28 +66,6 @@ export const PublishExecutableSchema = ExecutableRevisionSchema.omit({
   resourceId: true,
   createdAt: true,
 }).strict();
-
-export const SecretMetadataSchema = z.object({
-  resourceId: IdSchema,
-  version: z.string(),
-  updatedAt: TimestampSchema,
-}).openapi('SecretMetadata');
-
-export const SecretWriteSchema = z.object({
-  value: z.string(),
-}).strict();
-
-export const RuntimePrivateMetadataSchema = z.object({
-  runtime: z.string(),
-  resourceId: IdSchema,
-  version: z.string(),
-  updatedAt: TimestampSchema,
-}).openapi('RuntimePrivateMetadata');
-
-export const RuntimeMetadataParamsSchema = z.object({
-  id: IdSchema.openapi({ param: { name: 'id', in: 'path' } }),
-  runtime: z.string().min(1).openapi({ param: { name: 'runtime', in: 'path' } }),
-});
 
 export const InvokeSchema = z.object({
   input: JsonValueSchema,

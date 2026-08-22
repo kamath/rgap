@@ -33,8 +33,6 @@ export function fixture(): State {
     },
     executables: {},
     executableRevisions: {},
-    secretMetadata: {},
-    runtimePrivateMetadata: {},
     audit: [],
   };
 }
@@ -104,13 +102,6 @@ export function stubCommands(state: State, at: string) {
       ...input, id: executableRevisionId('revision'), resourceId: id, createdAt: at,
     }),
     deleteExecutable: (id) => record('deleteExecutable', [id], undefined),
-    getSecretMetadata: (id) => Promise.resolve(state.secretMetadata[id]),
-    writeSecret: (id, value) => record('writeSecret', [id, value], {
-      resourceId: id, version: 'version', updatedAt: at,
-    }),
-    deleteSecret: (id) => record('deleteSecret', [id], undefined),
-    getRuntimePrivateMetadata: (runtime, id) =>
-      Promise.resolve(state.runtimePrivateMetadata[`${runtime}\u0000${id}`]),
     invoke: (id, input) => {
       calls.push({ method: 'invoke', args: [id, input] });
       return (async function* () {

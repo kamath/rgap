@@ -10,8 +10,6 @@ import {
   type JsonSchema,
   type Permission,
   type ResourceId,
-  type RuntimePrivateMetadata,
-  type SecretMetadata,
   type State,
 } from './domain';
 import {
@@ -19,10 +17,6 @@ import {
   type InvocationEvent,
   type JsonSchemaValidator,
   type RuntimeBinding,
-  type RuntimeCredentialStore,
-  type RuntimePrivateState,
-  type RuntimeSecrets,
-  type SecretStore,
 } from './runtime';
 
 export type PublishExecutableInput = Omit<ExecutableRevision, 'id' | 'resourceId' | 'createdAt'>;
@@ -71,11 +65,14 @@ export function validateExecutableRevision(input: PublishExecutableInput) {
   }
   for (const [name, slot] of Object.entries(input.bindingSchema)) {
     if (!name.trim()) throw new RgapError('invalid_binding_schema', 'Binding names are required.');
-    if (!['resource', 'secret', 'runtime-private'].includes(slot.kind)) {
-      throw new RgapError('invalid_binding_schema', `Binding ${name} has an unknown kind.`);
+    if (Object.keys(slot).some((key) => key !== 'kind' && key !== 'required')) {
+      throw new RgapError('invalid_binding_schema', `Binding ${name} contains an unsupported property.`);
     }
-    if (slot.access !== 'use' && slot.access !== 'write') {
-      throw new RgapError('invalid_binding_schema', `Binding ${name} has an unknown access mode.`);
+    if (typeof slot.kind !== 'string' || !slot.kind.trim()) {
+      throw new RgapError('invalid_binding_schema', `Binding ${name} requires a kind.`);
+    }
+    if (slot.required !== undefined && typeof slot.required !== 'boolean') {
+      throw new RgapError('invalid_binding_schema', `Binding ${name} has an invalid required flag.`);
     }
   }
 }
@@ -135,28 +132,6 @@ export function deleteExecutable(state: State, resourceId: ResourceId, at: strin
   return next;
 }
 
-export function recordSecretMetadata(state: State, metadata: SecretMetadata) {
-  if (!isLive(state.resources[metadata.resourceId])) throw new RgapError('missing_resource', 'Resource does not exist.');
-  const next = cloned(state);
-  next.secretMetadata[metadata.resourceId] = cloned(metadata);
-  return next;
-}
-
-export function deleteSecretMetadata(state: State, resourceId: ResourceId) {
-  const next = cloned(state);
-  delete next.secretMetadata[resourceId];
-  return next;
-}
-
-export function recordRuntimePrivateMetadata(state: State, metadata: RuntimePrivateMetadata) {
-  if (!isLive(state.resources[metadata.resourceId])) throw new RgapError('missing_resource', 'Resource does not exist.');
-  const next = cloned(state);
-  next.runtimePrivateMetadata[runtimeMetadataKey(metadata.runtime, metadata.resourceId)] = cloned(metadata);
-  return next;
-}
-
-export const runtimeMetadataKey = (runtime: string, resourceId: ResourceId) => `${runtime}\u0000${resourceId}`;
-
 export function assertJsonSchema(
   validator: JsonSchemaValidator,
   schema: JsonSchema,
@@ -167,7 +142,7 @@ export function assertJsonSchema(
   if (!result.valid) throw new RgapError('schema_validation', `${subject}: ${result.errors.join('; ')}`);
 }
 
-/** Validates exact slot names and required slots without touching credentials. */
+/** Validates exact slot names and required slots. */
 export function validateBindings(
   schema: Readonly<Record<string, BindingSlot>>,
   supplied: Readonly<Record<string, ResourceId>>,
@@ -211,12 +186,10 @@ export type InvocationServices = {
   runtimes: RuntimeRegistry;
   validator: JsonSchemaValidator;
   runtimeLimits(runtime: string): ExecutionLimits;
-  secrets: SecretStore;
-  credentials: RuntimeCredentialStore;
   recordInvocation(record: InvocationRecord): Promise<void>;
 };
 
-/** Audit-safe invocation facts. Inputs, outputs, handles, and credential values are absent. */
+/** Audit-safe invocation facts. Input and output values are absent. */
 export type InvocationRecord = {
   resourceId: ResourceId;
   revisionId: ExecutableRevisionId;
@@ -228,51 +201,8 @@ export type InvocationRecord = {
   result: 'done' | 'error' | 'cancelled';
 };
 
-function scopedPrivateState(
-  runtime: string,
-  schema: Readonly<Record<string, BindingSlot>>,
-  supplied: Readonly<Record<string, ResourceId>>,
-  store: RuntimeCredentialStore,
-): RuntimePrivateState {
-  const resourceFor = (slotName: string, write: boolean) => {
-    const slot = schema[slotName];
-    const resourceId = supplied[slotName];
-    if (!slot || slot.kind !== 'runtime-private' || !resourceId) {
-      throw new RgapError('invalid_binding', `Binding ${slotName} is not runtime-private.`);
-    }
-    if (write && slot.access !== 'write') {
-      throw new RgapError('unauthorized', `Binding ${slotName} does not permit credential mutation.`);
-    }
-    return resourceId;
-  };
-  return {
-    metadata: (slot) => store.metadata(runtime, resourceFor(slot, false)),
-    handle: (slot) => store.handle(runtime, resourceFor(slot, false)),
-    write: (slot, value) => store.write(runtime, resourceFor(slot, true), value),
-    delete: (slot) => store.delete(runtime, resourceFor(slot, true)),
-  };
-}
-
-function scopedSecrets(
-  schema: Readonly<Record<string, BindingSlot>>,
-  supplied: Readonly<Record<string, ResourceId>>,
-  store: SecretStore,
-): RuntimeSecrets {
-  return {
-    resolve(slotName) {
-      const slot = schema[slotName];
-      const resourceId = supplied[slotName];
-      if (!slot || slot.kind !== 'secret' || !resourceId) {
-        throw new RgapError('invalid_binding', `Binding ${slotName} is not a secret.`);
-      }
-      return store.resolve(resourceId);
-    },
-  };
-}
-
 /**
- * Resolves, authorizes, validates, and invokes one immutable revision. Authorization finishes
- * before any secret or runtime-private handle is requested.
+ * Resolves, authorizes, validates, and invokes one immutable revision.
  */
 export async function* invokeExecutable(
   services: InvocationServices,
@@ -292,9 +222,8 @@ export async function* invokeExecutable(
   assertJsonSchema(services.validator, revision.inputSchema, input.input, 'Invocation input is invalid');
   const supplied = input.bindings ?? {};
   validateBindings(revision.bindingSchema, supplied);
-  for (const [name, boundId] of Object.entries(supplied)) {
+  for (const boundId of Object.values(supplied)) {
     await services.authorize(boundId, 'use');
-    if (revision.bindingSchema[name].access === 'write') await services.authorize(boundId, 'write');
   }
 
   const runtime = services.runtimes.get(revision.runtime);
@@ -303,11 +232,7 @@ export async function* invokeExecutable(
   const bindings: Record<string, RuntimeBinding> = {};
   for (const [name, boundId] of Object.entries(supplied)) {
     const slot = revision.bindingSchema[name];
-    bindings[name] = { resourceId: boundId, kind: slot.kind, access: slot.access };
-    if (slot.kind === 'secret') bindings[name].secret = await services.secrets.handle(boundId);
-    if (slot.kind === 'runtime-private') {
-      bindings[name].credential = await services.credentials.handle(revision.runtime, boundId);
-    }
+    bindings[name] = { resourceId: boundId, kind: slot.kind };
   }
 
   const controller = new AbortController();
@@ -320,15 +245,13 @@ export async function* invokeExecutable(
     bindings,
     limits,
     signal: controller.signal,
-    secrets: scopedSecrets(revision.bindingSchema, supplied, services.secrets),
-    credentials: scopedPrivateState(revision.runtime, revision.bindingSchema, supplied, services.credentials),
   };
   const startedAt = new Date().toISOString();
   let result: InvocationRecord['result'] = 'error';
   let exhausted = false;
   try {
     for await (const event of runtime.invoke(context)) {
-      if (event.type === 'data' && revision.outputSchema) {
+      if (event.type === 'data' && revision.outputSchema !== null) {
         assertJsonSchema(services.validator, revision.outputSchema, event.value, 'Runtime output is invalid');
       }
       if (event.type === 'done') result = 'done';
