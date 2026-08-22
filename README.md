@@ -147,6 +147,7 @@ Revisions are immutable. Creating an executable publishes its first revision, up
 The runtime name selects a host-registered implementation. RGAP does not define fetch, GraphQL, MCP, or a programming language as special execution paths:
 
 ```ts
+// These runtime classes are deployment-supplied examples, not built into RGAP.
 const store = new SqliteRgapStore({
   url: 'rgap.db',
   runtimes: {
@@ -192,7 +193,7 @@ await oauthComplete.invoke({
 
 Client ID and client secret are protected values attached to ordinary resources. The connection is another resource with runtime-private credential state. Only the owning runtime can interpret that state, and executable programs cannot declare token extraction or arbitrary secret writes.
 
-Fetch, GraphQL, MCP, provider-specific OAuth, and application-specific wrappers share executable CRUD, immutable revisions, invocation authorization, bindings, limits, streaming events, and auditing. RGAP adds a runtime only when an execution mechanism requires a distinct trusted implementation; it does not add a domain collection for each protocol.
+Deployment-supplied fetch, GraphQL, MCP, provider-specific OAuth, and application-specific wrappers share executable CRUD, immutable revisions, invocation authorization, bindings, limits, streaming events, and auditing. RGAP adds a runtime only when an execution mechanism requires a distinct trusted implementation; it does not add a domain collection for each protocol. The repository includes the generic registry and orchestration boundary, not built-in provider runtimes.
 
 ## Bindings and secrets
 
@@ -224,7 +225,7 @@ Secret writes and rotations require `write` on the resource. Secret reads return
 
 Trusted runtimes may materialize a secret handle only at a controlled sink, such as an allowed HTTP header, OAuth token exchange, MCP connection, or GraphQL transport. Sandboxed programs receive opaque handles and cannot materialize secret values. Runtime implementations are trusted deployment code; granting a runtime access to the secret resolver places that runtime inside the secret-handling boundary.
 
-A runtime may also own private credential state attached to a binding resource. The runtime context permits that runtime to atomically create, replace, and clear its state when the binding schema grants the required `write` access, and to use it when the schema grants `use`. Repository reads expose only non-secret metadata. Another runtime and an executable program cannot read or modify the private state.
+A runtime may also own private credential state attached to a binding resource. The runtime context permits that runtime to create, replace, and clear its state when the binding schema grants the required `write` access, and to use it when the schema grants `use`. Repository reads expose only non-secret metadata. Another runtime and an executable program cannot read or modify the private state.
 
 Bindings are checked independently from the executable. A caller must hold `invoke` on the executable resource and `use` on every resource supplied as a binding. Runtime destination and audience policies are applied before a credential is materialized.
 
@@ -326,11 +327,11 @@ The repository contains four workspace packages:
 - `@rgap/server` exposes the repository as a Hono HTTP API.
 - `@rgap/examples` is an executable scratchpad for exploring the model.
 
-`@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, and asynchronous `RgapStore` and `RgapRepository` contracts. Identities in that TypeScript surface are branded (`ResourceId`, `GrantId`, `TokenId`, `TokenValue`, `TokenHash`); they serialize as ordinary strings. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. `as` takes a `TokenValue`. Neither contract exposes a subscription or requires a streaming transport. The package has no dependency on a storage implementation or transport.
+`@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, executable orchestration, runtime and protected-store contracts, and asynchronous `RgapStore` and `RgapRepository` contracts. Identities in that TypeScript surface are branded (`ResourceId`, `GrantId`, `TokenId`, `TokenValue`, `TokenHash`, `ExecutableRevisionId`); they serialize as ordinary strings. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. `as` takes a `TokenValue`. Ordinary commands are request-response methods; `resource.invoke` and `repository.invoke` stream `InvocationEvent` values through an `AsyncIterable`. The package has no dependency on a storage implementation or transport.
 
-A repository is the request-response interface returned by `as` or `admin`. It exposes collections, looks up existing records, reads current state, and answers decision queries. Creating a grant or a resource is one command; the parent is an argument. TypeScript fills that argument from the receiver so the caller does not pass it.
+A repository is the command interface returned by `as` or `admin`. It exposes request-response collections and decision queries plus streaming invocation. Creating a grant or a resource is one command; the parent is an argument. TypeScript fills that argument from the receiver so the caller does not pass it.
 
-A resource root comes from `resources.create`; a resource child comes from the parent handle. A grant's collection create mints the grant this plane may create: a root on the administrative plane, a child of the acting grant on a token plane. `grant.create` mints a child of that handle, and on a token plane that call is allowed only when the handle is the acting grant.
+A resource root comes from `resources.create`; a resource child comes from the parent handle. A grant's collection create mints the grant this plane may create: a root on the administrative plane, a child of the acting grant on a token plane. `grant.create` mints a child of that handle, and on a token plane that call is allowed only when the handle is the acting grant. Resource handles also expose `executable`, `secret`, runtime-private metadata, and `invoke`; equivalent repository-level operations are available under `executables`, `secrets`, `runtimePrivateMetadata`, and `invoke`.
 
 ```ts
 const acme = await admin.resources.create({ name: 'acme' });
@@ -411,6 +412,16 @@ The OpenAPI `operationId` in the right column is the generated HeyAPI function n
 | `POST /resources` | `{ name, parentId }` | `Resource` | `createResource` |
 | `POST /resources/{id}/move` | path `id`, body `{ parentId }` | `Resource` | `moveResource` |
 | `DELETE /resources/{id}` | path `id` | no body | `deleteResource` |
+| `GET /resources/{id}/executable` | path `id` | `ExecutableDefinition` | `getExecutable` |
+| `GET /resources/{id}/executable/revisions` | path `id` | `ExecutableRevision[]` | `listExecutableRevisions` |
+| `GET /executable-revisions/{id}` | path `id` | `ExecutableRevision` | `getExecutableRevision` |
+| `POST /resources/{id}/executable/revisions` | path `id`, revision body | `ExecutableRevision` | `publishExecutable` |
+| `DELETE /resources/{id}/executable` | path `id` | no body | `deleteExecutable` |
+| `GET /resources/{id}/secret` | path `id` | `SecretMetadata` | `getSecretMetadata` |
+| `PUT /resources/{id}/secret` | path `id`, body `{ value }` | `SecretMetadata` | `writeSecret` |
+| `DELETE /resources/{id}/secret` | path `id` | no body | `deleteSecret` |
+| `GET /resources/{id}/runtime-private/{runtime}` | path `id`, `runtime` | `RuntimePrivateMetadata` | `getRuntimePrivateMetadata` |
+| `POST /resources/{id}/invoke` | path `id`, body `{ input, bindings?, revisionId? }` | NDJSON `InvocationEvent` stream | `invoke` |
 | `GET /grants/{id}` | path `id` | `Grant` | `getGrant` |
 | `GET /grants` | query `parentId`, `cursor`, `limit` | `Grant[]` | `listGrants` |
 | `POST /grants` | `{ name, parentId, capabilities, expiresAt }` | `Grant` | `createGrant` |
@@ -425,13 +436,13 @@ The OpenAPI `operationId` in the right column is the generated HeyAPI function n
 | `POST /tokens/inspect` | `{ token }` | `AuthorityView` | `inspectToken` |
 | `POST /reset` | no body | no body | `reset` |
 
-`authorize` and `inspectToken` evaluate the bearer supplied in their JSON body while the authorization header selects the repository plane. Successful responses are the JSON-compatible `@rgap/core` records, arrays, decisions, and authority views shown in the table. Commands that return no value respond with status `204`. Input validation failures use status `400`, an invalid or missing authorization bearer uses status `401`, an operation outside the selected plane uses status `403`, a missing record uses status `404`, and other domain conflicts use status `409`.
+`authorize` and `inspectToken` evaluate the bearer supplied in their JSON body while the authorization header selects the repository plane. Successful non-invocation responses are the JSON-compatible `@rgap/core` records, arrays, decisions, and authority views shown in the table. Invoke responds as `application/x-ndjson`, with one `data`, `error`, or `done` event per line, and propagates HTTP cancellation to the runtime. Commands that return no value respond with status `204`. Input validation failures use status `400`, an invalid or missing authorization bearer uses status `401`, an operation outside the selected plane uses status `403`, a missing record uses status `404`, and other domain conflicts use status `409`.
 
 Each route is declared once with `@hono/zod-openapi`. Its Zod schemas validate path parameters, query parameters, headers, and JSON bodies at runtime and describe every success and error response. Hono derives the RPC `AppType` from the same chained route definitions, and the application publishes the generated OpenAPI document at `/openapi.json`. The public `/ui` route serves Swagger UI configured to load that document. Documentation routes are not command operations and do not add functions to either typed client.
 
 The server package generates `openapi.json` from the application and runs HeyAPI against that document. HeyAPI writes a fetch-based TypeScript SDK and its model types to `apps/server/src/client/generated`. Git ignores both generated outputs, and package commands regenerate them from the route declarations before they are consumed. The route declarations are the source of truth for runtime behavior, the OpenAPI contract, the Hono RPC client, and the HeyAPI SDK. The generated SDK has exactly one function for each row in the table, named by its `operationId`, with no extra API operations.
 
-The package exports the Hono application, `AppType`, generated HeyAPI client, and `HttpRgapStore`. `HttpRgapStore` implements `RgapStore` over the generated SDK: `admin()` sends its configured administrative bearer, which also defaults to `test`, while `as(token)` sends that RGAP bearer. It reconstructs the repository handles returned by `@rgap/core`, and maps non-success API responses to `RgapError`. `pnpm --filter @rgap/server generate` refreshes the OpenAPI document and SDK. The package build and test commands generate those artifacts before type-checking or running tests. Its tests exercise validation, authorization-plane selection, OpenAPI generation, Hono RPC calls, generated SDK calls, and the HTTP store against the in-process application.
+The package exports the Hono application, `AppType`, generated HeyAPI client, and `HttpRgapStore`. `HttpRgapStore` implements `RgapStore` over the generated SDK: `admin()` sends its configured administrative bearer, which also defaults to `test`, while `as(token)` sends that RGAP bearer. It reconstructs repository handles, maps non-success API responses to `RgapError`, and uses a streaming fetch reader to parse invoke NDJSON into `AsyncIterable<InvocationEvent>`. `pnpm --filter @rgap/server generate` refreshes the OpenAPI document and SDK. The package build and test commands generate those artifacts before type-checking or running tests. Its tests exercise validation, authorization-plane selection, OpenAPI generation, Hono RPC calls, generated SDK calls, and the HTTP store against the in-process application.
 
 ## SQLite store
 
@@ -440,7 +451,13 @@ The package exports the Hono application, `AppType`, generated HeyAPI client, an
 ```ts
 import { SqliteRgapStore } from '@rgap/sqlite';
 
-const store = new SqliteRgapStore({ url: 'rgap.db' });
+const store = new SqliteRgapStore({
+  url: 'rgap.db',
+  runtimes: deploymentRuntimes,
+  validator: jsonSchemaValidator,
+  secrets: secretStore,
+  credentials: runtimeCredentialStore,
+});
 const admin = store.admin();
 
 const acme = await admin.resources.create({ name: 'acme' });
@@ -460,13 +477,13 @@ const decision = await repository.authorize(value, child.id, 'read');
 store.close();
 ```
 
-The constructor takes an optional `url`, a file path or `:memory:`, and an optional `initialState`, which is what an empty database is initialized with and what `reset()` restores. A database that already holds records is opened as it stands. `close()` releases the connection. Bearer values are returned once and never stored; the `tokens` table holds only hashes.
+The constructor takes an optional `url`, a file path or `:memory:`, and an optional `initialState`, which is what an empty database is initialized with and what `reset()` restores. It also accepts a deployment-owned runtime registry, JSON Schema validator, per-runtime limit ceilings, secret store, and runtime credential store. Missing optional execution services fail only when an operation needs them. A database that already holds records is opened as it stands. `close()` releases the connection. Bearer values are returned once and never stored; the `tokens` table holds only hashes. Protected secret and credential values stay in the injected stores; SQLite holds their public metadata.
 
 `admin()` and `as(token)` return the same `RgapRepository` interface, so callers cannot accidentally switch planes by changing command code. Only the explicit store selection differs.
 
 ### Schema
 
-The store is normalized. Every record the protocol defines is a table, and every reference between records is a foreign key, so a state SQLite accepts is a state whose IDs all resolve.
+The store is normalized. Protocol metadata is represented in tables, and references between records are foreign keys, so a state SQLite accepts is a state whose IDs resolve.
 
 | Table | Holds |
 | --- | --- |
@@ -475,6 +492,10 @@ The store is normalized. Every record the protocol defines is a table, and every
 | `capabilities` | One row per capability entry, keyed by its grant and its position in that grant's set. |
 | `capability_permissions` | One row per permission an entry carries, so a permission set is a relation SQL can query rather than an encoded value. |
 | `tokens` | One row per issued token: stable ID, grant ID, label, hash, expiration, revocation. |
+| `executables` | One executable attachment per resource, with active revision and deletion marker. |
+| `executable_revisions` | Immutable runtime, program, schemas, binding schema, limits, and creation time. |
+| `secret_metadata` | Public secret version and update time; no protected value. |
+| `runtime_private_metadata` | Public credential-state metadata keyed by runtime and resource; no credential value. |
 | `audit` | One row per recorded event, ordered by an explicit sequence number so the log's order is stored rather than inferred. |
 
 Because an entry's permissions are a set, reading returns them in the protocol's canonical permission order rather than the order they were written in.
@@ -483,9 +504,11 @@ The schema is declared once as Drizzle tables, and `drizzle-kit` generates the D
 
 ### Commands and transactions
 
-A command is one SQLite transaction. It reads the complete state, applies the relevant pure `@rgap/core` rule, and replaces the stored rows with the state that rule returns. Nothing observes a partially updated authorization state, and a refused command writes nothing at all, because the rule rejects before the write begins.
+A metadata command is one SQLite transaction. It reads the complete state, applies the relevant pure `@rgap/core` rule, and replaces the stored rows with the state that rule returns. Nothing observes a partially updated authorization state, and a refused pure-state command writes nothing. A secret or runtime-private write first updates its external protected-value store and then commits the returned public metadata to SQLite.
 
 Rows are written parents before children, so the foreign keys hold at every statement rather than only at the end of the transaction.
+
+Invocation authorizes and validates before resolving protected handles, streams runtime events, propagates cancellation, and records a redacted lifecycle event when iteration finishes. The audit detail contains IDs, runtime, timing, and result, but not input, output, secret values, credentials, or handles.
 
 ### Scratchpad
 

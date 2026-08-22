@@ -69,9 +69,10 @@ secrets/
 The deployment registers each trusted runtime once:
 
 ```ts
-const rgap = createRgap({
-  store: sqliteStore('rgap.db'),
+const rgap = new SqliteRgapStore({
+  url: 'rgap.db',
   runtimes: {
+    // Deployment-supplied trusted runtimes; RGAP does not include these classes.
     openai: new OpenAIRuntime({
       allowedOrigins: ['https://api.openai.com'],
     }),
@@ -79,18 +80,23 @@ const rgap = createRgap({
       allowedOrigins: ['https://api.anthropic.com'],
     }),
   },
+  validator: jsonSchemaValidator,
+  secrets: secretStore,
 });
 ```
 
-The RGAP core understands executable versions, input and output schemas, bindings, authorization, limits, and invocation events. A runtime owns its program format, execution, cancellation, and transport-specific behavior.
+The RGAP core understands immutable executable revisions, input and output schemas, bindings, authorization, limits, and invocation events. A deployment-supplied runtime owns its program format, execution, cancellation, and transport-specific behavior.
 
 ## Model executable
 
-An administrator publishes an immutable executable version:
+An administrator creates the resource hierarchy and publishes an immutable executable revision with the actual resource handle API:
 
 ```ts
-const model = await admin.executables.create({
-  path: 'llm/openai/gpt-5',
+const llm = await admin.resources.create({ name: 'llm' });
+const openai = await llm.create({ name: 'openai' });
+const model = await openai.create({ name: 'gpt-5' });
+
+const revision = await model.executable.publish({
   runtime: 'openai',
 
   inputSchema: {
@@ -104,48 +110,45 @@ const model = await admin.executables.create({
   },
 
   bindingSchema: {
-    provider: { kind: 'service', required: true },
+    credential: { kind: 'secret', access: 'use', required: true },
   },
 
   program: {
     operation: 'chat.completions',
     upstreamModel: 'gpt-5',
-    provider: { $binding: 'provider' },
+  },
+
+  outputSchema: null,
+  limits: {
+    timeoutMs: 120_000,
+    outputBytes: 10_000_000,
   },
 });
 ```
 
-The executable does not contain the upstream API key. Its named `provider` slot accepts a compatible service resource.
+The executable does not contain the upstream API key. Its named `credential` slot accepts a protected secret resource.
 
 ## Provider secret
 
 An administrator creates the provider service and writes its credential:
 
 ```ts
-const providerKey = await admin.resources.create({
-  path: 'secrets/openai/company-project-key',
-  kind: 'secret',
-});
+const secrets = await admin.resources.create({ name: 'secrets' });
+const secretOpenai = await secrets.create({ name: 'openai' });
+const providerKey = await secretOpenai.create({ name: 'company-project-key' });
 
-await admin.secrets.write(providerKey.id, {
-  value: process.env.OPENAI_API_KEY!,
-});
+await providerKey.secret.write(process.env.OPENAI_API_KEY!);
 
-const provider = await admin.resources.create({
-  path: 'services/openai/company-project',
-  kind: 'openai-service',
-  config: {
-    origin: 'https://api.openai.com',
-    credential: providerKey.id,
-  },
-});
+const services = await admin.resources.create({ name: 'services' });
+const serviceOpenai = await services.create({ name: 'openai' });
+const provider = await serviceOpenai.create({ name: 'company-project' });
 ```
 
-The secret value is write-only through the RGAP API. Reads return metadata such as its resource ID, version, and update time. A trusted runtime may materialize the value only while exercising the service resource.
+The provider service resource is optional application metadata; it has no special RGAP kind or configuration fields. `OpenAIRuntime` is illustrative host code. The secret value is write-only through the RGAP API. Reads return its resource ID, version, and update time, and the trusted runtime receives only an opaque handle at invocation.
 
 ## Employee grant
 
-An administrator grants an employee model invocation and use of the selected provider service:
+An administrator grants an employee model invocation and use of the selected provider credential:
 
 ```ts
 const alice = await admin.grants.create({
@@ -154,18 +157,9 @@ const alice = await admin.grants.create({
     {
       resourceId: model.id,
       permissions: ['invoke'],
-      executableVersion: model.version,
-      bindings: {
-        provider: provider.id,
-      },
-      constraints: {
-        requestsPerMinute: 60,
-        monthlyTokens: 2_000_000,
-        maxTokensPerRequest: 16_000,
-      },
     },
     {
-      resourceId: provider.id,
+      resourceId: providerKey.id,
       permissions: ['use'],
     },
   ],
@@ -177,7 +171,7 @@ const issued = await alice.tokens.create({
 });
 ```
 
-The host associates Alice's workforce identity with the grant or issued token. RGAP bearer possession remains the protocol authority, so deployments that require stronger attribution issue short-lived tokens through workforce SSO.
+The invoke and use capabilities are separate. The grant contains no executable revision, binding map, or rate-limit object; the gateway supplies bindings at invocation and enforces workforce budgets as host policy. The host associates Alice's workforce identity with the grant or issued token. RGAP bearer possession remains the protocol authority, so deployments that require stronger attribution issue short-lived tokens through workforce SSO.
 
 ## Gateway route
 
@@ -192,17 +186,22 @@ app.post('/v1/chat/completions', async (c) => {
     `llm/openai/${request.model}`,
   );
 
-  const invocation = await rgap
+  const resource = await rgap
     .as(token)
     .resources
-    .get(resourceId)
-    .invoke(request);
+    .get(resourceId);
+  const events = resource.invoke({
+    input: request,
+    bindings: { credential: providerKey.id },
+    revisionId: revision.id,
+    signal: c.req.raw.signal,
+  });
 
-  return invocation.toResponse();
+  return openAiResponseFromEvents(events, request.stream);
 });
 ```
 
-The response adapter preserves OpenAI-compatible JSON, errors, and SSE framing. The invocation remains authorized for a bounded duration, and cancellation of the downstream request cancels the upstream provider request.
+`openAiResponseFromEvents` is an illustrative gateway adapter. The generic RGAP server transports invocation events as NDJSON; this OpenAI-facing application converts those events into OpenAI-compatible JSON, errors, or SSE framing. It passes downstream cancellation to invocation so the runtime can cancel its upstream request.
 
 ## Security and operations
 
@@ -210,11 +209,13 @@ The gateway enforces:
 
 - Model and operation allowlists
 - Input schemas and token limits
-- Per-grant request, concurrency, token, and cost budgets
+- Gateway-owned per-grant request, concurrency, token, and cost budgets
 - Provider destination and credential audience restrictions
 - Maximum stream duration and output size
 - Secret redaction from logs, errors, outputs, and audit details
-- Grant, token, provider, and executable-version revocation
+- Grant, token, provider, and executable deletion or revision selection
 - Usage accounting against the effective grant and token
 
-Prompts and completions are not included in audit records by default. Audit events identify the grant lineage, executable version, provider resource, decision, token usage, latency, and result status.
+Prompts, completions, and protected values are not included in RGAP invocation audit records. Audit events identify the executable resource and revision, runtime, binding resource IDs, timing, and result. Token usage and cost accounting are illustrative gateway records rather than fields in the generic RGAP audit contract.
+
+The `OpenAIRuntime`, `AnthropicRuntime`, provider-resource configuration, OpenAI response adapter, and budget/accounting layer in this document are deployment-supplied illustrative APIs. The executable, secret, binding, authorization, invocation-event, SQLite, and NDJSON foundations are implemented by RGAP.

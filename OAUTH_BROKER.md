@@ -32,10 +32,15 @@ tools/
 The deployment registers the trusted runtime once:
 
 ```ts
-const rgap = createRgap({
+const rgap = new SqliteRgapStore({
+  url: 'rgap.db',
   runtimes: {
+    // Deployment-supplied trusted runtime; RGAP does not include GitHubRuntime.
     github: new GitHubRuntime(),
   },
+  validator: jsonSchemaValidator,
+  secrets: secretStore,
+  credentials: runtimeCredentialStore,
 });
 ```
 
@@ -52,7 +57,7 @@ const github = await admin.resources.create({ name: 'oauth' })
   .then((oauth) => oauth.create({ name: 'github' }));
 
 const initiateResource = await github.create({ name: 'initiate' });
-const initiate = await initiateResource.executable.create({
+const initiate = await initiateResource.executable.publish({
   runtime: 'github',
   inputSchema: {
     type: 'object',
@@ -66,10 +71,12 @@ const initiate = await initiateResource.executable.create({
     scopes: ['repo', 'read:user'],
     redirectUri: 'https://gateway.company.com/oauth/callback',
   },
+  outputSchema: null,
+  limits: {},
 });
 
 const completeResource = await github.create({ name: 'complete' });
-const complete = await completeResource.executable.create({
+const complete = await completeResource.executable.publish({
   runtime: 'github',
   inputSchema: {
     type: 'object',
@@ -78,16 +85,18 @@ const complete = await completeResource.executable.create({
   bindingSchema: {
     clientId: { kind: 'secret', access: 'use' },
     clientSecret: { kind: 'secret', access: 'use' },
-    connection: { kind: 'github-connection', access: 'write' },
+    connection: { kind: 'runtime-private', access: 'write' },
   },
   program: {
     operation: 'oauth.complete',
     redirectUri: 'https://gateway.company.com/oauth/callback',
   },
+  outputSchema: null,
+  limits: {},
 });
 ```
 
-No program declares token response fields or secret writes. The trusted runtime recognizes GitHub's response, stores credential state through the writable connection handle, and returns non-secret metadata only.
+No program declares token response fields or secret writes. The trusted runtime recognizes GitHub's response, stores credential state through the writable connection handle, and returns non-secret metadata only. The broker's acting RGAP token needs `invoke` on the selected operation, `use` on every supplied binding, and `write` on the connection because that slot has `access: 'write'`.
 
 ## Beginning authorization
 
@@ -103,7 +112,8 @@ app.get('/oauth/connect/:provider', async (c) => {
     pkce: true,
   });
 
-  const events = await initiateExecutable.invoke({
+  const initiateExecutable = await rgap.as(brokerToken).resources.get(initiateResource.id);
+  const events = initiateExecutable.invoke({
     input: {
       state: pending.state,
       pkceChallenge: pending.pkceChallenge,
@@ -141,7 +151,8 @@ app.get('/oauth/callback', async (c) => {
   });
 
   const connection = await createConnectionResources(employee.id, 'github');
-  const events = await completeExecutable.invoke({
+  const completeExecutable = await rgap.as(brokerToken).resources.get(completeResource.id);
+  const events = completeExecutable.invoke({
     input: {
       code: c.req.query('code')!,
       state: pending.state,
@@ -170,10 +181,10 @@ Connection creation uses the ordinary resource API:
 const connection = await aliceConnections.create({ name: 'github' });
 ```
 
-The connection begins without credential state. The GitHub runtime exchanges the code, validates the response, and atomically replaces the runtime-private state attached to the connection resource:
+The connection begins without credential state. The GitHub runtime exchanges the code, validates the response, and writes runtime-private state attached to the connection resource:
 
 ```ts
-await context.credentials.replace(connection, {
+await context.credentials.write('connection', {
   accessToken: response.access_token,
   refreshToken: response.refresh_token,
   scopes: response.scope,
@@ -188,8 +199,10 @@ await context.credentials.replace(connection, {
 An administrator publishes a GitHub operation that expects the runtime-owned connection:
 
 ```ts
-const createIssue = await admin.executables.create({
-  path: 'tools/github/create-issue',
+const tools = await admin.resources.create({ name: 'tools' });
+const githubTools = await tools.create({ name: 'github' });
+const createIssueResource = await githubTools.create({ name: 'create-issue' });
+const createIssue = await createIssueResource.executable.publish({
   runtime: 'github',
 
   inputSchema: {
@@ -206,11 +219,11 @@ const createIssue = await admin.executables.create({
   bindingSchema: {
     clientId: { kind: 'secret', access: 'use' },
     clientSecret: { kind: 'secret', access: 'use' },
-    connection: { kind: 'github-connection', access: 'use' },
+    connection: { kind: 'runtime-private', access: 'write' },
   },
 
   program: {
-    operation: 'fetch',
+    operation: 'api.createIssue',
     method: 'POST',
     path: {
       template: '/repos/{owner}/{repo}/issues',
@@ -224,10 +237,12 @@ const createIssue = await admin.executables.create({
       body: { $input: '/body' },
     },
   },
+  outputSchema: null,
+  limits: {},
 });
 ```
 
-The executable defines the allowed GitHub operation but not an arbitrary origin or authorization header. The runtime restricts requests to GitHub, refreshes the connection when necessary, and injects the access token internally.
+The executable defines the allowed GitHub operation but not an arbitrary origin or authorization header. `api.createIssue` is an illustrative program understood by the deployment's `GitHubRuntime`; it is not a generic fetch runtime. The runtime restricts requests to GitHub, refreshes the connection when necessary, and injects the access token internally.
 
 ## Grant binding
 
@@ -236,7 +251,7 @@ The employee's grant authorizes the executable and use of the client and connect
 ```ts
 await aliceGrant.capabilities.set([
   {
-    resourceId: createIssue.id,
+    resourceId: createIssueResource.id,
     permissions: ['invoke'],
   },
   {
@@ -249,12 +264,12 @@ await aliceGrant.capabilities.set([
   },
   {
     resourceId: connection.id,
-    permissions: ['use'],
+    permissions: ['use', 'write'],
   },
 ]);
 ```
 
-The invocation supplies the exact connection resource as a binding, and RGAP authorizes it independently. Delegated child grants may narrow executable access, connection access, repositories, rate limits, or expiration, but cannot expand beyond the parent grant.
+The invocation supplies the exact connection resource as a binding, and RGAP authorizes it independently. The grant carries separate `invoke`, `use`, and `write` authority; it does not embed the binding map. This operation declares a writable connection because token refresh may rotate runtime-private state. A read-only provider operation can declare `access: 'use'` and omit `write`. Delegated child grants may narrow executable access, connection access, or expiration but cannot expand beyond the parent grant. Repository- and rate-limit policy in this example belongs to `GitHubRuntime` or the broker, not to capability fields.
 
 ## Invocation
 
@@ -263,7 +278,8 @@ The employee invokes the operation with their RGAP token:
 ```ts
 const alice = rgap.as(aliceToken);
 
-await alice.resources.get(createIssue.id).invoke({
+const createIssueExecutable = await alice.resources.get(createIssueResource.id);
+await createIssueExecutable.invoke({
   input: {
     owner: 'acme',
     repo: 'app',
@@ -279,9 +295,9 @@ await alice.resources.get(createIssue.id).invoke({
 
 Invocation performs:
 
-1. Authorization of `invoke` on the exact executable version.
+1. Resolution of the selected or active immutable revision and authorization of `invoke` on its resource.
 2. Input validation.
-3. Resolution and `use` authorization of the client and connection bindings.
+3. Resolution and `use` authorization of the client and connection bindings, plus `write` when a declared slot is writable.
 4. Validation of the GitHub operation and destination by the runtime.
 5. Access-token refresh through the runtime-private connection state when necessary.
 6. Credential injection by the runtime.
@@ -289,15 +305,17 @@ Invocation performs:
 
 ## Connection state
 
-The connection resource exposes non-secret metadata such as provider, scopes, account identity, expiry, and update time. Its runtime-private state contains provider credentials and is readable only by the GitHub runtime.
+RGAP exposes runtime-private metadata containing only runtime name, resource ID, version, and update time. The broker may separately return provider, scopes, account identity, and expiry as non-secret application data. Runtime-private state contains provider credentials and is accessible only through the GitHub runtime's scoped handles.
 
-The runtime refreshes an expired access token as part of `fetch`, atomically stores rotated credentials, and continues the original request. Public invocation events contain API results and connection status metadata, never access or refresh tokens.
+The runtime refreshes an expired access token as part of the provider operation, stores rotated credentials through `context.credentials.write`, and continues the original request. Public invocation events contain API results and connection status metadata, never access or refresh tokens.
 
 ## Revocation and lifecycle
 
 Revoking the RGAP grant or token prevents new invocations immediately. Disconnecting invokes the GitHub runtime's ordinary `oauth.revoke` executable when supported, clears the runtime-private credential state, and deletes the connection resource.
 
 An upstream access token already issued to the trusted runtime may remain valid at the provider until its expiry or provider-side revocation. The broker bounds that exposure with short access-token lifetimes, request cancellation, restricted audiences, and mediated invocation.
+
+`GitHubRuntime`, pending-authorization storage, `createConnectionResources`, `singleValue`, and the broker's HTTP routes are deployment-supplied illustrative APIs. RGAP implements the generic executable publish, binding authorization, protected metadata, runtime-private state boundary, invocation events, and audit model. No fetch-runtime OAuth path or invocation `secretWrites` response is part of this design.
 
 ## Security requirements
 

@@ -2,17 +2,21 @@
 
 This document is the normative definition of RGAP: the records, the permission algebra, the delegation rules, and the decision procedure. [README.md](README.md) explains the model and its intent, [IMPLEMENTATION.md](IMPLEMENTATION.md) describes the reference packages, and this document defines what any implementation must compute.
 
-Everything here is expressed over one immutable state value. An implementation conforms when, given the same state and the same request, it reaches the same decision.
+Authorization and metadata transitions are expressed over one immutable state value. An implementation conforms when, given the same state and request, it reaches the same decision. Invocation additionally depends on the same deployment-owned runtime registry, validator, limit ceilings, secret store, and credential store.
 
 ## Records
 
-State is four normalized collections.
+State is seven normalized collections plus an ordered audit log.
 
 ```ts
 type State = {
   resources: Record<string, Resource>;
   grants: Record<string, Grant>;
   tokens: Record<string, Token>;
+  executables: Record<string, ExecutableDefinition>;                 // keyed by resource ID
+  executableRevisions: Record<string, ExecutableRevision>;
+  secretMetadata: Record<string, SecretMetadata>;                    // keyed by resource ID
+  runtimePrivateMetadata: Record<string, RuntimePrivateMetadata>;    // keyed by runtime and resource
   audit: AuditEvent[];
 };
 ```
@@ -51,6 +55,51 @@ type Token = {
   revokedAt: string | null;
 };
 
+type BindingSlot = {
+  kind: 'resource' | 'secret' | 'runtime-private';
+  access: 'use' | 'write';
+  required?: boolean;                                // required unless explicitly false
+};
+
+type ExecutionLimits = {
+  timeoutMs?: number;
+  memoryBytes?: number;
+  outputBytes?: number;
+  concurrency?: number;
+  network?: { allowedOrigins: string[] };
+};
+
+type ExecutableDefinition = {
+  resourceId: string;
+  activeRevisionId: string | null;
+  deletedAt: string | null;
+};
+
+type ExecutableRevision = {
+  id: string;
+  resourceId: string;
+  runtime: string;
+  program: unknown;
+  inputSchema: boolean | Record<string, unknown>;
+  outputSchema: boolean | Record<string, unknown> | null;
+  bindingSchema: Record<string, BindingSlot>;
+  limits: ExecutionLimits;
+  createdAt: string;
+};
+
+type SecretMetadata = {
+  resourceId: string;
+  version: string;
+  updatedAt: string;
+};
+
+type RuntimePrivateMetadata = {
+  runtime: string;
+  resourceId: string;
+  version: string;
+  updatedAt: string;
+};
+
 type AuditEvent = {
   id: string;
   at: string;                                        // RFC 3339 timestamp
@@ -61,9 +110,9 @@ type AuditEvent = {
 };
 ```
 
-`Permission` is `'read' | 'write' | 'delete' | 'move' | 'invoke'`.
+`Permission` is `'read' | 'write' | 'use' | 'invoke' | 'move' | 'delete'`.
 
-Every record is JSON-compatible. Timestamps are RFC 3339 strings compared lexicographically, which requires them to be UTC with a fixed number of fractional digits.
+Every persisted record is JSON-compatible. Executable programs and schemas are JSON-compatible values. Timestamps are RFC 3339 strings compared lexicographically, which requires them to be UTC with a fixed number of fractional digits. Secret and runtime-private metadata are public records; the protected values and credentials they describe are not protocol state.
 
 ## Identity and location
 
@@ -117,6 +166,7 @@ Every read skips resources that are not live: path resolution, listings, capabil
 | --- | --- |
 | `read` | Reading the resource and listing its children. |
 | `write` | Modifying what the resource refers to, and creating children under it. |
+| `use` | Supplying the resource as an opaque invocation binding without reading its protected value. |
 | `invoke` | Calling the resource, such as executing a tool. |
 | `move` | Relocating the resource to a different parent. |
 | `delete` | Deleting the resource together with its descendants. |
@@ -129,6 +179,9 @@ Each operation requires this authority:
 | --- | --- |
 | Read a resource, list its children | `read` on the resource |
 | Invoke a resource | `invoke` on the resource |
+| Bind a resource to an invocation | `use` on the bound resource, plus `write` when the slot access is `write` |
+| Read executable revisions or protected-value metadata | `read` on the resource |
+| Publish or delete an executable; write or delete a secret | `write` on the resource |
 | Create a child resource | `write` on the intended parent |
 | Move a resource | `move` on the resource **and** `write` on the destination parent |
 | Delete a resource and its descendants | `delete` on the resource |
@@ -321,6 +374,52 @@ Moves and renames do not rewrite or revoke grants. ID targets follow their resou
 
 Deletion does not rewrite or revoke grants. ID targets naming removed resources become permanently ineffective because IDs are not reused. Path targets become ineffective while empty and apply again if their locations are occupied later. Other entries in each grant continue to work.
 
+## Executables and protected values
+
+An executable definition is attached to one resource, which remains the authorization target. Publishing creates a new immutable revision and selects it as active. A revision ID is never reused, and no operation modifies a published revision. Publishing requires a live resource, a live definition or no definition, a registered runtime, a valid host-independent shape, and successful runtime program validation.
+
+Deleting an executable sets its deletion marker and clears its active revision. It does not delete revisions or audit history, and a deleted definition cannot publish again. Reads of a definition or its revisions require `read`; publish and delete require `write`.
+
+A secret is a protected value in a host-injected `SecretStore`. Runtime-private state is protected credential data in a host-injected store, scoped by runtime name and resource ID. RGAP state contains only public `{ resourceId, version, updatedAt }` metadata, plus `runtime` for runtime-private state. No repository operation returns the protected value. Secret mutation requires `write`; public metadata requires `read`.
+
+The runtime name identifies a host-registered implementation. The runtime registry is immutable deployment configuration from the repository's perspective: grants and executable programs cannot register, replace, or configure runtime code. RGAP defines no built-in fetch, GitHub, OpenAI, GraphQL, MCP, or language runtime. Deployments may supply such implementations.
+
+## Generic invocation
+
+```ts
+type InvokeInput = {
+  input: unknown;
+  bindings?: Record<string, string>;   // slot name -> resource ID
+  revisionId?: string;
+};
+
+type InvocationEvent =
+  | { type: 'data'; value: unknown }
+  | { type: 'error'; code: string; message: string }
+  | { type: 'done' };
+```
+
+Invocation is one ordered decision and lifecycle:
+
+1. Resolve the live executable definition and the requested revision, or its active revision when `revisionId` is omitted. The revision must belong to the invoked resource.
+2. Authorize `invoke` on the executable resource using the complete grant lineage.
+3. Validate input against `inputSchema`.
+4. Reject undeclared bindings and missing required slots.
+5. For every supplied binding, authorize `use` on its live resource using the complete lineage. If the slot access is `write`, also authorize `write`.
+6. Resolve the registered runtime, validate its program again, and intersect revision limits with immutable host ceilings. A revision may narrow but not expand a ceiling.
+7. Only after all authorization succeeds, resolve opaque handles for `secret` and `runtime-private` slots and invoke the runtime with an abort signal.
+8. Validate every `data` event against `outputSchema` when it is not null, forward events in order, and record completion, error, or cancellation.
+
+`resource` slots carry only resource identity and declared access. `secret` slots may carry an opaque secret handle. `runtime-private` slots may carry a handle owned by the selected runtime. Runtime-private mutation is available only through declared slots whose access is `write`; executable programs never receive an unrestricted credential store.
+
+Invocation authorization is independent for the executable and every binding. Holding `invoke` does not imply `use`, and holding `use` does not expose, read, or mutate a protected value. Revocation affects the next decision. Cancellation propagates to the runtime through `AbortSignal`.
+
+## Invocation auditing and redaction
+
+An invocation record contains the executable resource ID, revision ID, runtime name, grant-lineage IDs, binding resource IDs, start and finish times, and result (`done`, `error`, or `cancelled`). It does not contain invocation input, output data, secret values, credential values, opaque handles, or runtime-private state. Implementations apply the same rule to logs and errors: protected material must not be copied into audit detail or public error messages.
+
+Runtime-private writes first complete in the external credential store and then synchronize public metadata. Secret writes follow the same external-value/public-metadata split. These host stores are part of the trusted deployment boundary.
+
 ## Enforcement boundary
 
 RGAP stores expose no commands directly. A caller selects one of two repository planes:
@@ -346,3 +445,9 @@ An implementation conforms when:
 8. Resource operations and capability amendments commit their record changes and audit events as one atomic transition; capability amendments also commit any resulting child-grant revocations.
 9. Deleted resources are retained as tombstones, excluded from every read, and their IDs stay permanently taken.
 10. Stores expose command methods only through explicit `as(token)` or `admin()` plane selection.
+11. `use` is a distinct permission with no implication, and every invocation binding requires it; a `write` slot additionally requires `write`.
+12. Executable revisions are immutable, belong to exactly one resource, are validated by a registered runtime at publish and invoke, and remain retained after executable deletion.
+13. Runtime registration and host ceilings are deployment configuration that repository commands cannot mutate.
+14. Secret and runtime-private values remain outside public state; reads expose metadata only, and protected handles are resolved only after authorization.
+15. Invocation resolves one revision, validates schemas and bindings, authorizes the executable and every binding through the complete lineage, forwards the defined event union in order, propagates cancellation, and records its result.
+16. Audit records, errors, and logs exclude inputs, outputs, secret values, credential values, and handles while retaining the IDs, runtime, timing, and result needed for accountability.
