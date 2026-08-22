@@ -32,7 +32,7 @@ const aliceToken = await (await admin.grants.get(adminGrant.id)).tokens.create({
 const alice = store.as(aliceToken.value);
 
 // Alice delegates through her token-authorized plane, so the child can only be narrower than her grant.
-const readerGrant = await (await alice.grants.get(adminGrant.id)).create({
+const readerGrant = await alice.grants.create({
   name: 'Drive read', capabilities: [], expiresAt: null,
 });
 await readerGrant.capabilities.set([

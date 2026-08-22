@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import type { Grant } from '@rgap/core';
+import { RgapError, type Grant } from '@rgap/core';
 import { useRgapClient } from '@rgap/react';
 import { Execute, Json, type ExecuteFn } from './panes';
+import { usePlane } from './shell';
 
 /** `datetime-local` reads and writes wall-clock time, so the instant is converted at each boundary. */
 const toLocalInput = (iso: string) => {
@@ -23,6 +24,7 @@ export function GrantFields({
   onCommitted?: () => void;
 }) {
   const client = useRgapClient();
+  const plane = usePlane();
   const [name, setName] = useState('');
   const [expiresAt, setExpiresAt] = useState(parent?.expiresAt ? toLocalInput(parent.expiresAt) : '');
 
@@ -38,6 +40,12 @@ export function GrantFields({
         event.preventDefault();
         void (async () => {
           const committed = await execute('create', async () => {
+            if (!parent && plane === 'guarded') {
+              throw new RgapError(
+                'unauthorized',
+                'Creating a root grant is an administrative operation that no token authorizes.',
+              );
+            }
             const grant = parent
               ? await (await client.grants.get(parent.id)).create(input)
               : await client.grants.create(input);

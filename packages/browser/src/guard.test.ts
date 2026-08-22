@@ -109,18 +109,15 @@ describe('BrowserRgapStore token plane', () => {
     await expect(repo.resources.create({ name: 'root' })).rejects.toThrow('administrative operation');
     await expect((await repo.resources.get(resourceId('tools'))).move(null)).rejects.toThrow('administrative operation');
     await expect(repo.reset()).rejects.toThrow('administrative operation');
-    await expect(repo.grants.create({
-      name: 'Root', expiresAt: null,
-      capabilities: [{ resourceId: resourceId('drive'), permissions: ['read'] }],
-    })).rejects.toThrow('administrative operation');
   });
 
   it('delegates only from the grant the token references, and reaches only that subtree', async () => {
     const { repo, admin, token } = await guarded();
-    const child = await (await repo.grants.get(grantId('owner'))).create({
+    const child = await repo.grants.create({
       name: 'Reader', expiresAt: null,
       capabilities: [{ resourceId: resourceId('tools'), permissions: ['read'] }],
     });
+    expect(child.parentId).toBe(grantId('owner'));
 
     const issued = await child.tokens.create({ label: 'reader token' });
     expect(issued.grantId).toBe(child.id);

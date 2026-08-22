@@ -260,7 +260,7 @@ Grants are explored the way resources are. `/grants` lists the root grants, `/gr
 
 A grant row states the grant's name, each capability entry as a resource path and permission set, expiration, and status. A revoked or expired grant is marked inactive, and so is every grant delegated beneath it, because an inactive ancestor disables its descendants. Status is therefore a property of a grant's lineage rather than of the grant record alone, and the listing reports it that way.
 
-The listing's action bar creates, revokes, and inspects. `Create` creates a grant on the handle the route addresses: at `/grants/$grantId` that is `grant.create`, and at `/grants` it is `grants.create`, an administrative operation no token authorizes. Its form takes the name and optional expiration and nothing else. The new grant starts with no capability entries, because what a grant reaches is set from the grant itself, where the whole set is visible at once. `Revoke` revokes each checked grant together with the grants delegated from it, and its drawer lists those descendants under each target, so the extent of a revocation is stated before it runs.
+The listing's action bar creates, revokes, and inspects. `Create` creates a grant on the handle the route addresses: at `/grants/$grantId` that is `grant.create`, and at `/grants` it is a root via the administrative collection, which no token authorizes. A token delegates with `grants.create` on its own plane, which mints a child of the acting grant; the workbench sends that as `grant.create` from the acting grant's listing. Its form takes the name and optional expiration and nothing else. The new grant starts with no capability entries, because what a grant reaches is set from the grant itself, where the whole set is visible at once. `Revoke` revokes each checked grant together with the grants delegated from it, and its drawer lists those descendants under each target, so the extent of a revocation is stated before it runs.
 
 `Inspect` is the one action bar entry that navigates rather than opening a drawer. It addresses the same grant the route addresses, so it is present wherever a grant is addressed and absent at `/grants`, where the route addresses no grant and a root grant is reached by navigating into it.
 
@@ -314,7 +314,9 @@ Browser storage, a SQLite database, or an HTTP API
 
 `@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, and asynchronous `RgapStore` and `RgapRepository` contracts. Identities in that TypeScript surface are branded (`ResourceId`, `GrantId`, `TokenId`, `TokenValue`, `TokenHash`); they serialize as ordinary strings. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. `as` takes a `TokenValue`. Neither contract exposes a subscription or requires a streaming transport. The package has no dependency on React, Zustand, browser storage, or a transport.
 
-A repository is the request-response interface returned by `as` or `admin`. It exposes collections, looks up existing records, reads current state, and answers decision queries. Creating a grant or a resource is one command; the parent is an argument. TypeScript fills that argument from the receiver so the caller does not pass it: a root from the repository collection, a child from the parent handle.
+A repository is the request-response interface returned by `as` or `admin`. It exposes collections, looks up existing records, reads current state, and answers decision queries. Creating a grant or a resource is one command; the parent is an argument. TypeScript fills that argument from the receiver so the caller does not pass it.
+
+A resource root comes from `resources.create`; a resource child comes from the parent handle. A grant's collection create mints the grant this plane may create: a root on the administrative plane, a child of the acting grant on a token plane. `grant.create` mints a child of that handle, and on a token plane that call is allowed only when the handle is the acting grant.
 
 ```ts
 const acme = await admin.resources.create({ name: 'acme' });
@@ -327,10 +329,14 @@ const grant = await admin.grants.create({
 await grant.capabilities.set([
   { resourceId: acme.id, permissions: ['read', 'write'] },
 ]);
-const reader = await grant.create({
+const issued = await grant.tokens.create({ label: 'cli' });
+const alice = store.as(issued.value);
+const reader = await alice.grants.create({
   name: 'Drive read', capabilities: [], expiresAt: null,
 });
-const issued = await grant.tokens.create({ label: 'cli' });
+await reader.capabilities.set([
+  { path: 'acme/drive', permissions: ['read'] },
+]);
 await issued.revoke();
 await reader.revoke();
 
@@ -338,7 +344,7 @@ await notes.move(acme.id);
 await notes.delete();
 ```
 
-`resources.create` and `grants.create` mint roots. `resource.create` and `grant.create` mint children. `grant.tokens.create` mints a token for that grant and returns the token handle together with the one-time bearer `value`. `resources.get(id)`, `grants.get(id)`, and `tokens.get(id)` return handles for records that already exist, and throw if the record is missing or, for a resource, deleted.
+`resources.create` mints a root, which no token authorizes. `grants.create` mints a root on the administrative plane and a child of the acting grant on a token plane. `resource.create` and `grant.create` mint children of that handle. `grant.tokens.create` mints a token for that grant and returns the token handle together with the one-time bearer `value`. `resources.get(id)`, `grants.get(id)`, and `tokens.get(id)` return handles for records that already exist, and throw if the record is missing or, for a resource, deleted.
 
 A handle carries the record's fields plus the collections and methods that act on it: a resource `create`s children, `move`s, and `delete`s; a grant `create`s child grants, `capabilities.set`s, `tokens.create`s, and `revoke`s; a token `revoke`s.
 

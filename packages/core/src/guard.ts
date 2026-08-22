@@ -110,8 +110,9 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
       },
     },
     grants: {
-      async create() {
-        administrative('Creating a root grant');
+      async create(input) {
+        const parent = wrapGrant(await repository.grants.get(await actingGrantId()));
+        return parent.create(input);
       },
       async get(id) {
         return wrapGrant(await repository.grants.get(id));

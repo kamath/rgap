@@ -222,6 +222,9 @@ describe('SqliteRgapStore', () => {
 
     const created = await (await guarded.resources.get(resourceId('acme'))).create({ name: 'mcp' });
     expect(created.parentId).toBe('acme');
+    const child = await guarded.grants.create({ name: 'Drive write', capabilities: [], expiresAt: null });
+    expect(child.parentId).toBe(grant.id);
+    await child.capabilities.set([{ resourceId: resourceId('acme'), permissions: ['write'] }]);
     await expect((await guarded.resources.get(resourceId('acme'))).delete()).rejects.toThrow();
   });
 

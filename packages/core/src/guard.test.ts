@@ -57,6 +57,9 @@ describe('command guard', () => {
     await expect(grant.create({
       name: 'Child', capabilities: [], expiresAt: null,
     })).rejects.toThrow('Token is unknown, expired, or revoked.');
+    await expect(guard.grants.create({
+      name: 'Child', capabilities: [], expiresAt: null,
+    })).rejects.toThrow('Token is unknown, expired, or revoked.');
     await expect(grant.tokens.create({ label: 'demo' })).rejects.toThrow('Token is unknown, expired, or revoked.');
   });
 
@@ -67,9 +70,6 @@ describe('command guard', () => {
     await expect(guard.resources.create({ name: 'root' }))
       .rejects.toThrow('Creating a root resource is an administrative operation');
     await expect(drive.move(null)).rejects.toThrow('Moving a resource to a root is an administrative');
-    await expect(guard.grants.create({
-      name: 'Root', capabilities: [], expiresAt: null,
-    })).rejects.toThrow('Creating a root grant is an administrative');
     await expect((await guard.grants.get(g('coordinator'))).capabilities.set([]))
       .rejects.toThrow("Setting a root grant's capabilities is an administrative");
     await expect(guard.reset()).rejects.toThrow('Resetting the store is an administrative');
@@ -110,12 +110,16 @@ describe('command guard', () => {
       .rejects.toThrow('No delete capability survives the complete grant chain.');
   });
 
-  it('delegates only from the grant its own token references', async () => {
+  it('delegates from the acting grant, including via grants.create', async () => {
     const { guard, calls } = guarded();
     const input = { name: 'Child', capabilities: [], expiresAt: null };
 
+    expect((await guard.grants.create(input)).id).toBe('created');
     expect((await (await guard.grants.get(g('coordinator'))).create(input)).id).toBe('created');
-    expect(calls).toEqual([{ method: 'createGrant', args: [{ ...input, parentId: g('coordinator') }] }]);
+    expect(calls).toEqual([
+      { method: 'createGrant', args: [{ ...input, parentId: g('coordinator') }] },
+      { method: 'createGrant', args: [{ ...input, parentId: g('coordinator') }] },
+    ]);
 
     await expect((await guard.grants.get(g('researcher'))).create(input))
       .rejects.toThrow('A token may only delegate from the grant it references.');
