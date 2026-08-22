@@ -3,7 +3,6 @@
   "private": true,
   "packageManager": "pnpm@11.10.0",
   "scripts": {
-    "dev": "pnpm --filter @rgap/frontend dev",
     "build": "pnpm -r --if-present build",
     "test": "pnpm -r --if-present test",
     "scratch": "pnpm --filter @rgap/examples start"

@@ -169,11 +169,9 @@ specification
 
 reference implementation
 ├── framework-neutral @rgap/core contract and rules
-├── @rgap/browser Zustand and localStorage adapter
-├── @rgap/react provider and hooks
-├── React and Vite application at apps/frontend
-├── local model explorer and decision simulator
-└── domain tests and deterministic example state
+├── @rgap/sqlite durable store
+├── executable TypeScript scratchpad
+└── core and SQLite test suites
 ```
 
 The protocol remains vendor-neutral. Resource identifiers, issuer discovery, credentials, and conformance tests do not depend on an Arcade account. Arcade can act as one issuer and enforcement implementation while other tool gateways, agent runtimes, and resource servers interoperate with the same semantics.
