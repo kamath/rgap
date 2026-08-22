@@ -283,7 +283,7 @@ Each route is declared once with `@hono/zod-openapi`. Its Zod schemas validate p
 
 The server package generates `openapi.json` from the application and runs HeyAPI against that document. HeyAPI writes a fetch-based TypeScript SDK and its model types to `apps/server/src/client/generated`. Git ignores both generated outputs, and package commands regenerate them from the route declarations before they are consumed. The route declarations are the source of truth for runtime behavior, the OpenAPI contract, the Hono RPC client, and the HeyAPI SDK. The generated SDK has exactly one function for each row in the table, named by its `operationId`, with no extra API operations.
 
-The package exports the Hono application, `AppType`, and generated HeyAPI client. `pnpm --filter @rgap/server generate` refreshes the OpenAPI document and SDK. The package build and test commands generate those artifacts before type-checking or running tests. Its tests exercise validation, authorization-plane selection, OpenAPI generation, Hono RPC calls, and generated SDK calls against the in-process application.
+The package exports the Hono application, `AppType`, generated HeyAPI client, and `HttpRgapStore`. `HttpRgapStore` implements `RgapStore` over the generated SDK: `admin()` sends the configured administrative bearer, while `as(token)` sends that RGAP bearer. It reconstructs the repository handles returned by `@rgap/core`, and maps non-success API responses to `RgapError`. `pnpm --filter @rgap/server generate` refreshes the OpenAPI document and SDK. The package build and test commands generate those artifacts before type-checking or running tests. Its tests exercise validation, authorization-plane selection, OpenAPI generation, Hono RPC calls, generated SDK calls, and the HTTP store against the in-process application.
 
 ## SQLite store
 
@@ -341,7 +341,16 @@ Rows are written parents before children, so the foreign keys hold at every stat
 
 ### Scratchpad
 
-`examples/index.ts` is a scratchpad: ordinary TypeScript that opens a store, exercises whatever arrangement of resources, grants, and tokens is in question, and prints what the model decides. `pnpm scratch` runs it. It is a workspace package, so it imports `@rgap/sqlite` and `@rgap/core` the way any consumer does, and it is meant to be edited rather than preserved.
+`examples/index.ts` is a scratchpad: ordinary TypeScript that opens a store, exercises whatever arrangement of resources, grants, and tokens is in question, and prints what the model decides. `pnpm scratch` runs it against `examples/scratch.db`. The file imports both store implementations, so changing only its store-construction line points the unchanged walkthrough at a running Hono server:
+
+```ts
+const store = new HttpRgapStore({
+  baseUrl: 'http://localhost:3000',
+  adminToken: process.env.RGAP_ADMIN_TOKEN!,
+});
+```
+
+Both implementations present the same `RgapStore` and `RgapRepository` interfaces and provide `close()`, which is a no-op for the HTTP store. The remote administrative bearer must match the running server because the walkthrough resets the store and creates root records. The example is a workspace package that consumes the packages the way any TypeScript caller does, and it is meant to be edited rather than preserved.
 
 The file currently walks a five-step delegation. Resources are the company's workspace. Grants are who holds authority over it. Each step issues a token for the current grant, selects that token's plane with `store.as`, and creates a narrower child grant:
 
@@ -366,7 +375,7 @@ Company     acme, all permissions
 
 The company grant covers the whole tree. The team grant covers only `platform`, so `finance` is withheld from everyone below. Write stops at the employee. The agent and subagent use path targets rather than resource IDs. Authorization prints show what each token may still do.
 
-It opens `examples/scratch.db` and resets it as it starts, so every run begins from the state the file declares and the database is left on disk afterwards to be read with any SQLite client. Removing the reset keeps what the previous run wrote.
+It resets the selected store as it starts, so every run begins from the state the file declares. Local mode leaves `examples/scratch.db` on disk afterwards to be read with any SQLite client. Remote mode changes the running server's configured database.
 
 The package's own suite runs against a `:memory:` database, so the tests exercise real SQL and real transactions rather than a stand-in.
 
