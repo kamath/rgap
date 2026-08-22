@@ -76,9 +76,20 @@ describe('RGAP domain', () => {
       version: 'one',
       updatedAt: at,
     };
+    state.secretMetadata.valid = {
+      resourceId: r('drive'),
+      version: 'one',
+      updatedAt: at,
+    };
     state.runtimePrivateMetadata.orphan = {
       runtime: 'test',
       resourceId: r('missing-private-resource'),
+      version: 'one',
+      updatedAt: at,
+    };
+    state.runtimePrivateMetadata.valid = {
+      runtime: 'test',
+      resourceId: r('drive'),
       version: 'one',
       updatedAt: at,
     };

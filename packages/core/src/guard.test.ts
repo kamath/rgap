@@ -309,7 +309,13 @@ describe('command guard', () => {
     })) {
       expect(event.type).toBe('done');
     }
+    for await (const event of guard.invoke(r('search-files'), {
+      input: {},
+      revisionId: revision.id,
+    })) {
+      expect(event.type).toBe('done');
+    }
 
-    expect(calls.map(({ method }) => method)).toEqual(['invoke', 'invoke', 'invoke']);
+    expect(calls.map(({ method }) => method)).toEqual(['invoke', 'invoke', 'invoke', 'invoke']);
   });
 });
