@@ -22,7 +22,7 @@ export function seed(): State {
     ].map((item) => [item.id, item])),
     grants: {
       coordinator: {
-        id: 'coordinator', name: 'Coordinator', subject: 'coordinator agent', parentId: null,
+        id: 'coordinator', name: 'Coordinator', parentId: null,
         capabilities: [
           resourceCap('search-files'),
           pathCap('Acme/MCP servers/Slack/Tools/search_messages'),
@@ -32,12 +32,12 @@ export function seed(): State {
         expiresAt: '2027-08-21T23:00:00.000Z', revokedAt: null,
       },
       researcher: {
-        id: 'researcher', name: 'Researcher', subject: 'research sub-agent', parentId: 'coordinator',
+        id: 'researcher', name: 'Researcher', parentId: 'coordinator',
         capabilities: [resourceCap('search-files'), pathCap('Acme/MCP servers/Slack/Tools/search_messages')],
         expiresAt: '2027-08-21T22:00:00.000Z', revokedAt: null,
       },
       summarizer: {
-        id: 'summarizer', name: 'Summarizer', subject: 'summarizing sub-agent', parentId: 'researcher',
+        id: 'summarizer', name: 'Summarizer', parentId: 'researcher',
         capabilities: [resourceCap('search-files')],
         expiresAt: '2027-08-21T21:00:00.000Z', revokedAt: null,
       },

@@ -85,13 +85,18 @@ No permission implies another. `write` does not imply `read`, and `read` is not 
 
 ## Enforcement boundary
 
-RGAP decides; the host enforces.
+RGAP stores expose no unrestricted command methods directly. A caller explicitly selects one of two command planes:
 
-`authorize` is the decision function. It answers whether one token may exercise one permission on one resource, and it explains the answer. The repository's commands are an administrative plane: they express what a state change is and enforce the model's own invariants — downscoping and resource and grant ancestry — but they do not themselves demand a token. This keeps the model embeddable behind any transport, session model, or service identity a host already has.
+```ts
+const repository = store.as(token);  // commands authorized by this bearer token
+const admin = store.admin();         // unrestricted administrative commands
+```
 
-Because that boundary is easy to implement inconsistently, the reference implementation ships the enforced path rather than leaving each host to derive it. `guardCommands(repository, token)` wraps any `RgapRepository` and returns one with the same interface whose commands each check the authority above before delegating, and refuse with the decision's explanation otherwise.
+`store.as(token)` returns an `RgapRepository` whose commands check the authority required for each operation and refuse with the decision's explanation otherwise. `store.admin()` returns the same repository interface without token checks for trusted bootstrap and operational code. The store object remains inside trusted infrastructure code; request handlers receive only the repository returned by `as(token)`, so forgetting an authorization wrapper cannot silently select the administrative plane.
 
-`guardCommands` guards commands; it does not filter reads. The read-side lens is `inspectToken`, which reports the resources a token reaches and the permissions it holds on each. A host that wants a token-scoped API composes the two: guarded commands for writes, the authority view for reads.
+The store does not authenticate the process allowed to call `admin()`. A host protects the store object with its module and process boundary and protects any remote administrative surface with infrastructure authentication. Administrative commands remain explicit and are recorded in the audit log.
+
+`as(token)` guards commands; it does not filter `readState`. The read-side lens is `inspectToken(token)`, which reports the resources a token reaches and the permissions it holds on each. A host shapes reads from that authority view. `authorize(token, resourceId, permission)` remains an explicit decision query about any presented token rather than inheriting the repository's command token.
 
 ## Security invariant
 
@@ -213,7 +218,7 @@ The move drawer lists the checked resources as paths and takes one destination p
 
 One active-token control in the header applies to every route. An empty token selects the unrestricted administrative view. A valid bearer token narrows every listing to the resources that token reaches plus the ancestors needed to understand their paths, annotates those resources with effective permissions, and focuses the grant view on the token's delegation lineage. An unknown, expired, or revoked token shows no authority and explains why. Issuing a token makes its bearer value active immediately; the user can then replace or clear that value to inspect another authority view.
 
-The active token also selects which plane commands run on. With no token, operations run on the administrative plane. With a valid token, the interface routes its commands through `guardCommands`, so an operation that token does not authorize is refused with the decision's explanation in the response pane, and the operations pane names the plane it is sending to.
+The active token also selects which plane commands run on. With no token, operations use `store.admin()`. With a valid token, operations use `store.as(token)`, so an operation that token does not authorize is refused with the decision's explanation in the response pane, and the operations pane names the plane it is sending to.
 
 Bearer values stay in transient interface memory. The active token never appears in a route path, a search parameter, or browser storage.
 
@@ -275,48 +280,51 @@ RgapRepository in @rgap/core
 Browser storage, a SQLite database, or an HTTP API
 ```
 
-`@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, and asynchronous `RgapRepository` contract. The repository is a request-response boundary: it reads the current state and exposes asynchronous query and command methods. It does not expose a subscription and does not require a streaming transport. The package has no dependency on React, Zustand, browser storage, or a transport.
+`@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, and asynchronous `RgapStore` and `RgapRepository` contracts. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. A repository is the request-response interface returned by either method: it reads current state and exposes asynchronous query and command methods. Neither contract exposes a subscription or requires a streaming transport. The package has no dependency on React, Zustand, browser storage, or a transport.
 
 Every method of that contract addresses resources by stable ID. A resource path describes only where a resource currently sits, so it is a presentation concern: `@rgap/core` exports the pure helpers that render a resource's path and resolve a path to an ID, and callers use them before they issue a command. Keeping resolution outside the boundary means a command can never act on whatever happens to occupy a path at the moment it arrives.
 
-`@rgap/browser` implements `RgapRepository` over local storage. It accepts initial state from its caller, so the package has no dependency on the reference application's example data.
+`@rgap/browser` implements `BrowserRgapStore` over local storage. It accepts initial state from its caller, so the package has no dependency on the reference application's example data.
 
 `@rgap/react` provides an `RgapClient` that owns a cached snapshot, a client-local subscription, and the repository used to load and mutate state. It also provides a client context plus hooks for the current snapshot, repository commands, and token-derived authority. After a command completes, the client reloads the repository state and notifies its local subscribers. React components therefore retain reactive snapshots without requiring the repository or a remote backend to implement SSE, WebSockets, or another push protocol. The Vite application owns only its example seed, interface components, and styles.
 
 The store contains resources, grants, token records, and audit events in normalized collections. Repository snapshots contain only this serializable application data; Zustand actions and other functions remain private to the adapter and never cross into domain operations. Each command computes and commits its complete state change atomically. Local persistence, when enabled, serializes the same application-state schema to browser storage. Stored state is loaded only when every ID it refers to resolves to a record; state that refers to resources, grants, or tokens it does not contain cannot be read at all, so it is discarded for the example seed rather than loaded into records that name things that are gone. Raw bearer-token values exist only in transient UI memory; persisted token records contain only token hashes.
 
-The repository contract uses asynchronous methods and JSON-compatible inputs and outputs even though the browser implementation is local. An HTTP-backed repository implements ordinary request-response operations, including a state read, and can replace `BrowserRgapRepository` without changing pages, components, or domain types. Live updates from changes made by other clients are optional client behavior. A client may refresh on demand, on window focus, or on an interval, and may add a streaming transport when an application specifically needs one. Backend-specific concerns such as transport, durable storage, concurrent transactions, authentication, and secret management remain outside the browser implementation.
+The repository contract uses asynchronous methods and JSON-compatible inputs and outputs even though the browser implementation is local. An HTTP-backed store implements the same plane selection and can replace `BrowserRgapStore` without changing pages, components, or domain types. Live updates from changes made by other clients are optional client behavior. A client may refresh on demand, on window focus, or on an interval, and may add a streaming transport when an application specifically needs one. Backend-specific concerns such as transport, durable storage, concurrent transactions, authentication, and secret management remain outside the browser implementation.
 
 The reference application does not expose a JSON API and is not a production authorization service. Browser state is appropriate for demonstrating the model, not for enforcing access between mutually untrusted parties.
 
 ## SQLite store
 
-`@rgap/sqlite` implements `RgapRepository` over a SQLite database with Drizzle ORM, so the model runs from ordinary TypeScript — a script, a test, or a service — against a real database rather than browser storage. It runs on `better-sqlite3`, whose synchronous API is what lets a command read, decide, and write inside one transaction.
+`@rgap/sqlite` implements `SqliteRgapStore` over a SQLite database with Drizzle ORM, so the model runs from ordinary TypeScript — a script, a test, or a service — against a real database rather than browser storage. It runs on `better-sqlite3`, whose synchronous API is what lets a command read, decide, and write inside one transaction.
 
 ```ts
-import { SqliteRgapRepository } from '@rgap/sqlite';
+import { SqliteRgapStore } from '@rgap/sqlite';
 
-const repository = new SqliteRgapRepository({ url: 'rgap.db' });
+const store = new SqliteRgapStore({ url: 'rgap.db' });
+const admin = store.admin();
 
-const acme = await repository.createResource({
+const acme = await admin.createResource({
   name: 'acme', parentId: null,
 });
-const grant = await repository.createGrant({
+const grant = await admin.createGrant({
   name: 'Acme admin', parentId: null, capabilities: [], expiresAt: null,
 });
-await repository.setCapabilities(grant.id, [
+await admin.setCapabilities(grant.id, [
   { target: { type: 'resource', resourceId: acme.id }, permissions: ['read', 'write'], descendants: true },
 ]);
 
-const { value } = await repository.issueToken(grant.id, 'cli');
-const decision = await repository.authorize(value, acme.id, 'read');
+const { value } = await admin.issueToken(grant.id, 'cli');
+const repository = store.as(value);
+const child = await repository.createResource({ name: 'notes', parentId: acme.id });
+const decision = await repository.authorize(value, child.id, 'read');
 
-repository.close();
+store.close();
 ```
 
 The constructor takes an optional `url`, a file path or `:memory:`, and an optional `initialState`, which is what an empty database is initialized with and what `reset()` restores. A database that already holds records is opened as it stands. `close()` releases the connection. Bearer values are returned once and never stored; the `tokens` table holds only hashes.
 
-The adapter is nothing but an `RgapRepository`, so everything `@rgap/core` composes over one composes over this one: `guardCommands` wraps it to get the enforced plane, and `inspectToken` reads authority out of it.
+`admin()` and `as(token)` return the same `RgapRepository` interface, so callers cannot accidentally switch planes by changing command code. Only the explicit store selection differs.
 
 ### Schema
 

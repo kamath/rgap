@@ -6,6 +6,7 @@ import {
   createResource as addResource,
   createGrant as addGrant,
   deleteResource as removeResource,
+  guardCommands,
   inspectAuthority,
   moveResource as move,
   recordToken,
@@ -17,22 +18,39 @@ import {
   type CreateGrantInput,
   type CreateResourceInput,
   type Permission,
+  type RgapStore,
   type State,
   type Token,
   type RgapRepository,
 } from '@rgap/core';
 
-export type BrowserRgapRepositoryOptions = {
+export type BrowserRgapStoreOptions = {
   initialState: State;
   storage?: Storage;
   storageKey?: string;
 };
 
-export class BrowserRgapRepository implements RgapRepository {
+export class BrowserRgapStore implements RgapStore {
+  private readonly repository: BrowserBackingRepository;
+
+  constructor(options: BrowserRgapStoreOptions) {
+    this.repository = new BrowserBackingRepository(options);
+  }
+
+  admin(): RgapRepository {
+    return this.repository;
+  }
+
+  as(token: string): RgapRepository {
+    return guardCommands(this.repository, token);
+  }
+}
+
+class BrowserBackingRepository implements RgapRepository {
   private store: StoreApi<State>;
   private initialState: State;
 
-  constructor(options: BrowserRgapRepositoryOptions) {
+  constructor(options: BrowserRgapStoreOptions) {
     this.initialState = structuredClone(options.initialState);
     const creator = persist<State>(
       () => structuredClone(this.initialState),

@@ -11,6 +11,7 @@ import {
   createGrant as addGrant,
   createResource as addResource,
   deleteResource as removeResource,
+  guardCommands,
   inspectAuthority,
   moveResource as move,
   permissions as canonicalPermissions,
@@ -24,6 +25,7 @@ import {
   type CreateResourceInput,
   type Permission,
   type RgapRepository,
+  type RgapStore,
   type State,
   type Token,
 } from '@rgap/core';
@@ -31,19 +33,40 @@ import * as schema from './schema';
 
 export * as schema from './schema';
 
-export type SqliteRgapRepositoryOptions = {
+export type SqliteRgapStoreOptions = {
   /** A file path, or `:memory:` for a database that lives as long as the repository. */
   url?: string;
   /** What an empty database is initialized with, and what `reset` restores. */
   initialState?: State;
 };
 
-export class SqliteRgapRepository implements RgapRepository {
+export class SqliteRgapStore implements RgapStore {
+  private readonly repository: SqliteBackingRepository;
+
+  constructor(options: SqliteRgapStoreOptions = {}) {
+    this.repository = new SqliteBackingRepository(options);
+  }
+
+  admin(): RgapRepository {
+    return this.repository;
+  }
+
+  as(token: string): RgapRepository {
+    return guardCommands(this.repository, token);
+  }
+
+  /** Releases the connection. A `:memory:` database ceases to exist with it. */
+  close() {
+    this.repository.close();
+  }
+}
+
+class SqliteBackingRepository implements RgapRepository {
   private connection: Database.Database;
   private db: BetterSQLite3Database;
   private initialState: State;
 
-  constructor(options: SqliteRgapRepositoryOptions = {}) {
+  constructor(options: SqliteRgapStoreOptions = {}) {
     this.initialState = structuredClone(options.initialState ?? emptyState());
     this.connection = new Database(options.url ?? ':memory:');
     this.connection.pragma('foreign_keys = ON');
@@ -175,7 +198,6 @@ export class SqliteRgapRepository implements RgapRepository {
       state.grants[row.id] = {
         id: row.id,
         name: row.name,
-        subject: row.subject,
         parentId: row.parentId,
         capabilities: [],
         expiresAt: row.expiresAt,
@@ -247,7 +269,6 @@ export class SqliteRgapRepository implements RgapRepository {
     insert(this.db, schema.grants, parentsFirst(state.grants, 'grant_cycle').map((grant) => ({
       id: grant.id,
       name: grant.name,
-      subject: grant.subject,
       parentId: grant.parentId,
       expiresAt: grant.expiresAt,
       revokedAt: grant.revokedAt,

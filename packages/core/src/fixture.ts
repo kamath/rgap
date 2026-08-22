@@ -11,12 +11,12 @@ export function fixture(): State {
     resources: Object.fromEntries(resources.map((item) => [item.id, item])),
     grants: {
       coordinator: {
-        id: 'coordinator', name: 'Coordinator', subject: 'agent', parentId: null,
+        id: 'coordinator', name: 'Coordinator', parentId: null,
         capabilities: [cap('search-files'), cap('create-issue')],
         expiresAt: '2027-08-21T23:00:00.000Z', revokedAt: null,
       },
       researcher: {
-        id: 'researcher', name: 'Researcher', subject: 'sub-agent', parentId: 'coordinator',
+        id: 'researcher', name: 'Researcher', parentId: 'coordinator',
         capabilities: [cap('search-files')],
         expiresAt: '2027-08-21T22:00:00.000Z', revokedAt: null,
       },

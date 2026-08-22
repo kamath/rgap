@@ -46,7 +46,6 @@ function GrantView({ grant }: { grant: Grant }) {
       <ObjectLine
         id={grant.id}
         fields={[
-          ['subject', grant.subject],
           ['expires', grant.expiresAt ?? 'never'],
           ['status', lineageStatus(snapshot.grants, grant.id)],
           ['delegated', listing.length],

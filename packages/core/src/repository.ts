@@ -13,6 +13,15 @@ import type {
 
 export type IssuedToken = { record: Token; value: string };
 
+/**
+ * Selects an authorized or explicitly administrative command plane over one backing store.
+ * The store itself exposes no resource or grant commands.
+ */
+export interface RgapStore {
+  as(token: string): RgapRepository;
+  admin(): RgapRepository;
+}
+
 export interface RgapRepository {
   readState(): Promise<State>;
   createResource(input: CreateResourceInput): Promise<Resource>;

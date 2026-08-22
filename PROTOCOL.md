@@ -38,7 +38,6 @@ type Capability = {
 type Grant = {
   id: string;
   name: string;
-  subject: string;                                   // opaque to the model
   parentId: string | null;                           // null for a root grant
   capabilities: Capability[];                        // a set; may be empty, which authorizes nothing
   expiresAt: string | null;                          // null never expires
@@ -201,7 +200,7 @@ Containment is required when a grant is issued or amended. Authorization separat
 
 A grant is created only when all of the following hold:
 
-1. `name` and `subject` are non-empty.
+1. `name` is non-empty.
 2. Every entry in `capabilities` has at least one permission. A resource target names a live resource. A path target has a non-empty normalized path and need not currently resolve. The set may be empty, in which case the grant authorizes nothing until its capabilities are set.
 3. If `parentId` is set, the parent grant exists and is active.
 4. If the parent has an `expiresAt`, the child has one and it is no later than the parent's.
@@ -211,7 +210,7 @@ Rules 4 and 5 are the downscoping proof. A root grant, having no parent, is unco
 
 ### Setting capabilities
 
-A grant's identity, subject, parent, and expiry are fixed at issue. Its capability set is not: `setCapabilities(state, grantId, capabilities, at)` replaces the whole set in one atomic transition.
+A grant's identity, parent, and expiry are fixed at issue. Its capability set is not: `setCapabilities(state, grantId, capabilities, at)` replaces the whole set in one atomic transition.
 
 1. The grant exists and is active. A revoked or expired grant is not amended.
 2. Every entry has at least one permission. Resource targets name live resources, and path targets hold non-empty normalized paths that may be empty locations.
@@ -333,16 +332,14 @@ Deletion does not rewrite or revoke grants. ID targets naming removed resources 
 
 ## Enforcement boundary
 
-RGAP decides; the host enforces.
+RGAP stores expose no commands directly. A caller selects one of two repository planes:
 
-`authorize` is the decision function. The repository commands defined above are an administrative plane: they enforce the model's own invariants — downscoping and ancestry — but they do not demand a token. This keeps the model embeddable behind whatever transport, session, or service identity a host already has.
+- `store.as(token)` returns commands authorized by that bearer token.
+- `store.admin()` returns unrestricted commands for trusted bootstrap and operations code.
 
-A host that wants a token-scoped surface composes two pieces:
+Both return the same repository interface. The token plane checks the required authority from the table above before each command and refuses with the decision's `detail` otherwise. The administrative plane enforces the protocol's own invariants — downscoping and ancestry — without token checks.
 
-- **Commands** run through a guard that checks the required authority from the table above before delegating, and refuses with the decision's `detail` otherwise.
-- **Reads** are shaped by the authority view, which reports the resources a token reaches and the permissions it holds on each.
-
-The reference implementation ships the guard as `guardCommands(repository, token)` so that hosts do not each re-derive the table.
+The store does not authenticate callers of `admin()`. Its host keeps the store object inside trusted process and module boundaries and applies infrastructure authentication to any remote administrative surface. Reads are shaped separately through the authority view, which reports the resources a token reaches and the permissions it holds on each.
 
 ## Conformance
 
@@ -357,3 +354,4 @@ An implementation conforms when:
 7. Revocation cascades to delegated grants, and an inactive ancestor disables its descendants.
 8. Resource operations and capability amendments commit their record changes and audit events as one atomic transition; capability amendments also commit any resulting child-grant revocations.
 9. Deleted resources are retained as tombstones, excluded from every read, and their IDs stay permanently taken.
+10. Stores expose command methods only through explicit `as(token)` or `admin()` plane selection.

@@ -13,7 +13,6 @@ export const resources = sqliteTable('resources', {
 export const grants = sqliteTable('grants', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
-  subject: text('subject').notNull(),
   parentId: text('parent_id').references((): AnySQLiteColumn => grants.id),
   expiresAt: text('expires_at'),
   revokedAt: text('revoked_at'),

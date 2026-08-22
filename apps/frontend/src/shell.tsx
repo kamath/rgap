@@ -1,8 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { Link, Outlet } from '@tanstack/react-router';
-import { guardCommands } from '@rgap/core';
 import { useRgapAuthority, useRgapClient } from '@rgap/react';
-import { repository } from './repository';
+import { store } from './repository';
 
 type ShellState = {
   token: string;
@@ -26,7 +25,7 @@ export function Shell() {
 
   // With no token the interface holds the administrative plane; with one, every command is authorized first.
   useEffect(() => {
-    client.setRepository(token.trim() ? guardCommands(repository, token) : repository);
+    client.setRepository(token.trim() ? store.as(token) : store.admin());
   }, [client, token]);
 
   return (
@@ -73,7 +72,7 @@ function Header() {
             className="ghost"
             onClick={async () => {
               // Reset is chrome, not an operation: it always runs on the administrative plane.
-              await repository.reset();
+              await store.admin().reset();
               setToken('');
               await client.refresh();
             }}

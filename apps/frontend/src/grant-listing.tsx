@@ -136,7 +136,6 @@ export function GrantListing({
               />
             </th>
             <th>Grant</th>
-            <th>Subject</th>
             <th>Capabilities</th>
             <th>Expires</th>
             <th>Status</th>
@@ -146,7 +145,7 @@ export function GrantListing({
           {up ? (
             <tr className="up">
               <td />
-              <td colSpan={5}>{up}</td>
+              <td colSpan={4}>{up}</td>
             </tr>
           ) : null}
           {listing.map((grant) => {
@@ -174,7 +173,6 @@ export function GrantListing({
                     {grant.name}
                   </Link>
                 </td>
-                <td>{grant.subject}</td>
                 <td>
                   <div className="entries">
                     {grant.capabilities.map((capability, index) => (
@@ -213,7 +211,6 @@ export function LineagePane({ lineage, resources }: { lineage: Grant[]; resource
         <thead>
           <tr>
             <th>Grant</th>
-            <th>Subject</th>
             <th>Target type</th>
             <th>Target</th>
             <th>Permissions</th>
@@ -237,7 +234,6 @@ export function LineagePane({ lineage, resources }: { lineage: Grant[]; resource
                     </Link>
                   )}
                 </td>
-                <td rowSpan={span}>{grant.subject}</td>
               </>
             );
             const trailing = (

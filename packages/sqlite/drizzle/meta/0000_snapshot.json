@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "02b24eaa-7492-4be3-aa51-17e8371800ba",
+  "id": "66e1de85-0d39-4286-bffe-04769ccf874d",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "audit": {
@@ -231,13 +231,6 @@
         },
         "name": {
           "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "subject": {
-          "name": "subject",
           "type": "text",
           "primaryKey": false,
           "notNull": true,

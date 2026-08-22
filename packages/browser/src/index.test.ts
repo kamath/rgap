@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { resourceIdAtPath, type State } from '@rgap/core';
-import { BrowserRgapRepository } from './index';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import { resourceIdAtPath, type RgapRepository, type State } from '@rgap/core';
+import { BrowserRgapStore } from './index';
 
 const memoryStorage = (): Storage => {
   const values = new Map<string, string>();
@@ -23,9 +23,15 @@ const initialState = (): State => ({
   audit: [],
 });
 
-const repository = () => new BrowserRgapRepository({ initialState: initialState(), storage: memoryStorage() });
+const repository = () => new BrowserRgapStore({ initialState: initialState(), storage: memoryStorage() }).admin();
 
-describe('BrowserRgapRepository', () => {
+describe('BrowserRgapStore', () => {
+  it('exposes command planes rather than repository commands', () => {
+    const store = new BrowserRgapStore({ initialState: initialState(), storage: memoryStorage() });
+    expectTypeOf<Extract<keyof BrowserRgapStore, keyof RgapRepository>>().toEqualTypeOf<never>();
+    expect(store).not.toHaveProperty('createResource');
+  });
+
   it('keeps actions outside serializable snapshots', async () => {
     const repo = repository();
     const resource = await repo.createResource({
@@ -67,11 +73,11 @@ describe('BrowserRgapRepository', () => {
   it('creates root and delegated grants', async () => {
     const repo = repository();
     const root = await repo.createGrant({
-      name: 'Reader', subject: 'reader agent', parentId: null, expiresAt: null,
+      name: 'Reader', parentId: null, expiresAt: null,
       capabilities: [{ target: { type: 'resource', resourceId: 'acme' }, permissions: ['read'], descendants: true }],
     });
     const child = await repo.createGrant({
-      name: 'Narrow reader', subject: 'sub-agent', parentId: root.id, expiresAt: null,
+      name: 'Narrow reader', parentId: root.id, expiresAt: null,
       capabilities: [{ target: { type: 'resource', resourceId: 'acme' }, permissions: ['read'], descendants: false }],
     });
 
@@ -80,16 +86,16 @@ describe('BrowserRgapRepository', () => {
 
   it('round-trips resource and path capability targets', async () => {
     const storage = memoryStorage();
-    const seeded = new BrowserRgapRepository({ initialState: initialState(), storage });
+    const seeded = new BrowserRgapStore({ initialState: initialState(), storage }).admin();
     const grant = await seeded.createGrant({
-      name: 'Mixed targets', subject: 'agent', parentId: null, expiresAt: null,
+      name: 'Mixed targets', parentId: null, expiresAt: null,
       capabilities: [
         { target: { type: 'resource', resourceId: 'acme' }, permissions: ['read'], descendants: true },
         { target: { type: 'path', path: 'Acme/future' }, permissions: ['invoke'], descendants: false },
       ],
     });
 
-    const restored = await new BrowserRgapRepository({ initialState: initialState(), storage }).readState();
+    const restored = await new BrowserRgapStore({ initialState: initialState(), storage }).admin().readState();
     expect(restored.grants[grant.id].capabilities).toEqual(grant.capabilities);
   });
 
@@ -97,7 +103,7 @@ describe('BrowserRgapRepository', () => {
     const repo = repository();
     const child = await repo.createResource({ name: 'child', parentId: 'acme' });
     const grant = await repo.createGrant({
-      name: 'Reader', subject: 'agent', parentId: null, expiresAt: null,
+      name: 'Reader', parentId: null, expiresAt: null,
       capabilities: [
         { target: { type: 'resource', resourceId: child.id }, permissions: ['read'], descendants: false },
         { target: { type: 'path', path: 'Acme/child' }, permissions: ['read'], descendants: false },
@@ -112,9 +118,9 @@ describe('BrowserRgapRepository', () => {
 
   it('discards stored state whose references no longer resolve', async () => {
     const storage = memoryStorage();
-    const seeded = new BrowserRgapRepository({ initialState: initialState(), storage });
+    const seeded = new BrowserRgapStore({ initialState: initialState(), storage }).admin();
     await seeded.createGrant({
-      name: 'Owner', subject: 'owner', parentId: null, expiresAt: null,
+      name: 'Owner', parentId: null, expiresAt: null,
       capabilities: [{ target: { type: 'resource', resourceId: 'acme' }, permissions: ['read'], descendants: true }],
     });
     // The resource record the stored grant names, gone the way an older seed's records would be.
@@ -122,7 +128,7 @@ describe('BrowserRgapRepository', () => {
     delete stored.state.resources['acme'];
     storage.setItem('rgap-state', JSON.stringify(stored));
 
-    const state = await new BrowserRgapRepository({ initialState: initialState(), storage }).readState();
+    const state = await new BrowserRgapStore({ initialState: initialState(), storage }).admin().readState();
 
     expect(state.resources['acme']).toBeDefined();
     expect(Object.keys(state.grants)).toEqual([]);
@@ -130,12 +136,12 @@ describe('BrowserRgapRepository', () => {
 
   it('loads stored state that is referentially intact', async () => {
     const storage = memoryStorage();
-    const seeded = new BrowserRgapRepository({ initialState: initialState(), storage });
+    const seeded = new BrowserRgapStore({ initialState: initialState(), storage }).admin();
     const created = await seeded.createResource({
       name: 'Tools', parentId: 'acme',
     });
 
-    const state = await new BrowserRgapRepository({ initialState: initialState(), storage }).readState();
+    const state = await new BrowserRgapStore({ initialState: initialState(), storage }).admin().readState();
 
     expect(resourceIdAtPath(state.resources, 'Acme/Tools')).toBe(created.id);
   });
@@ -143,7 +149,7 @@ describe('BrowserRgapRepository', () => {
   it('issues tokens and inspects their effective authority', async () => {
     const repo = repository();
     const grant = await repo.createGrant({
-      name: 'Reader', subject: 'reader agent', parentId: null, expiresAt: null,
+      name: 'Reader', parentId: null, expiresAt: null,
       capabilities: [{ target: { type: 'resource', resourceId: 'acme' }, permissions: ['read'], descendants: false }],
     });
     const issued = await repo.issueToken(grant.id, 'reader token');

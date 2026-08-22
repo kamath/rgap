@@ -6,7 +6,7 @@ The implementation is an interface test bed. It favors short files, direct contr
 
 ```text
 packages/
-├── core/           # records, pure RGAP rules, RgapRepository
+├── core/           # records, pure RGAP rules, RgapStore, and RgapRepository
 ├── browser/        # Zustand and localStorage implementation
 ├── sqlite/         # Drizzle and SQLite implementation
 └── react/          # provider, snapshot, repository, and authority hooks
@@ -36,9 +36,9 @@ apps/frontend/src/
 
 ## Boundary under test
 
-`@rgap/core` exports `RgapRepository`, which exposes an asynchronous state read and asynchronous methods for every query and command, including `setCapabilities(grantId, capabilities)`, the one command that changes an existing grant. Every method addresses resources by stable ID; path parsing, path rendering, and path resolution are pure helpers the caller applies first. It also exports the domain records and pure rules. The package has no framework, browser, persistence, or transport dependency.
+`@rgap/core` exports `RgapStore` and `RgapRepository`. A store exposes `as(token)` and `admin()` but no commands. Either method returns a repository, which exposes an asynchronous state read and asynchronous methods for every query and command, including `setCapabilities(grantId, capabilities)`, the one command that changes an existing grant. Every method addresses resources by stable ID; path parsing, path rendering, and path resolution are pure helpers the caller applies first. The package also exports the domain records and pure rules and has no framework, browser, persistence, or transport dependency.
 
-Repository commands are the administrative plane and take no token. `@rgap/core` also exports `guardCommands(repository, token)`, a decorator returning an `RgapRepository` whose commands each authorize the required permission before delegating and reject with the decision's explanation otherwise. It guards commands only; `inspectToken` remains the read-side lens.
+`store.as(token)` returns a repository whose commands authorize the required permission before delegating and reject with the decision's explanation otherwise. `store.admin()` returns an unrestricted repository for trusted bootstrap and operations code. Plane selection is explicit, and the store itself has no command methods that application code can call accidentally. Token enforcement applies to commands only; `inspectToken` remains the read-side lens.
 
 ```text
 React UI          → @rgap/react observable client → @rgap/core contract → @rgap/browser → Zustand + localStorage
@@ -47,9 +47,9 @@ TypeScript caller →                                 @rgap/core contract → @r
 
 The contract stays asynchronous and JSON-compatible even though its browser implementation is local. A future `HttpRgapRepository` implements the same interface with ordinary request-response endpoints and does not need SSE, WebSockets, or another push transport.
 
-`@rgap/browser` exports `BrowserRgapRepository`. It owns the Zustand store and accepts initial state, optional browser storage, and an optional storage key. Each command calls a pure core function that returns one complete next state, then commits that state once. Browser persistence serializes normalized resources, grants, token records, and audit events. Issued bearer values are returned once; persisted tokens contain only hashes.
+`@rgap/browser` exports `BrowserRgapStore`. It owns the Zustand state and accepts initial state, optional browser storage, and an optional storage key. Its private administrative repository calls pure core functions that return one complete next state, then commits that state once; `admin()` returns that repository and `as(token)` returns its authorized command plane. Browser persistence serializes normalized resources, grants, token records, and audit events. Issued bearer values are returned once; persisted tokens contain only hashes.
 
-`@rgap/sqlite` exports `SqliteRgapRepository`. It takes an optional database URL, a file path or `:memory:`, and an optional initial state, which is what an empty database is initialized with and what `reset` restores. `src/schema.ts` declares the tables and `drizzle-kit generate` writes the DDL to `drizzle/`, which the constructor applies to whatever database it opens. Each command is one `better-sqlite3` transaction that reads the complete state, applies the same pure core rule the browser adapter applies, and replaces the stored rows with the state that rule returns; rows are written parents before children so the foreign keys hold statement by statement. Its suite runs against `:memory:` databases, so it exercises real SQL rather than a stand-in.
+`@rgap/sqlite` exports `SqliteRgapStore`. It takes an optional database URL, a file path or `:memory:`, and an optional initial state, which is what an empty database is initialized with and what `reset` restores. Its private repository applies the plane returned by `admin()` or `as(token)`. `src/schema.ts` declares the tables and `drizzle-kit generate` writes the DDL to `drizzle/`, which the constructor applies to whatever database it opens. Each command is one `better-sqlite3` transaction that reads the complete state, applies the same pure core rule the browser adapter applies, and replaces the stored rows with the state that rule returns; rows are written parents before children so the foreign keys hold statement by statement. Its suite runs against `:memory:` databases, so it exercises real SQL rather than a stand-in.
 
 `examples/index.ts` is a workspace package that consumes `@rgap/sqlite` the way any caller does. It is a scratchpad for arranging grants and printing decisions, not a fixture anything depends on.
 
@@ -67,7 +67,7 @@ The interface exposes all repository methods without extra workflow abstractions
 - Issue, activate, paste, clear, or revoke a token
 - Revoke a grant branch
 - Authorize a token for a resource and permission
-- Run commands on the administrative plane, or through `guardCommands` when a token is active
+- Run commands through `store.admin()`, or through `store.as(token)` when a token is active
 - Reset to the deterministic MCP example
 
 The resource tree shows paths using names while resource commands reference stable IDs. The interface resolves each operational path to an ID before it calls, while capability path targets remain stored as normalized paths and resolve during authorization. An operation over a multi-row selection runs one command per row. A shared active-token lens derives effective resource permissions and grant lineage. Blank selects the complete administrative view; a valid token narrows the tree; an invalid or inactive token exposes no authority.

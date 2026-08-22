@@ -24,12 +24,10 @@ export function GrantFields({
 }) {
   const client = useRgapClient();
   const [name, setName] = useState('');
-  const [subject, setSubject] = useState('');
   const [expiresAt, setExpiresAt] = useState(parent?.expiresAt ? toLocalInput(parent.expiresAt) : '');
 
   const input = {
     name,
-    subject,
     parentId: parent?.id ?? null,
     capabilities: [],
     expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
@@ -43,23 +41,16 @@ export function GrantFields({
           const committed = await execute('createGrant', async () => {
             const grant = await client.createGrant(input);
             setName('');
-            setSubject('');
             return grant;
           });
           if (committed) onCommitted?.();
         })();
       }}
     >
-      <div className="field-row">
-        <label>
-          <span>name</span>
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Researcher" />
-        </label>
-        <label>
-          <span>subject</span>
-          <input value={subject} onChange={(event) => setSubject(event.target.value)} placeholder="research sub-agent" />
-        </label>
-      </div>
+      <label>
+        <span>name</span>
+        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Researcher" />
+      </label>
       <label>
         <span>expires at</span>
         <input type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} />

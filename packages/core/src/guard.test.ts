@@ -18,11 +18,11 @@ function state(): State {
   ];
   // A grant tree beside the acting grant, which no token on the coordinator branch reaches.
   base.grants['other-root'] = {
-    id: 'other-root', name: 'Other root', subject: 'other', parentId: null,
+    id: 'other-root', name: 'Other root', parentId: null,
     capabilities: [], expiresAt: null, revokedAt: null,
   };
   base.grants.other = {
-    id: 'other', name: 'Other', subject: 'other', parentId: 'other-root',
+    id: 'other', name: 'Other', parentId: 'other-root',
     capabilities: [], expiresAt: null, revokedAt: null,
   };
   // A second token on a delegated grant, which has a parent whose authority its holder cannot claim.
@@ -51,7 +51,7 @@ describe('command guard', () => {
     const { guard } = guarded('unknown-token');
 
     await expect(guard.createGrant({
-      name: 'Child', subject: 'sub-agent', parentId: 'coordinator', capabilities: [], expiresAt: null,
+      name: 'Child', parentId: 'coordinator', capabilities: [], expiresAt: null,
     })).rejects.toThrow('Token is unknown, expired, or revoked.');
     await expect(guard.issueToken('coordinator', 'demo')).rejects.toThrow('Token is unknown, expired, or revoked.');
   });
@@ -64,7 +64,7 @@ describe('command guard', () => {
     })).rejects.toThrow('Creating a root resource is an administrative operation');
     await expect(guard.moveResource('drive', null)).rejects.toThrow('Moving a resource to a root is an administrative');
     await expect(guard.createGrant({
-      name: 'Root', subject: 'agent', parentId: null, capabilities: [], expiresAt: null,
+      name: 'Root', parentId: null, capabilities: [], expiresAt: null,
     })).rejects.toThrow('Creating a root grant is an administrative');
     await expect(guard.setCapabilities('coordinator', [])).rejects.toThrow("Setting a root grant's capabilities is an administrative");
     await expect(guard.reset()).rejects.toThrow('Resetting the store is an administrative');
@@ -107,7 +107,7 @@ describe('command guard', () => {
   it('delegates only from the grant its own token references', async () => {
     const { guard, calls } = guarded();
     const input = {
-      name: 'Child', subject: 'sub-agent', parentId: 'coordinator', capabilities: [], expiresAt: null,
+      name: 'Child', parentId: 'coordinator', capabilities: [], expiresAt: null,
     };
 
     expect((await guard.createGrant(input)).id).toBe('created');

@@ -6,45 +6,52 @@
  */
 import { fileURLToPath } from 'node:url';
 import { resourcePath, type Permission } from '@rgap/core';
-import { SqliteRgapRepository } from '@rgap/sqlite';
+import { SqliteRgapStore } from '@rgap/sqlite';
 
-const repository = new SqliteRgapRepository({ url: fileURLToPath(new URL('scratch.db', import.meta.url)) });
+const store = new SqliteRgapStore({ url: fileURLToPath(new URL('scratch.db', import.meta.url)) });
+const root = store.admin();
 
 // Every run starts from an empty store. Remove this to keep what the last run wrote.
-await repository.reset();
+await root.reset();
 
-const acme = await repository.createResource({ name: 'acme', parentId: null });
-const drive = await repository.createResource({ name: 'drive', parentId: acme.id });
-const notes = await repository.createResource({ name: 'notes', parentId: drive.id });
-const secret = await repository.createResource({ name: 'secret', parentId: acme.id });
 
-const admin = await repository.createGrant({
-  name: 'Acme admin', subject: 'alice', parentId: null, capabilities: [], expiresAt: null,
+
+const acme = await root.createResource({ name: 'acme-company', parentId: null });
+
+const adminGrant = await root.createGrant({
+  name: 'Acme admin', parentId: acme.id, capabilities: [], expiresAt: null,
 });
-await repository.setCapabilities(admin.id, [
+await root.setCapabilities(adminGrant.id, [
   {
     target: { type: 'resource', resourceId: acme.id },
     permissions: ['read', 'write', 'invoke', 'move', 'delete'],
     descendants: true,
   },
 ]);
+const admin = store.as(adminGrant.id);
 
-// Delegated from the grant above, so it can only be narrower than it.
-const reader = await repository.createGrant({
-  name: 'Drive read', subject: 'bob', parentId: admin.id, capabilities: [], expiresAt: null,
+const drive = await admin.createResource({ name: 'drive', parentId: acme.id });
+const notes = await admin.createResource({ name: 'notes', parentId: drive.id });
+const secret = await admin.createResource({ name: 'secret', parentId: acme.id });
+
+const alice = await admin.issueToken(adminGrant.id, 'alice cli');
+const aliceRepository = store.as(alice.value);
+
+// Alice delegates through her token-authorized plane, so the child can only be narrower than her grant.
+const reader = await aliceRepository.createGrant({
+  name: 'Drive read', parentId: adminGrant.id, capabilities: [], expiresAt: null,
 });
-await repository.setCapabilities(reader.id, [
+await aliceRepository.setCapabilities(reader.id, [
   { target: { type: 'path', path: 'acme/drive' }, permissions: ['read'], descendants: true },
 ]);
 
-const alice = await repository.issueToken(admin.id, 'alice cli');
-const bob = await repository.issueToken(reader.id, 'bob cli');
+const bob = await aliceRepository.issueToken(reader.id, 'bob cli');
 
-const { resources } = await repository.readState();
+const { resources } = await admin.readState();
 const path = (id: string) => resourcePath(resources, id);
 
 const check = async (label: string, token: string, resourceId: string, permission: Permission) => {
-  const decision = await repository.authorize(token, resourceId, permission);
+  const decision = await admin.authorize(token, resourceId, permission);
   const verdict = decision.allowed ? 'allow' : 'deny ';
   console.log(`${verdict}  ${label.padEnd(6)} ${permission.padEnd(7)} ${path(resourceId).padEnd(18)} ${decision.detail}`);
 };
@@ -55,11 +62,11 @@ await check('bob', bob.value, notes.id, 'write');
 await check('bob', bob.value, secret.id, 'read');
 
 for (const [label, token] of [['alice', alice.value], ['bob', bob.value]] as const) {
-  const authority = await repository.inspectToken(token);
+  const authority = await admin.inspectToken(token);
   console.log(`\n${label}: ${authority.detail}`);
   Object.entries(authority.permissions).forEach(([id, held]) => {
     console.log(`  ${path(id).padEnd(18)} ${held.join(' ')}`);
   });
 }
 
-repository.close();
+store.close();

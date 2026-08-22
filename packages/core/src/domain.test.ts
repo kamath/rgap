@@ -62,14 +62,14 @@ describe('RGAP domain', () => {
     state.grants.coordinator.capabilities = [cap('drive', { permissions: ['read'], descendants: true })];
 
     expect(() => createGrant(state, {
-      name: 'Writer', subject: 'writer agent', parentId: 'coordinator', expiresAt: '2027-01-01T00:00:00.000Z',
+      name: 'Writer', parentId: 'coordinator', expiresAt: '2027-01-01T00:00:00.000Z',
       capabilities: [cap('read-file', { permissions: ['write'] })],
     }, 'writer', at)).toThrow('not covered');
   });
 
   it('creates a grant that reaches nothing until its capabilities are set', () => {
     const created = createGrant(fixture(), {
-      name: 'Empty', subject: 'sub-agent', parentId: 'coordinator',
+      name: 'Empty', parentId: 'coordinator',
       expiresAt: '2027-01-01T00:00:00.000Z', capabilities: [],
     }, 'empty', at);
 
@@ -83,7 +83,7 @@ describe('RGAP domain', () => {
 
   it('holds a set to the same downscoping proof as issue', () => {
     const state = createGrant(fixture(), {
-      name: 'Empty', subject: 'sub-agent', parentId: 'coordinator',
+      name: 'Empty', parentId: 'coordinator',
       expiresAt: '2027-01-01T00:00:00.000Z', capabilities: [],
     }, 'empty', at);
 
@@ -103,7 +103,7 @@ describe('RGAP domain', () => {
   it('revokes a direct child the new set no longer covers, and its descendants', () => {
     let state = fixture();
     state = createGrant(state, {
-      name: 'Deeper', subject: 'sub-sub-agent', parentId: 'researcher',
+      name: 'Deeper', parentId: 'researcher',
       expiresAt: '2027-01-01T00:00:00.000Z',
       capabilities: [cap('search-files')],
     }, 'deeper', at);
@@ -123,7 +123,7 @@ describe('RGAP domain', () => {
     let state = fixture();
     state.grants.coordinator.capabilities = [pathCap('acme/drive', { descendants: true })];
     state = createGrant(state, {
-      name: 'Follower', subject: 'sub-agent', parentId: 'coordinator', expiresAt: '2027-01-01T00:00:00.000Z',
+      name: 'Follower', parentId: 'coordinator', expiresAt: '2027-01-01T00:00:00.000Z',
       capabilities: [pathCap('acme/drive/search-files')],
     }, 'follower', at);
 
@@ -189,7 +189,7 @@ describe('RGAP domain', () => {
     state.grants.coordinator.capabilities = [cap('search-files')];
 
     expect(() => createGrant(state, {
-      name: 'Escalated', subject: 'bad actor', parentId: 'coordinator', expiresAt,
+      name: 'Escalated', parentId: 'coordinator', expiresAt,
       capabilities: [cap('post-message')],
     }, 'escalated', at)).toThrow('not covered');
   });
@@ -200,12 +200,12 @@ describe('RGAP domain', () => {
     state.grants.coordinator.capabilities = [cap('drive')];
 
     expect(() => createGrant(state, {
-      name: 'Widened', subject: 'sub-agent', parentId: 'coordinator', expiresAt,
+      name: 'Widened', parentId: 'coordinator', expiresAt,
       capabilities: [cap('drive', { descendants: true })],
     }, 'widened', at)).toThrow('not covered');
 
     expect(createGrant(state, {
-      name: 'Narrowed', subject: 'sub-agent', parentId: 'coordinator', expiresAt,
+      name: 'Narrowed', parentId: 'coordinator', expiresAt,
       capabilities: [cap('drive')],
     }, 'narrowed', at).grants.narrowed.name).toBe('Narrowed');
   });
@@ -394,15 +394,13 @@ describe('deleting a resource', () => {
 
 describe('creating a grant', () => {
   const input = {
-    name: 'Child', subject: 'sub-agent', parentId: 'coordinator',
+    name: 'Child', parentId: 'coordinator',
     expiresAt: '2027-01-01T00:00:00.000Z', capabilities: [],
   };
 
-  it('requires both a name and a subject', () => {
+  it('requires a name', () => {
     expect(() => createGrant(fixture(), { ...input, name: ' ' }, 'child', at))
-      .toThrow('Grant name and subject are required.');
-    expect(() => createGrant(fixture(), { ...input, subject: ' ' }, 'child', at))
-      .toThrow('Grant name and subject are required.');
+      .toThrow('Grant name is required.');
   });
 
   it('requires resource targets to be live and every capability to carry a permission', () => {

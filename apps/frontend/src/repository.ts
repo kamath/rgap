@@ -1,5 +1,5 @@
-import { BrowserRgapRepository } from '@rgap/browser';
+import { BrowserRgapStore } from '@rgap/browser';
 import { seed } from './seed';
 
-/** The administrative plane. Commands run here directly, or through `guardCommands` when a token is active. */
-export const repository = new BrowserRgapRepository({ initialState: seed() });
+/** Owns persistence and exposes explicit administrative and bearer-token command planes. */
+export const store = new BrowserRgapStore({ initialState: seed() });

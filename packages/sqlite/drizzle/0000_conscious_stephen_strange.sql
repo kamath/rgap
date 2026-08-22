@@ -34,7 +34,6 @@ CREATE TABLE `capability_permissions` (
 CREATE TABLE `grants` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
-	`subject` text NOT NULL,
 	`parent_id` text,
 	`expires_at` text,
 	`revoked_at` text,

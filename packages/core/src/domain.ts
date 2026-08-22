@@ -23,7 +23,6 @@ export type Capability = {
 export type Grant = {
   id: string;
   name: string;
-  subject: string;
   parentId: string | null;
   capabilities: Capability[];
   expiresAt: string | null;
@@ -297,7 +296,7 @@ export function deleteResource(state: State, id: string, at: string) {
 }
 
 export function createGrant(state: State, input: CreateGrantInput, id: string, at: string) {
-  if (!input.name.trim() || !input.subject.trim()) throw new RgapError('invalid_grant', 'Grant name and subject are required.');
+  if (!input.name.trim()) throw new RgapError('invalid_grant', 'Grant name is required.');
   const capabilities = normalizeCapabilities(input.capabilities, state.resources);
   if (input.parentId) {
     const parent = state.grants[input.parentId];
@@ -313,14 +312,14 @@ export function createGrant(state: State, input: CreateGrantInput, id: string, a
   }
   const next = copy(state);
   next.grants[id] = {
-    ...input, capabilities, id, name: input.name.trim(), subject: input.subject.trim(), revokedAt: null,
+    ...input, capabilities, id, name: input.name.trim(), revokedAt: null,
   };
   audit(next, { at, action: input.parentId ? 'grant.delegate' : 'grant.create', target: id, result: 'recorded', detail: `Created ${input.name}.` });
   return next;
 }
 
 /**
- * Replaces a grant's whole capability set in one transition. Identity, subject, parent, and expiry
+ * Replaces a grant's whole capability set in one transition. Identity, parent, and expiry
  * are fixed at issue; what a grant reaches is not, so this runs the same downscoping proof as issue
  * at the moment the set changes, and revokes any child the new set no longer covers.
  */

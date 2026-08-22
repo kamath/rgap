@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { guardCommands, requireResourceId, type State } from '@rgap/core';
-import { BrowserRgapRepository } from './index';
+import { requireResourceId, type State } from '@rgap/core';
+import { BrowserRgapStore } from './index';
 
 const memoryStorage = (): Storage => {
   const values = new Map<string, string>();
@@ -26,7 +26,7 @@ const initialState = (): State => ({
   ].map((item) => [item.id, item])),
   grants: {
     owner: {
-      id: 'owner', name: 'Owner', subject: 'owner', parentId: null, expiresAt: null, revokedAt: null,
+      id: 'owner', name: 'Owner', parentId: null, expiresAt: null, revokedAt: null,
       capabilities: [{
         target: { type: 'resource', resourceId: 'drive' },
         permissions: ['read', 'write', 'move', 'delete'], descendants: true,
@@ -38,12 +38,13 @@ const initialState = (): State => ({
 });
 
 const guarded = async () => {
-  const admin = new BrowserRgapRepository({ initialState: initialState(), storage: memoryStorage() });
+  const store = new BrowserRgapStore({ initialState: initialState(), storage: memoryStorage() });
+  const admin = store.admin();
   const issued = await admin.issueToken('owner', 'owner token');
-  return { admin, token: issued.value, repo: guardCommands(admin, issued.value) };
+  return { admin, store, token: issued.value, repo: store.as(issued.value) };
 };
 
-describe('guardCommands', () => {
+describe('BrowserRgapStore token plane', () => {
   it('allows a command the token authorizes', async () => {
     const { repo, admin } = await guarded();
 
@@ -63,20 +64,20 @@ describe('guardCommands', () => {
   });
 
   it('lets a token set what a grant below it reaches, but never its own grant', async () => {
-    const { admin } = await guarded();
+    const { admin, store } = await guarded();
     const entry = [{
       target: { type: 'resource' as const, resourceId: 'tools' },
       permissions: ['read' as const], descendants: false,
     }];
     // The acting grant is delegated, not a root, so the own-grant rule is what refuses it.
     const acting = await admin.createGrant({
-      name: 'Middle', subject: 'agent', parentId: 'owner', expiresAt: null, capabilities: entry,
+      name: 'Middle', parentId: 'owner', expiresAt: null, capabilities: entry,
     });
     const below = await admin.createGrant({
-      name: 'Below', subject: 'sub-agent', parentId: acting.id, expiresAt: null, capabilities: [],
+      name: 'Below', parentId: acting.id, expiresAt: null, capabilities: [],
     });
     const issued = await admin.issueToken(acting.id, 'middle token');
-    const repo = guardCommands(admin, issued.value);
+    const repo = store.as(issued.value);
 
     expect((await repo.setCapabilities(below.id, entry)).capabilities).toHaveLength(1);
 
@@ -87,10 +88,10 @@ describe('guardCommands', () => {
   it('refuses to set capabilities on a root grant or a grant outside the token', async () => {
     const { repo, admin } = await guarded();
     const beside = await admin.createGrant({
-      name: 'Beside', subject: 'other', parentId: null, expiresAt: null, capabilities: [],
+      name: 'Beside', parentId: null, expiresAt: null, capabilities: [],
     });
     const below = await admin.createGrant({
-      name: 'Below beside', subject: 'other', parentId: beside.id, expiresAt: null, capabilities: [],
+      name: 'Below beside', parentId: beside.id, expiresAt: null, capabilities: [],
     });
 
     await expect(repo.setCapabilities(beside.id, [])).rejects.toThrow('administrative operation');
@@ -114,7 +115,7 @@ describe('guardCommands', () => {
     await expect(repo.moveResource('tools', null)).rejects.toThrow('administrative operation');
     await expect(repo.reset()).rejects.toThrow('administrative operation');
     await expect(repo.createGrant({
-      name: 'Root', subject: 'someone', parentId: null, expiresAt: null,
+      name: 'Root', parentId: null, expiresAt: null,
       capabilities: [{ target: { type: 'resource', resourceId: 'drive' }, permissions: ['read'], descendants: false }],
     })).rejects.toThrow('administrative operation');
   });
@@ -122,7 +123,7 @@ describe('guardCommands', () => {
   it('delegates only from the grant the token references, and reaches only that subtree', async () => {
     const { repo, admin, token } = await guarded();
     const child = await repo.createGrant({
-      name: 'Reader', subject: 'sub-agent', parentId: 'owner', expiresAt: null,
+      name: 'Reader', parentId: 'owner', expiresAt: null,
       capabilities: [{ target: { type: 'resource', resourceId: 'tools' }, permissions: ['read'], descendants: false }],
     });
 
@@ -130,7 +131,7 @@ describe('guardCommands', () => {
     expect(issued.record.grantId).toBe(child.id);
 
     const outsider = await admin.createGrant({
-      name: 'Outsider', subject: 'other', parentId: null, expiresAt: null,
+      name: 'Outsider', parentId: null, expiresAt: null,
       capabilities: [{ target: { type: 'resource', resourceId: 'slack' }, permissions: ['read'], descendants: false }],
     });
     await expect(repo.issueToken(outsider.id, 'nope')).rejects.toThrow('neither this token');
@@ -144,8 +145,8 @@ describe('guardCommands', () => {
   });
 
   it('refuses every command for an unknown or revoked token', async () => {
-    const { admin, repo, token } = await guarded();
-    const unknown = guardCommands(admin, 'rgap_not_a_token');
+    const { admin, repo, store, token } = await guarded();
+    const unknown = store.as('rgap_not_a_token');
 
     await expect(unknown.deleteResource('tools')).rejects.toThrow('unknown, expired, or revoked');
     await expect(unknown.revokeGrant('owner')).rejects.toThrow('unknown, expired, or revoked');
