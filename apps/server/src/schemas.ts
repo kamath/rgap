@@ -97,7 +97,7 @@ export const PageQuerySchema = z.object({
 });
 
 export const NullableParentQuerySchema = z.preprocess(
-  (value) => value === '' ? null : value,
+  (value) => value === '' || value === 'null' ? null : value,
   NullableIdSchema.optional(),
 );
 
