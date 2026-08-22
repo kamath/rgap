@@ -252,7 +252,7 @@ Every command addresses resources by `ResourceId`. A resource path describes onl
 
 ## HTTP API
 
-`@rgap/server` is a Node.js Hono application in `apps/server`. It opens a `SqliteRgapStore` at the path in `RGAP_DATABASE_URL` and serves every operation in `RgapCommands`. Every command route requires an `Authorization: Bearer <token>` header. An RGAP token selects `store.as(token)`. When `RGAP_ADMIN_TOKEN` is set, that bearer selects `store.admin()` for trusted bootstrap and operational calls, including root creation and reset. When it is unset, the server starts without a remote administrative plane and treats every bearer as an RGAP token.
+`@rgap/server` is a Node.js Hono application in `apps/server`. It opens a `SqliteRgapStore` at the path in `RGAP_DATABASE_URL` and serves every operation in `RgapCommands`. Every command route requires an `Authorization: Bearer <token>` header. An RGAP token selects `store.as(token)`. The bearer in `RGAP_ADMIN_TOKEN` selects `store.admin()` for trusted bootstrap and operational calls, including root creation and reset. The administrative bearer defaults to `test` when the environment variable is unset.
 
 The OpenAPI `operationId` in the right column is the generated HeyAPI function name. The mapping is exhaustive and one-to-one with `RgapCommands`:
 
@@ -283,7 +283,7 @@ Each route is declared once with `@hono/zod-openapi`. Its Zod schemas validate p
 
 The server package generates `openapi.json` from the application and runs HeyAPI against that document. HeyAPI writes a fetch-based TypeScript SDK and its model types to `apps/server/src/client/generated`. Git ignores both generated outputs, and package commands regenerate them from the route declarations before they are consumed. The route declarations are the source of truth for runtime behavior, the OpenAPI contract, the Hono RPC client, and the HeyAPI SDK. The generated SDK has exactly one function for each row in the table, named by its `operationId`, with no extra API operations.
 
-The package exports the Hono application, `AppType`, generated HeyAPI client, and `HttpRgapStore`. `HttpRgapStore` implements `RgapStore` over the generated SDK: `admin()` sends the configured administrative bearer, while `as(token)` sends that RGAP bearer. It reconstructs the repository handles returned by `@rgap/core`, and maps non-success API responses to `RgapError`. `pnpm --filter @rgap/server generate` refreshes the OpenAPI document and SDK. The package build and test commands generate those artifacts before type-checking or running tests. Its tests exercise validation, authorization-plane selection, OpenAPI generation, Hono RPC calls, generated SDK calls, and the HTTP store against the in-process application.
+The package exports the Hono application, `AppType`, generated HeyAPI client, and `HttpRgapStore`. `HttpRgapStore` implements `RgapStore` over the generated SDK: `admin()` sends its configured administrative bearer, which also defaults to `test`, while `as(token)` sends that RGAP bearer. It reconstructs the repository handles returned by `@rgap/core`, and maps non-success API responses to `RgapError`. `pnpm --filter @rgap/server generate` refreshes the OpenAPI document and SDK. The package build and test commands generate those artifacts before type-checking or running tests. Its tests exercise validation, authorization-plane selection, OpenAPI generation, Hono RPC calls, generated SDK calls, and the HTTP store against the in-process application.
 
 ## SQLite store
 
@@ -346,7 +346,7 @@ Rows are written parents before children, so the foreign keys hold at every stat
 ```ts
 const store = new HttpRgapStore({
   baseUrl: 'http://localhost:3000',
-  adminToken: process.env.RGAP_ADMIN_TOKEN!,
+  adminToken: process.env.RGAP_ADMIN_TOKEN ?? 'test',
 });
 ```
 
