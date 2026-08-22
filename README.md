@@ -252,21 +252,36 @@ Every command addresses resources by `ResourceId`. A resource path describes onl
 
 ## HTTP API
 
-`@rgap/server` is a Node.js Hono application in `apps/server`. It opens a `SqliteRgapStore` at the path in `RGAP_DATABASE_URL` and serves the repository operations described above. Every repository route requires an `Authorization: Bearer <token>` header and selects its command plane with `store.as(token)`. The HTTP application never exposes `store.admin()`; trusted bootstrap and operational code use the SQLite store directly.
+`@rgap/server` is a Node.js Hono application in `apps/server`. It opens a `SqliteRgapStore` at the path in `RGAP_DATABASE_URL` and serves every operation in `RgapCommands`. Every command route requires an `Authorization: Bearer <token>` header. An RGAP token selects `store.as(token)`. The bearer configured in `RGAP_ADMIN_TOKEN` selects `store.admin()` for trusted bootstrap and operational calls, including root creation and reset.
 
-The API includes the resource, grant, token, and audit collection routes listed above together with:
+The OpenAPI `operationId` in the right column is the generated HeyAPI function name. The mapping is exhaustive and one-to-one with `RgapCommands`:
 
-```text
-POST /authorize       { token, resourceId, permission }
-POST /tokens/inspect  { token }
-GET  /openapi.json
-```
+| Method and path | Input | Success | `operationId` |
+| --- | --- | --- | --- |
+| `GET /resources/{id}` | path `id` | `Resource` | `getResource` |
+| `GET /resources` | query `parentId`, `cursor`, `limit` | `Resource[]` | `listResources` |
+| `POST /resources` | `{ name, parentId }` | `Resource` | `createResource` |
+| `POST /resources/{id}/move` | path `id`, body `{ parentId }` | `Resource` | `moveResource` |
+| `DELETE /resources/{id}` | path `id` | no body | `deleteResource` |
+| `GET /grants/{id}` | path `id` | `Grant` | `getGrant` |
+| `GET /grants` | query `parentId`, `cursor`, `limit` | `Grant[]` | `listGrants` |
+| `POST /grants` | `{ name, parentId, capabilities, expiresAt }` | `Grant` | `createGrant` |
+| `PUT /grants/{id}/capabilities` | path `id`, body `{ capabilities }` | `Grant` | `setCapabilities` |
+| `POST /grants/{id}/tokens` | path `id`, body `{ label }` | `{ record, value }` | `issueToken` |
+| `POST /grants/{id}/revoke` | path `id` | no body | `revokeGrant` |
+| `GET /tokens/{id}` | path `id` | `Token` | `getToken` |
+| `GET /tokens` | query `grantId`, `cursor`, `limit` | `Token[]` | `listTokens` |
+| `POST /tokens/{id}/revoke` | path `id` | no body | `revokeToken` |
+| `GET /audit` | query `cursor`, `limit` | `AuditEvent[]` | `listAudit` |
+| `POST /authorize` | `{ token, resourceId, permission }` | `Decision` | `authorize` |
+| `POST /tokens/inspect` | `{ token }` | `AuthorityView` | `inspectToken` |
+| `POST /reset` | no body | no body | `reset` |
 
-`POST /authorize` and `POST /tokens/inspect` evaluate the bearer supplied in their JSON body while the authorization header controls access to the repository plane. Successful responses are the JSON-compatible `@rgap/core` records, arrays, decisions, and authority views. Commands that return no value respond with status `204`. Input validation failures use status `400`, an invalid or missing authorization bearer uses status `401`, an operation outside the selected plane uses status `403`, a missing record uses status `404`, and other domain conflicts use status `409`.
+`authorize` and `inspectToken` evaluate the bearer supplied in their JSON body while the authorization header selects the repository plane. Successful responses are the JSON-compatible `@rgap/core` records, arrays, decisions, and authority views shown in the table. Commands that return no value respond with status `204`. Input validation failures use status `400`, an invalid or missing authorization bearer uses status `401`, an operation outside the selected plane uses status `403`, a missing record uses status `404`, and other domain conflicts use status `409`.
 
 Each route is declared once with `@hono/zod-openapi`. Its Zod schemas validate path parameters, query parameters, headers, and JSON bodies at runtime and describe every success and error response. Hono derives the RPC `AppType` from the same chained route definitions, and the application publishes the generated OpenAPI document at `/openapi.json`.
 
-The server package generates `openapi.json` from the application and runs HeyAPI against that document. HeyAPI writes a fetch-based TypeScript SDK and its model types to `apps/server/src/client/generated`. Generated files are never edited by hand. The route declarations are the source of truth for runtime behavior, the OpenAPI contract, the Hono RPC client, and the HeyAPI SDK, so both typed clients expose the same paths, inputs, statuses, and response bodies.
+The server package generates `openapi.json` from the application and runs HeyAPI against that document. HeyAPI writes a fetch-based TypeScript SDK and its model types to `apps/server/src/client/generated`. Generated files are never edited by hand. The route declarations are the source of truth for runtime behavior, the OpenAPI contract, the Hono RPC client, and the HeyAPI SDK. The generated SDK has exactly one function for each row in the table, named by its `operationId`, with no extra API operations.
 
 The package exports the Hono application, `AppType`, and generated HeyAPI client. `pnpm --filter @rgap/server generate` refreshes the OpenAPI document and SDK. The package build checks that generated output is current before type-checking, and its tests exercise validation, authorization-plane selection, OpenAPI generation, Hono RPC calls, and generated SDK calls against the in-process application.
 
