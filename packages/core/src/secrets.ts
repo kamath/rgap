@@ -33,12 +33,14 @@ const bytes = (value: string) => {
   }
 };
 
-const encryptionKey = async (key: SecretKey, usage: KeyUsage) => {
+const encryptionKey = async (key: SecretKey, usage: 'encrypt' | 'decrypt') => {
   if (key instanceof Uint8Array) {
     if (key.byteLength !== 32) {
       throw new RgapError('invalid_secret_key', 'Secret key must contain exactly 32 bytes.');
     }
-    return crypto.subtle.importKey('raw', key, 'AES-GCM', false, [usage]);
+    const raw = new Uint8Array(key.byteLength);
+    raw.set(key);
+    return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, [usage]);
   }
   if (
     key.type !== 'secret'
@@ -47,7 +49,7 @@ const encryptionKey = async (key: SecretKey, usage: KeyUsage) => {
   ) {
     throw new RgapError('invalid_secret_key', 'Secret key must be an AES-GCM key permitted for this operation.');
   }
-  const length = (key.algorithm as AesKeyAlgorithm).length;
+  const length = (key.algorithm as { length?: number }).length;
   if (length !== 256) throw new RgapError('invalid_secret_key', 'Secret key must use 256-bit AES.');
   return key;
 };

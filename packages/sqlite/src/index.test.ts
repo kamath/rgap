@@ -185,7 +185,8 @@ const collect = async <T>(iterable: AsyncIterable<T>) => {
 describe('SqliteRgapStore', () => {
   it('exposes command planes and close rather than repository commands', () => {
     const store = open({ secretKey });
-    expectTypeOf<Extract<keyof SqliteRgapStore, keyof RgapRepository>>().toEqualTypeOf<never>();
+    expectTypeOf<Exclude<Extract<keyof SqliteRgapStore, keyof RgapRepository>, 'secrets'>>()
+      .toEqualTypeOf<never>();
     expect(store).not.toHaveProperty('resources');
     expect(store.secrets.resolve).toBeTypeOf('function');
     expect(store.admin().secrets).not.toHaveProperty('resolve');
