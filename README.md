@@ -252,7 +252,7 @@ Every command addresses resources by `ResourceId`. A resource path describes onl
 
 ## HTTP API
 
-`@rgap/server` is a Node.js Hono application in `apps/server`. It opens a `SqliteRgapStore` at the path in `RGAP_DATABASE_URL` and serves every operation in `RgapCommands`. Every command route requires an `Authorization: Bearer <token>` header. An RGAP token selects `store.as(token)`. The bearer configured in `RGAP_ADMIN_TOKEN` selects `store.admin()` for trusted bootstrap and operational calls, including root creation and reset.
+`@rgap/server` is a Node.js Hono application in `apps/server`. It opens a `SqliteRgapStore` at the path in `RGAP_DATABASE_URL` and serves every operation in `RgapCommands`. Every command route requires an `Authorization: Bearer <token>` header. An RGAP token selects `store.as(token)`. When `RGAP_ADMIN_TOKEN` is set, that bearer selects `store.admin()` for trusted bootstrap and operational calls, including root creation and reset. When it is unset, the server starts without a remote administrative plane and treats every bearer as an RGAP token.
 
 The OpenAPI `operationId` in the right column is the generated HeyAPI function name. The mapping is exhaustive and one-to-one with `RgapCommands`:
 
