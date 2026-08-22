@@ -320,12 +320,13 @@ A move or deletion commits the resource-tree change and its audit event atomical
 
 ## Repository architecture
 
-The repository contains four workspace packages:
+The repository contains five workspace packages:
 
 - `@rgap/core` defines the protocol records, pure authorization rules, and store and repository contracts.
 - `@rgap/sqlite` provides durable SQLite persistence.
 - `@rgap/server` exposes the repository as a Hono HTTP API.
 - `@rgap/examples` is an executable scratchpad for exploring the model.
+- `@rgap/llm-gateway-example` is an OpenAI-compatible Hono gateway under `examples/llm-gateway`.
 
 `@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, executable orchestration, runtime and protected-store contracts, and asynchronous `RgapStore` and `RgapRepository` contracts. Identities in that TypeScript surface are branded (`ResourceId`, `GrantId`, `TokenId`, `TokenValue`, `TokenHash`, `ExecutableRevisionId`); they serialize as ordinary strings. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. `as` takes a `TokenValue`. Ordinary commands are request-response methods; `resource.invoke` and `repository.invoke` stream `InvocationEvent` values through an `AsyncIterable`. The package has no dependency on a storage implementation or transport.
 
@@ -549,6 +550,30 @@ The company grant covers the whole tree. The team grant covers only `platform`, 
 It resets the selected store as it starts, so every run begins from the state the file declares. Local mode leaves `examples/scratch.db` on disk afterwards to be read with any SQLite client. Remote mode changes the running server's configured database.
 
 The package's own suite runs against a `:memory:` database, so the tests exercise real SQL and real transactions rather than a stand-in.
+
+### OpenAI gateway example
+
+`examples/llm-gateway` is a Hono server whose `/v1/*` route transparently proxies every OpenAI endpoint. It does not enumerate chat, responses, embeddings, files, audio, images, fine-tuning, vector-store, batch, or future endpoint names. The gateway preserves the incoming method, path, query, body, content type, OpenAI request headers, upstream status, response headers, and response body. JSON, multipart uploads, binary downloads, and SSE therefore remain OpenAI-compatible byte streams rather than being translated into RGAP NDJSON invocation events.
+
+Employees configure an OpenAI-compatible client with the gateway URL and an RGAP bearer:
+
+```bash
+export OPENAI_BASE_URL=http://localhost:8787/v1
+export OPENAI_API_KEY=rgap_employee_token
+```
+
+For each request, the gateway:
+
+1. Parses the RGAP bearer from `Authorization`.
+2. Authorizes `invoke` on one configured OpenAI gateway resource through the bearer's complete grant lineage.
+3. Removes the employee bearer and hop-by-hop headers.
+4. Injects the server-side `OPENAI_API_KEY` as the upstream bearer.
+5. Proxies the request to the same path and query beneath `https://api.openai.com`.
+6. Streams the upstream status, headers, and body back without buffering.
+
+The example uses direct RGAP authorization rather than `resource.invoke()`. This transport adapter must preserve arbitrary HTTP bytes and headers, while the generic invocation protocol carries JSON-compatible `InvocationEvent` values. Provider-specific policy may inspect a request before proxying, but it cannot rewrite the upstream destination or expose the OpenAI credential.
+
+The package exports an app factory that accepts its RGAP store, OpenAI resource ID, upstream key, optional upstream origin, and fetch implementation. Its executable entry point reads `OPENAI_API_KEY`, `RGAP_DATABASE_URL`, `OPENAI_RESOURCE_ID`, and `PORT`. A bootstrap command creates the `llm/openai` resource, an employee grant with `invoke`, and a one-time RGAP token for local use. Tests use an in-memory SQLite store and a fake upstream fetch to cover authentication, authorization, path/query forwarding, header replacement, JSON requests, multipart bodies, binary responses, SSE streaming, upstream errors, and cancellation without contacting OpenAI.
 
 ## Testing
 
