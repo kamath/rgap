@@ -177,19 +177,22 @@ The registry is deployment configuration and is not writable through a grant. Ex
 
 Global runtime limits are ceilings. A revision may narrow timeout, memory, output, concurrency, or network limits but cannot expand the runtime's configured policy.
 
-Protocol integrations are executable resources rather than dedicated RGAP record types or collections. For example, an OAuth authorization operation and token-exchange operation use the configured fetch runtime, with client ID and client secret supplied through ordinary resource bindings. Provider endpoints, scopes, audiences, redirect URIs, and request construction live in those executable revisions and remain subject to the fetch runtime's destination policy.
+Protocol integrations are executable resources rather than dedicated RGAP record types or collections. A deployment may register a provider runtime that owns one protocol's trusted behavior. For example, `GitHubRuntime` owns GitHub's authorization and token endpoints, response formats, token refresh, credential injection, and allowed API origins. Executable revisions select GitHub operations and narrow their policy without replacing those trusted rules.
 
 ```ts
-await oauthTokenExchange.invoke({
-  input: { code, redirectUri, verifier },
+await oauthComplete.invoke({
+  input: { code, state, pkceVerifier },
   bindings: {
-    clientId: oauthClientIdResource.id,
-    clientSecret: oauthClientSecretResource.id,
+    clientId: githubClientId.id,
+    clientSecret: githubClientSecret.id,
+    connection: aliceGitHubConnection.id,
   },
 });
 ```
 
-Fetch, GraphQL, MCP, OAuth, and application-specific wrappers therefore share executable CRUD, immutable revisions, invocation authorization, bindings, limits, streaming events, and auditing. RGAP adds a runtime only when an execution mechanism requires a distinct trusted implementation; it does not add a domain collection for each protocol.
+Client ID and client secret are protected values attached to ordinary resources. The connection is another resource with runtime-private credential state. Only the owning runtime can interpret that state, and executable programs cannot declare token extraction or arbitrary secret writes.
+
+Fetch, GraphQL, MCP, provider-specific OAuth, and application-specific wrappers share executable CRUD, immutable revisions, invocation authorization, bindings, limits, streaming events, and auditing. RGAP adds a runtime only when an execution mechanism requires a distinct trusted implementation; it does not add a domain collection for each protocol.
 
 ## Bindings and secrets
 
@@ -220,6 +223,8 @@ interface SecretStore {
 Secret writes and rotations require `write` on the resource. Secret reads return metadata only; no repository or HTTP command returns plaintext. `use` permits the secret resource to participate in an invocation but does not imply `read` or `write`.
 
 Trusted runtimes may materialize a secret handle only at a controlled sink, such as an allowed HTTP header, OAuth token exchange, MCP connection, or GraphQL transport. Sandboxed programs receive opaque handles and cannot materialize secret values. Runtime implementations are trusted deployment code; granting a runtime access to the secret resolver places that runtime inside the secret-handling boundary.
+
+A runtime may also own private credential state attached to a binding resource. The runtime context permits that runtime to atomically create, replace, and clear its state when the binding schema grants the required `write` access, and to use it when the schema grants `use`. Repository reads expose only non-secret metadata. Another runtime and an executable program cannot read or modify the private state.
 
 Bindings are checked independently from the executable. A caller must hold `invoke` on the executable resource and `use` on every resource supplied as a binding. Runtime destination and audience policies are applied before a credential is materialized.
 
