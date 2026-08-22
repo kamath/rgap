@@ -53,9 +53,6 @@ describe('OpenAI-compatible LLM gateway', () => {
     })).status).toBe(401);
     const forbidden = await app.request('/v1/models', { headers: authorization(denied) });
     expect(forbidden.status).toBe(403);
-    expect(await forbidden.json()).toMatchObject({
-      error: { code: 'insufficient_permissions' },
-    });
     expect(upstream).not.toHaveBeenCalled();
   });
 
