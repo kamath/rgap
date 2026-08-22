@@ -440,6 +440,29 @@ Rows are written parents before children, so the foreign keys hold at every stat
 
 `examples/index.ts` is a scratchpad: ordinary TypeScript that opens a store, exercises whatever arrangement of resources, grants, and tokens is in question, and prints what the model decides. `pnpm scratch` runs it. It is a workspace package, so it imports `@rgap/sqlite` and `@rgap/core` the way any consumer does, and it is meant to be edited rather than preserved.
 
+The file currently walks a five-step delegation. Resources are the company's workspace. Grants are who holds authority over it. Each step issues a token for the current grant, selects that token's plane with `store.as`, and creates a narrower child grant:
+
+```text
+acme/
+├── platform/
+│   ├── docs/
+│   │   └── design
+│   └── tools/
+│       └── search
+└── finance/
+    └── payroll
+```
+
+```text
+Company     acme, all permissions
+└── Team    platform, read/write/invoke
+    └── Employee    docs, read/write
+        └── Agent   acme/platform/docs, read
+            └── Subagent    acme/platform/docs/design, read
+```
+
+The company grant covers the whole tree. The team grant covers only `platform`, so `finance` is withheld from everyone below. Write stops at the employee. The agent and subagent use path targets rather than resource IDs. Authorization prints show what each token may still do.
+
 It opens `examples/scratch.db` and resets it as it starts, so every run begins from the state the file declares and the database is left on disk afterwards to be read with any SQLite client. Removing the reset keeps what the previous run wrote.
 
 The package's own suite runs against a `:memory:` database, so the tests exercise real SQL and real transactions rather than a stand-in.

@@ -2,11 +2,16 @@
  * A scratchpad. It is here to answer "what does the model do about this?", so edit it freely:
  * arrange resources, grants, and tokens, then print what authorization says about them.
  *
+ * This file walks company → team → employee → agent → subagent. Each step issues a token,
+ * selects that plane with `store.as`, and creates a narrower child grant.
+ *
  * `pnpm scratch` runs this file against examples/scratch.db.
  */
 import { fileURLToPath } from 'node:url';
 import { resourceId, resourcePath, type Permission, type ResourceId, type TokenValue } from '@rgap/core';
 import { SqliteRgapStore } from '@rgap/sqlite';
+
+type TreeNode<Id extends string> = { id: Id; parentId: Id | null; name: string };
 
 const store = new SqliteRgapStore({ url: fileURLToPath(new URL('scratch.db', import.meta.url)) });
 const root = store.admin();
@@ -14,55 +19,121 @@ const root = store.admin();
 // Every run starts from an empty store. Remove this to keep what the last run wrote.
 await root.reset();
 
-const acme = await root.resources.create({ name: 'acme-company' });
-const adminGrant = await root.grants.create({
-  name: 'Acme admin', capabilities: [{
+const acme = await root.resources.create({ name: 'acme' });
+const companyGrant = await root.grants.create({
+  name: 'Company',
+  capabilities: [{
     resourceId: acme.id,
-    permissions: ['read', 'write', 'invoke', 'move', 'delete'],
-  }], expiresAt: null,
+    permissions: ['read', 'write', 'delete', 'move', 'invoke'],
+  }],
+  expiresAt: null,
 });
-const adminToken = await adminGrant.tokens.create({ label: 'admin' });
-const admin = store.as(adminToken.value);
+const companyToken = await companyGrant.tokens.create({ label: 'company' });
+const company = store.as(companyToken.value);
 
-const drive = await (await admin.resources.get(acme.id)).create({ name: 'drive' });
-const notes = await drive.create({ name: 'notes' });
-const secret = await (await admin.resources.get(acme.id)).create({ name: 'secret' });
+const companyRoot = await company.resources.get(acme.id);
+const platform = await companyRoot.create({ name: 'platform' });
+const docs = await platform.create({ name: 'docs' });
+const design = await docs.create({ name: 'design' });
+const tools = await platform.create({ name: 'tools' });
+const search = await tools.create({ name: 'search' });
+const finance = await companyRoot.create({ name: 'finance' });
+const payroll = await finance.create({ name: 'payroll' });
 
-const aliceToken = await (await admin.grants.get(adminGrant.id)).tokens.create({ label: 'alice cli' });
-const alice = store.as(aliceToken.value);
+const { resources: companyResources } = await company.readState();
 
-// Alice delegates through her token-authorized plane, so the child can only be narrower than her grant.
-const readerGrant = await alice.grants.create({
-  name: 'Drive read', capabilities: [], expiresAt: null,
+function printPaths<Id extends string>(
+  nodes: Record<string, TreeNode<Id>>,
+  currentId: Id | null = null,
+  pathSoFar: string[] = []
+) {
+  const children = Object.values(nodes)
+    .filter(node => node.parentId === currentId)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  for (const child of children) {
+    const newPath = [...pathSoFar, child.name];
+    console.log(newPath.join('/'));
+    printPaths(nodes, child.id, newPath);
+  }
+}
+
+console.log("RESOURCE TREE");
+printPaths(companyResources);
+console.log('\n\n');
+
+const teamGrant = await company.grants.create({
+  name: 'Team',
+  capabilities: [{ resourceId: platform.id, permissions: ['read', 'write', 'invoke'] }],
+  expiresAt: null,
 });
-await readerGrant.capabilities.set([
-  { path: 'acme-company/drive', permissions: ['read'] },
-]);
+const teamToken = await teamGrant.tokens.create({ label: 'team' });
+const team = store.as(teamToken.value);
 
-const bobToken = await readerGrant.tokens.create({ label: 'bob' });
+const employeeGrant = await team.grants.create({
+  name: 'Employee',
+  capabilities: [{ resourceId: docs.id, permissions: ['read', 'write'] }],
+  expiresAt: null,
+});
+const employeeToken = await employeeGrant.tokens.create({ label: 'employee' });
+const employee = store.as(employeeToken.value);
 
-const { resources } = await admin.readState();
+const agentGrant = await employee.grants.create({
+  name: 'Agent',
+  capabilities: [{ path: 'acme/platform/docs', permissions: ['read'] }],
+  expiresAt: null,
+});
+const agentToken = await agentGrant.tokens.create({ label: 'agent' });
+const agent = store.as(agentToken.value);
+
+const subagentGrant = await agent.grants.create({
+  name: 'Subagent',
+  capabilities: [{ path: 'acme/platform/docs/design', permissions: ['read'] }],
+  expiresAt: null,
+});
+const subagentToken = await subagentGrant.tokens.create({ label: 'subagent' });
+
+const { resources, grants } = await company.readState();
 const path = (id: ResourceId) => resourcePath(resources, id);
 
-const check = async (label: string, token: TokenValue, resourceId: ResourceId, permission: Permission) => {
-  const decision = await admin.authorize(token, resourceId, permission);
+console.log("GRANT PATHS");
+printPaths(grants);
+console.log('\n\n');
+
+const check = async (label: string, token: TokenValue, target: ResourceId, permission: Permission) => {
+  const decision = await company.authorize(token, target, permission);
   const verdict = decision.allowed ? 'allow' : 'deny ';
-  console.log(`${verdict}  ${label.padEnd(6)} ${permission.padEnd(7)} ${path(resourceId).padEnd(18)} ${decision.detail}`);
+  console.log(`${verdict}  ${label.padEnd(8)} ${permission.padEnd(7)} ${path(target).padEnd(26)} ${decision.detail}`);
 };
 
-await check('alice', aliceToken.value, notes.id, 'read');
-await check('bob', bobToken.value, notes.id, 'read');
-await check('bob', bobToken.value, notes.id, 'write');
-await check('bob', bobToken.value, secret.id, 'read');
+await check('company', companyToken.value, payroll.id, 'read');
+await check('team', teamToken.value, payroll.id, 'read');
+await check('team', teamToken.value, docs.id, 'write');
+await check('team', teamToken.value, search.id, 'invoke');
+await check('employee', employeeToken.value, docs.id, 'write');
+await check('employee', employeeToken.value, search.id, 'invoke');
+await check('agent', agentToken.value, docs.id, 'write');
+await check('agent', agentToken.value, docs.id, 'read');
+await check('agent', agentToken.value, design.id, 'read');
+await check('subagent', subagentToken.value, design.id, 'read');
+await check('subagent', subagentToken.value, docs.id, 'read');
+await check('subagent', subagentToken.value, search.id, 'invoke');
 
-for (const [label, token] of [['alice', aliceToken.value], ['bob', bobToken.value]] as const) {
-  const authority = await admin.inspectToken(token);
+const tokens = [
+  ['company', companyToken.value],
+  ['team', teamToken.value],
+  ['employee', employeeToken.value],
+  ['agent', agentToken.value],
+  ['subagent', subagentToken.value],
+] as const;
+
+for (const [label, token] of tokens) {
+  const authority = await company.inspectToken(token);
   console.log(`\n${label}: ${authority.detail}`);
   Object.entries(authority.permissions).forEach(([id, held]) => {
-    console.log(`  ${path(resourceId(id)).padEnd(18)} ${held.join(' ')}`);
+    console.log(`  ${path(resourceId(id)).padEnd(26)} ${held.join(' ')}`);
   });
 }
 
-console.log(await root.readState());
+// console.log(await root.readState());
 
 store.close();
