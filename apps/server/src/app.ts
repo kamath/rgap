@@ -39,10 +39,6 @@ import {
   ResourceListQuerySchema,
   ResourceSchema,
   ResourceWriteSchema,
-  RuntimeMetadataParamsSchema,
-  RuntimePrivateMetadataSchema,
-  SecretMetadataSchema,
-  SecretWriteSchema,
   SetCapabilitiesSchema,
   TokenListQuerySchema,
   TokenSchema,
@@ -140,34 +136,6 @@ const deleteExecutableRoute = commandRoute({
   operationId: 'deleteExecutable',
   request: { params: IdParamsSchema },
   responses: { 204: { description: 'Executable deleted' }, ...errors },
-});
-const getSecretMetadataRoute = commandRoute({
-  method: 'get',
-  path: '/resources/{id}/secret',
-  operationId: 'getSecretMetadata',
-  request: { params: IdParamsSchema },
-  responses: { 200: jsonResponse(SecretMetadataSchema, 'Secret metadata'), ...errors },
-});
-const writeSecretRoute = commandRoute({
-  method: 'put',
-  path: '/resources/{id}/secret',
-  operationId: 'writeSecret',
-  request: { params: IdParamsSchema, body: jsonBody(SecretWriteSchema) },
-  responses: { 200: jsonResponse(SecretMetadataSchema, 'Secret metadata'), ...errors },
-});
-const deleteSecretRoute = commandRoute({
-  method: 'delete',
-  path: '/resources/{id}/secret',
-  operationId: 'deleteSecret',
-  request: { params: IdParamsSchema },
-  responses: { 204: { description: 'Secret deleted' }, ...errors },
-});
-const getRuntimePrivateMetadataRoute = commandRoute({
-  method: 'get',
-  path: '/resources/{id}/runtime-private/{runtime}',
-  operationId: 'getRuntimePrivateMetadata',
-  request: { params: RuntimeMetadataParamsSchema },
-  responses: { 200: jsonResponse(RuntimePrivateMetadataSchema, 'Runtime-private metadata'), ...errors },
 });
 const invokeRoute = commandRoute({
   method: 'post',
@@ -373,35 +341,6 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
       const { id } = c.req.valid('param');
       await repository(c).executables.delete(resourceId(id));
       return c.body(null, 204);
-    })
-    .openapi(getSecretMetadataRoute, async (c) => {
-      const { id } = c.req.valid('param');
-      const metadata = await repository(c).secrets.metadata(resourceId(id));
-      return c.json(requireRecord(metadata, 'missing_secret', 'Secret does not exist.'), 200);
-    })
-    .openapi(writeSecretRoute, async (c) => {
-      const { id } = c.req.valid('param');
-      const { value } = c.req.valid('json');
-      try {
-        return c.json(await repository(c).secrets.write(resourceId(id), value), 200);
-      } catch (error) {
-        if (error instanceof RgapError) throw new RgapError(error.code, 'Secret write failed.');
-        throw error;
-      }
-    })
-    .openapi(deleteSecretRoute, async (c) => {
-      const { id } = c.req.valid('param');
-      await repository(c).secrets.delete(resourceId(id));
-      return c.body(null, 204);
-    })
-    .openapi(getRuntimePrivateMetadataRoute, async (c) => {
-      const { id, runtime } = c.req.valid('param');
-      const metadata = await repository(c).runtimePrivateMetadata(runtime, resourceId(id));
-      return c.json(requireRecord(
-        metadata,
-        'missing_runtime_metadata',
-        'Runtime-private metadata does not exist.',
-      ), 200);
     })
     .openapi(invokeRoute, async (c) => {
       const { id } = c.req.valid('param');
