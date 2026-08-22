@@ -116,6 +116,14 @@ describe('executable domain rules', () => {
     expect(effectiveExecutionLimits({}, {})).toEqual({
       timeoutMs: undefined, memoryBytes: undefined, outputBytes: undefined, concurrency: undefined,
     });
+    expect(effectiveExecutionLimits(
+      { network: { allowedOrigins: ['host-only'] } },
+      {},
+    ).network).toEqual({ allowedOrigins: ['host-only'] });
+    expect(effectiveExecutionLimits(
+      {},
+      { network: { allowedOrigins: ['revision-only'] } },
+    ).network).toEqual({ allowedOrigins: ['revision-only'] });
     expect(() => effectiveExecutionLimits({ timeoutMs: 10 }, { timeoutMs: 11 })).toThrow('ceiling');
     expect(() => effectiveExecutionLimits(
       { network: { allowedOrigins: ['a'] } },
@@ -319,5 +327,53 @@ describe('invocation orchestration', () => {
     expect(runtimeSignal?.aborted).toBe(true);
     expect(configured.recordInvocation).toHaveBeenCalledWith(expect.objectContaining({ result: 'cancelled' }));
     expect(JSON.stringify(vi.mocked(configured.recordInvocation).mock.calls)).not.toContain('first');
+  });
+
+  it('starts cancelled for an aborted signal and observes later signal cancellation', async () => {
+    const state = publishExecutable(
+      fixture(),
+      executableId,
+      { ...publication, bindingSchema: {} },
+      revisionId,
+      at,
+      vi.fn(),
+    );
+    const alreadyAborted = new AbortController();
+    alreadyAborted.abort('before invocation');
+    const preAbortedRuntime: InvokeRuntime = {
+      validate() {},
+      async *invoke(context) {
+        expect(context.signal.aborted).toBe(true);
+        expect(context.signal.reason).toBe('before invocation');
+        yield { type: 'done' };
+      },
+    };
+    const preAbortedServices = services(state, preAbortedRuntime);
+
+    await expect(collect(invokeExecutable(preAbortedServices, executableId, {
+      input: {},
+      signal: alreadyAborted.signal,
+    }))).resolves.toEqual([{ type: 'done' }]);
+    expect(preAbortedServices.recordInvocation)
+      .toHaveBeenCalledWith(expect.objectContaining({ bindings: {}, result: 'cancelled' }));
+
+    const later = new AbortController();
+    const laterRuntime: InvokeRuntime = {
+      validate() {},
+      async *invoke(context) {
+        later.abort('during invocation');
+        expect(context.signal.aborted).toBe(true);
+        expect(context.signal.reason).toBe('during invocation');
+        yield { type: 'done' };
+      },
+    };
+    const laterServices = services(state, laterRuntime);
+
+    await collect(invokeExecutable(laterServices, executableId, {
+      input: {},
+      signal: later.signal,
+    }));
+    expect(laterServices.recordInvocation)
+      .toHaveBeenCalledWith(expect.objectContaining({ bindings: {}, result: 'cancelled' }));
   });
 });

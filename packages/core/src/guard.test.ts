@@ -237,6 +237,7 @@ describe('command guard', () => {
 
     expect((await guard.executables.get(r('search-files')))?.activeRevisionId).toBe('revision');
     expect((await guard.executables.getRevision(revision.id))?.resourceId).toBe('search-files');
+    expect(await guard.executables.getRevision(executableRevisionId('missing'))).toBeUndefined();
     expect(await guard.executables.revisions(r('search-files'))).toEqual([revision]);
     expect((await search.executable.get())?.resourceId).toBe('search-files');
     expect(await search.executable.revisions()).toEqual([revision]);
@@ -265,5 +266,50 @@ describe('command guard', () => {
     ]);
     await expect(guard.secrets.write(r('post-message'), 'protected'))
       .rejects.toThrow('No write capability');
+  });
+
+  it('invokes without bindings and only infers writes from a matching revision', async () => {
+    const initial = state();
+    const revision = {
+      id: executableRevisionId('branch-revision'),
+      resourceId: r('search-files'),
+      runtime: 'test',
+      program: {},
+      inputSchema: true,
+      outputSchema: null,
+      bindingSchema: {
+        readonly: { kind: 'resource' as const, access: 'use' as const },
+      },
+      limits: {},
+      createdAt: at,
+    };
+    initial.executableRevisions[revision.id] = revision;
+    initial.executables['search-files'] = {
+      resourceId: r('search-files'),
+      activeRevisionId: revision.id,
+      deletedAt: null,
+    };
+    const { commands, calls } = stubCommands(initial, at);
+    const guard = guardCommands(repositoryFrom(commands), bearer);
+
+    for await (const event of guard.invoke(r('drive'), { input: {} })) {
+      expect(event.type).toBe('done');
+    }
+    for await (const event of guard.invoke(r('drive'), {
+      input: {},
+      revisionId: revision.id,
+      bindings: { readonly: r('read-file') },
+    })) {
+      expect(event.type).toBe('done');
+    }
+    for await (const event of guard.invoke(r('search-files'), {
+      input: {},
+      revisionId: revision.id,
+      bindings: { readonly: r('read-file'), undeclared: r('drive') },
+    })) {
+      expect(event.type).toBe('done');
+    }
+
+    expect(calls.map(({ method }) => method)).toEqual(['invoke', 'invoke', 'invoke']);
   });
 });

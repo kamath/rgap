@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import {
-  authorize, availableId, covers, createGrant, createResource, deleteResource, grantId, inspectAuthority,
+  authorize, availableId, covers, createGrant, createResource, deleteResource, executableRevisionId, grantId, inspectAuthority,
   InvalidParentError, isLive, isWithin, liveResources, moveResource, normalizePath, permissions, recordToken,
   requireResourceId, resourceId, resourceIdAtPath, resourcePath, revokeGrant, revokeToken, RgapError, setCapabilities,
   stateIntegrity, tryResourcePath, tokenHash, tokenId, type Capability, type CapabilityConfig, type CreateGrantInput,
@@ -60,11 +60,36 @@ describe('RGAP domain', () => {
     const state = fixture();
     delete state.resources['search-files'];
     delete state.grants.coordinator;
+    state.executableRevisions.orphan = {
+      id: executableRevisionId('orphan'),
+      resourceId: r('missing-executable-resource'),
+      runtime: 'test',
+      program: {},
+      inputSchema: true,
+      outputSchema: null,
+      bindingSchema: {},
+      limits: {},
+      createdAt: at,
+    };
+    state.secretMetadata.orphan = {
+      resourceId: r('missing-secret-resource'),
+      version: 'one',
+      updatedAt: at,
+    };
+    state.runtimePrivateMetadata.orphan = {
+      runtime: 'test',
+      resourceId: r('missing-private-resource'),
+      version: 'one',
+      updatedAt: at,
+    };
 
     expect(stateIntegrity(state)).toEqual([
       'Grant researcher refers to missing parent coordinator.',
       'Grant researcher refers to missing resource search-files.',
       'Token demo refers to missing grant coordinator.',
+      'Executable revision orphan refers to missing resource missing-executable-resource.',
+      'Secret metadata refers to missing resource missing-secret-resource.',
+      'Runtime-private metadata refers to missing resource missing-private-resource.',
     ]);
   });
 
