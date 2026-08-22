@@ -14,14 +14,8 @@ describe('repositoryFrom', () => {
     expect(pageLimit(0)).toBe(1);
     expect(pageLimit(1000)).toBe(100);
     expect(pageLimit(2.9)).toBe(2);
-    expect(paginateRecords(records, { limit: 2 })).toEqual({
-      records: [{ id: 'a' }, { id: 'b' }],
-      cursor: 'b',
-    });
-    expect(paginateRecords(records, { cursor: 'b', limit: 2 })).toEqual({
-      records: [{ id: 'c' }],
-      cursor: null,
-    });
+    expect(paginateRecords(records, { limit: 2 })).toEqual([{ id: 'a' }, { id: 'b' }]);
+    expect(paginateRecords(records, { cursor: 'b', limit: 2 })).toEqual([{ id: 'c' }]);
     expect(() => paginateRecords(records, { cursor: 'missing' })).toThrow('cursor is unknown');
   });
 
@@ -71,11 +65,11 @@ describe('repositoryFrom', () => {
     const repository = repositoryFrom(commands);
     const token = tokenValue('b528aaf0496a7f1b670eaf73987ee9237eaddbbefa1ade4844e5d318d4d35bc3');
 
-    expect((await repository.resources.list({ parentId: resourceId('acme') })).records.map(({ id }) => id))
+    expect((await repository.resources.list({ parentId: resourceId('acme') })).map(({ id }) => id))
       .toEqual(['create-issue', 'drive', 'slack']);
-    expect((await repository.grants.list()).records.map(({ id }) => id)).toContain('coordinator');
-    expect((await repository.tokens.list({ grantId: grantId('coordinator') })).records[0].id).toBe('demo');
-    expect((await repository.audit.list()).records).toEqual([]);
+    expect((await repository.grants.list()).map(({ id }) => id)).toContain('coordinator');
+    expect((await repository.tokens.list({ grantId: grantId('coordinator') }))[0].id).toBe('demo');
+    expect(await repository.audit.list()).toEqual([]);
     expect((await repository.authorize(token, resourceId('search-files'), 'invoke')).allowed).toBe(true);
     expect((await repository.inspectToken(token)).grantId).toBe('coordinator');
     await repository.reset();

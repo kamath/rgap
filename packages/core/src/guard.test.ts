@@ -47,13 +47,14 @@ describe('command guard', () => {
   it('filters collection queries to the token view', async () => {
     const { guard, calls } = guarded();
 
-    expect((await guard.resources.list()).records.map(({ id }) => id))
+    expect((await guard.resources.list()).map(({ id }) => id))
       .toEqual(['acme', 'drive', 'read-file', 'search-files']);
-    expect((await guard.resources.list({ limit: 4 })).cursor).toBe('search-files');
-    expect((await guard.grants.list()).records.map(({ id }) => id)).toEqual(['coordinator', 'researcher']);
-    expect((await guard.grants.list({ limit: 2 })).cursor).toBe(null);
-    expect((await guard.tokens.list()).records.map(({ id }) => id)).toEqual(['demo', 'sub']);
-    expect((await guard.audit.list()).records).toEqual([]);
+    expect((await guard.resources.list({ limit: 2 })).map(({ id }) => id)).toEqual(['acme', 'drive']);
+    expect((await guard.resources.list({ cursor: 'drive', limit: 2 })).map(({ id }) => id))
+      .toEqual(['read-file', 'search-files']);
+    expect((await guard.grants.list()).map(({ id }) => id)).toEqual(['coordinator', 'researcher']);
+    expect((await guard.tokens.list()).map(({ id }) => id)).toEqual(['demo', 'sub']);
+    expect(await guard.audit.list()).toEqual([]);
     await expect(guard.resources.get(r('slack'))).rejects.toThrow('outside this token');
     await expect(guard.grants.get(g('other'))).rejects.toThrow('outside this token');
     await expect(guard.tokens.get(tokenId('other'))).rejects.toThrow('outside this token');
@@ -75,7 +76,7 @@ describe('command guard', () => {
     const { commands } = stubCommands(initial, at);
     const guard = guardCommands(repositoryFrom(commands), bearer);
 
-    expect((await guard.audit.list()).records.map(({ id }) => id))
+    expect((await guard.audit.list()).map(({ id }) => id))
       .toEqual(['resource-visible', 'grant-visible', 'token-visible']);
 
     initial.audit = Array.from({ length: 100 }, (_, index) => ({
@@ -90,7 +91,7 @@ describe('command guard', () => {
       id: 'visible-after-cursor', at, action: 'resource.move',
       target: r('drive'), result: 'recorded', detail: '',
     });
-    expect((await guard.audit.list({ limit: 1 })).records[0].id).toBe('visible-after-cursor');
+    expect((await guard.audit.list({ limit: 1 }))[0].id).toBe('visible-after-cursor');
   });
 
   it('refuses every command to a token it cannot resolve to a grant', async () => {
@@ -100,7 +101,7 @@ describe('command guard', () => {
     await expect(guard.grants.create({
       name: 'Child', capabilities: [], expiresAt: null,
     })).rejects.toThrow('Token is unknown, expired, or revoked.');
-    expect((await guard.resources.list()).records).toEqual([]);
+    expect(await guard.resources.list()).toEqual([]);
   });
 
   it('refuses the operations no token authorizes', async () => {

@@ -5,7 +5,7 @@ import { Pane, PageTitle } from '../panes';
 export const Route = createFileRoute('/audit')({ component: Audit });
 
 function Audit() {
-  const { records: events } = useAllAudit();
+  const events = useAllAudit();
 
   return (
     <>

@@ -108,8 +108,8 @@ class SqliteBackingRepository implements RgapCommands {
       : query.parentId === null ? isNull(schema.resources.parentId) : eq(schema.resources.parentId, query.parentId);
     const rows = this.db.select().from(schema.resources)
       .where(and(parent, isNull(schema.resources.deletedAt), query.cursor ? gt(schema.resources.id, query.cursor) : undefined))
-      .orderBy(asc(schema.resources.id)).limit(limit + 1).all();
-    return sqlPage(rows.map(resourceRecord), limit);
+      .orderBy(asc(schema.resources.id)).limit(limit).all();
+    return rows.map(resourceRecord);
   }
 
   async getGrant(id: GrantId) {
@@ -124,8 +124,8 @@ class SqliteBackingRepository implements RgapCommands {
       : query.parentId === null ? isNull(schema.grants.parentId) : eq(schema.grants.parentId, query.parentId);
     const rows = this.db.select().from(schema.grants)
       .where(and(parent, query.cursor ? gt(schema.grants.id, query.cursor) : undefined))
-      .orderBy(asc(schema.grants.id)).limit(limit + 1).all();
-    return sqlPage(rows.map((row) => this.grantRecord(row)), limit);
+      .orderBy(asc(schema.grants.id)).limit(limit).all();
+    return rows.map((row) => this.grantRecord(row));
   }
 
   async getToken(id: TokenId) {
@@ -140,8 +140,8 @@ class SqliteBackingRepository implements RgapCommands {
         query.grantId === undefined ? undefined : eq(schema.tokens.grantId, query.grantId),
         query.cursor ? gt(schema.tokens.id, query.cursor) : undefined,
       ))
-      .orderBy(asc(schema.tokens.id)).limit(limit + 1).all();
-    return sqlPage(rows.map(tokenRecord), limit);
+      .orderBy(asc(schema.tokens.id)).limit(limit).all();
+    return rows.map(tokenRecord);
   }
 
   async listAudit(query: AuditListQuery = {}) {
@@ -155,8 +155,8 @@ class SqliteBackingRepository implements RgapCommands {
     }
     const rows = this.db.select().from(schema.audit)
       .where(after === undefined ? undefined : gt(schema.audit.seq, after))
-      .orderBy(asc(schema.audit.seq)).limit(limit + 1).all();
-    return sqlPage(rows.map(auditRecord), limit);
+      .orderBy(asc(schema.audit.seq)).limit(limit).all();
+    return rows.map(auditRecord);
   }
 
   async createResource(input: CreateResourceInput) {
@@ -432,10 +432,6 @@ const auditRecord = (row: typeof schema.audit.$inferSelect) => ({
   target: row.target as RecordId,
   result: row.result,
   detail: row.detail,
-});
-const sqlPage = <T extends { id: string }>(records: T[], limit: number) => ({
-  records: records.slice(0, limit),
-  cursor: records.length > limit ? records[limit - 1].id : null,
 });
 
 /**

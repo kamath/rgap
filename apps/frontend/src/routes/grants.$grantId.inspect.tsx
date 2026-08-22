@@ -37,7 +37,7 @@ function GrantInspection({ grant }: { grant: Grant }) {
   const resources = useResourceRecords();
   useAllResources();
   const lineage = useGrantLineage(grant.id);
-  const { records: tokens } = useAllTokens({ grantId: grant.id });
+  const tokens = useAllTokens({ grantId: grant.id });
   const credentials = useSelection(`tokens:${grant.id}`, tokens);
   const [operation, setOperation] = useState<GrantOperation | null>(null);
   // Issuing acts on the addressed grant; revoking has nothing to act on without a selection.

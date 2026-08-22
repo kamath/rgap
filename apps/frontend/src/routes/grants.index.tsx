@@ -11,7 +11,7 @@ export const Route = createFileRoute('/grants/')({ component: Grants });
 function Grants() {
   const grants = useGrantRecords();
   const resources = useResourceRecords();
-  const { records: listing } = useAllGrants({ parentId: null });
+  const listing = useAllGrants({ parentId: null });
   useAllResources();
   const { token } = useShell();
   const visible = Boolean(token.trim());

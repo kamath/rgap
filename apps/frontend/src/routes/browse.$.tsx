@@ -18,7 +18,7 @@ function Browse() {
   const currentId = resolved.resourceId;
   const current = currentId ? resources[currentId] : null;
   const missing = Boolean(path) && resolved.missing;
-  const { records: listing } = useAllResources({ parentId: currentId });
+  const listing = useAllResources({ parentId: currentId });
   const visible = Boolean(token.trim());
   const granted = (id: string) => authority?.permissions[id]?.join(' ') ?? '';
 

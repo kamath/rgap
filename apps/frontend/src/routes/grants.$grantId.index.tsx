@@ -39,7 +39,7 @@ function GrantView({ grant }: { grant: Grant }) {
   const { token } = useShell();
   const visible = Boolean(token.trim());
   const lineage = useGrantLineage(grant.id);
-  const { records: listing } = useAllGrants({ parentId: grant.id });
+  const listing = useAllGrants({ parentId: grant.id });
   const selection = useSelection(`grants:${grant.id}`, listing);
   const [operation, setOperation] = useState<GrantOperation | null>(null);
   // Delegating acts on the addressed grant; revoking has nothing to act on without a selection.

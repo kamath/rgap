@@ -17,7 +17,7 @@ describe('RgapClient', () => {
     let current = state(['initial']);
     const repository = {
       resources: {
-        list: vi.fn(async () => ({ records: Object.values(structuredClone(current.resources)), cursor: null })),
+        list: vi.fn(async () => Object.values(structuredClone(current.resources))),
         create: vi.fn(async () => {
           current = state(['initial', 'created']);
           return {
@@ -42,7 +42,7 @@ describe('RgapClient', () => {
     expect(client.getResourceRecords().created.name).toBe('created');
     expect(repository.resources.list).toHaveBeenCalledOnce();
     expect(listener).toHaveBeenCalledOnce();
-    expect((await client.resources.list()).records.map(({ id }) => id)).toEqual(['initial', 'created']);
+    expect((await client.resources.list()).map(({ id }) => id)).toEqual(['initial', 'created']);
     expect(repository.resources.list).toHaveBeenCalledTimes(2);
   });
 
@@ -50,7 +50,7 @@ describe('RgapClient', () => {
     let current = state(['initial']);
     const repository = {
       resources: {
-        list: vi.fn(async () => ({ records: Object.values(structuredClone(current.resources)), cursor: null })),
+        list: vi.fn(async () => Object.values(structuredClone(current.resources))),
       },
     } as unknown as RgapRepository;
     const client = await RgapClient.connect(repository);
@@ -63,28 +63,28 @@ describe('RgapClient', () => {
     client.invalidateAll(true);
 
     expect(listener).toHaveBeenCalledOnce();
-    expect((await client.resources.list()).records.map(({ id }) => id)).toEqual(['external']);
+    expect((await client.resources.list()).map(({ id }) => id)).toEqual(['external']);
   });
 
   it('discards an in-flight page when the command plane changes', async () => {
-    let resolve!: (page: { records: State['resources'][string][]; cursor: null }) => void;
-    const pending = new Promise<{ records: State['resources'][string][]; cursor: null }>((done) => { resolve = done; });
+    let resolve!: (page: State['resources'][string][]) => void;
+    const pending = new Promise<State['resources'][string][]>((done) => { resolve = done; });
     const administrative = {
       resources: { list: vi.fn(() => pending) },
     } as unknown as RgapRepository;
     const guarded = {
       resources: {
-        list: vi.fn(async () => ({ records: Object.values(state(['visible']).resources), cursor: null })),
+        list: vi.fn(async () => Object.values(state(['visible']).resources)),
       },
     } as unknown as RgapRepository;
     const client = await RgapClient.connect(administrative);
 
     const oldPage = client.resources.list();
     client.setRepository(guarded);
-    resolve({ records: Object.values(state(['secret']).resources), cursor: null });
+    resolve(Object.values(state(['secret']).resources));
 
     await expect(oldPage).rejects.toThrow('repository changed');
     expect(client.getResourceRecords()).toEqual({});
-    expect((await client.resources.list()).records.map(({ id }) => id)).toEqual(['visible']);
+    expect((await client.resources.list()).map(({ id }) => id)).toEqual(['visible']);
   });
 });

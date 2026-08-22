@@ -22,7 +22,7 @@ export type TokenWrite = { label: string };
 export const defaultPageLimit = 50;
 export const maximumPageLimit = 100;
 
-export type Page<T> = { records: T[]; cursor: string | null };
+export type Page<T> = T[];
 export type ListQuery = { cursor?: string; limit?: number };
 export type ResourceListQuery = ListQuery & { parentId?: ResourceId | null };
 export type GrantListQuery = ListQuery & { parentId?: GrantId | null };
@@ -38,11 +38,7 @@ export function paginateRecords<T extends { id: string }>(records: T[], query: L
   const limit = pageLimit(query.limit);
   const start = query.cursor ? records.findIndex((record) => record.id === query.cursor) + 1 : 0;
   if (query.cursor && start === 0) throw new RgapError('invalid_cursor', 'The collection cursor is unknown.');
-  const page = records.slice(start, start + limit);
-  return {
-    records: page,
-    cursor: start + page.length < records.length ? page.at(-1)!.id : null,
-  };
+  return records.slice(start, start + limit);
 }
 
 export type ResourceHandle = Resource & {

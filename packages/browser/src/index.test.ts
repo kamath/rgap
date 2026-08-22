@@ -39,7 +39,7 @@ describe('BrowserRgapStore', () => {
     const repo = repository();
     const resource = await (await repo.resources.get(resourceId('acme'))).create({ name: 'New tool' });
 
-    const record = (await repo.resources.list()).records.find(({ id }) => id === resource.id);
+    const record = (await repo.resources.list()).find(({ id }) => id === resource.id);
     expect(record).toEqual(resourceRecord(resource));
     expect(Object.values(record!).some((value) => typeof value === 'function')).toBe(false);
   });
@@ -61,7 +61,7 @@ describe('BrowserRgapStore', () => {
 
     expect(replacement.id).not.toBe(first.id);
     await expect(repo.resources.get(first.id)).rejects.toThrow('Resource does not exist');
-    const resources = Object.fromEntries((await repo.resources.list()).records.map((record) => [record.id, record]));
+    const resources = await repo.resources.list();
     expect(resourceIdAtPath(resources, 'Acme/tools')).toBe(replacement.id);
   });
 
@@ -126,7 +126,7 @@ describe('BrowserRgapStore', () => {
     const restored = new BrowserRgapStore({ initialState: initialState(), storage }).admin();
 
     expect(await restored.resources.get(resourceId('acme'))).toBeDefined();
-    expect((await restored.grants.list()).records).toEqual([]);
+    expect(await restored.grants.list()).toEqual([]);
   });
 
   it('loads stored state that is referentially intact', async () => {
@@ -135,7 +135,7 @@ describe('BrowserRgapStore', () => {
     const created = await (await seeded.resources.get(resourceId('acme'))).create({ name: 'Tools' });
 
     const restored = new BrowserRgapStore({ initialState: initialState(), storage }).admin();
-    const resources = Object.fromEntries((await restored.resources.list()).records.map((record) => [record.id, record]));
+    const resources = await restored.resources.list();
 
     expect(resourceIdAtPath(resources, 'Acme/Tools')).toBe(created.id);
   });

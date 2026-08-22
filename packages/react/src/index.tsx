@@ -158,10 +158,10 @@ export class RgapClient implements RgapRepository {
       let cursor: string | undefined;
       do {
         const page = await load({ ...query, cursor, limit: 100 });
-        records.push(...page.records);
-        cursor = page.cursor ?? undefined;
+        records.push(...page);
+        cursor = page.length === 100 ? page.at(-1)!.id : undefined;
       } while (cursor);
-      return { records, cursor: null };
+      return records;
     });
   }
 
@@ -187,11 +187,11 @@ export class RgapClient implements RgapRepository {
         throw new Error('The repository changed while the query was running.');
       }
       if (kind.startsWith('resources')) {
-        (page.records as unknown as Resource[]).forEach((record) => this.cacheResource(record, false));
+        (page as unknown as Resource[]).forEach((record) => this.cacheResource(record, false));
       } else if (kind.startsWith('grants')) {
-        (page.records as unknown as Grant[]).forEach((record) => this.cacheGrant(record, false));
+        (page as unknown as Grant[]).forEach((record) => this.cacheGrant(record, false));
       } else if (kind.startsWith('tokens')) {
-        (page.records as unknown as Token[]).forEach((record) => this.cacheToken(record, false));
+        (page as unknown as Token[]).forEach((record) => this.cacheToken(record, false));
       }
       this.pages.set(key, page);
       this.pending.delete(key);
@@ -360,7 +360,7 @@ function usePage<T extends { id: string }, Q extends object>(
   useEffect(() => {
     if (!page) void load(query).catch(() => undefined);
   }, [client, load, page, serialized, version]);
-  return { records: page?.records ?? [], cursor: page?.cursor ?? null, loading: !page };
+  return page ?? [];
 }
 
 function useAllPages<T extends { id: string }, Q extends { cursor?: string; limit?: number }>(
@@ -477,8 +477,8 @@ export function useResolvedPath(path: string) {
         let resource: Resource | undefined;
         do {
           const page = await client.resources.list({ parentId, cursor, limit: 100 });
-          resource = page.records.find((record) => record.name === name);
-          cursor = page.cursor ?? undefined;
+          resource = page.find((record) => record.name === name);
+          cursor = page.length === 100 ? page.at(-1)!.id : undefined;
         } while (!resource && cursor);
         if (!resource) {
           if (current) setResult({ resourceId: null, missing: true });

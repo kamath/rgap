@@ -191,7 +191,7 @@ function ResourcePicker({
   const [location, setLocation] = useState<ResourceId | null>(null);
   const [filter, setFilter] = useState('');
   const term = filter.trim().toLowerCase();
-  const { records: children } = useAllResources({ parentId: location });
+  const children = useAllResources({ parentId: location });
   useAllResources();
 
   // A filter searches whole paths across the tree, so a deep resource needs no walking to.

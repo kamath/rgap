@@ -130,7 +130,7 @@ describe('BrowserRgapStore token plane', () => {
     await child.revoke();
     expect((await admin.grants.get(child.id)).revokedAt).not.toBe(null);
 
-    const resources = Object.fromEntries((await repo.resources.list()).records.map((record) => [record.id, record]));
+    const resources = await repo.resources.list();
     expect(requireResourceId(resources, 'Acme/Drive/Tools')).toBe('tools');
     expect((await repo.inspectToken(token)).valid).toBe(true);
   });
@@ -142,7 +142,7 @@ describe('BrowserRgapStore token plane', () => {
     await expect(unknown.resources.get(resourceId('tools'))).rejects.toThrow('outside this token');
     await expect(unknown.grants.get(grantId('owner'))).rejects.toThrow('outside this token');
 
-    const record = (await admin.tokens.list({ grantId: grantId('owner') })).records[0];
+    const record = (await admin.tokens.list({ grantId: grantId('owner') }))[0];
     await (await admin.tokens.get(record!.id)).revoke();
     await expect(repo.resources.get(resourceId('tools'))).rejects.toThrow('outside this token');
   });

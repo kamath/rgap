@@ -45,13 +45,15 @@ const resourceRecord = (resource: { id: string; parentId: string | null; name: s
 const rootGrant = (repository: RgapRepository) =>
   repository.grants.create({ name: 'Acme admin', capabilities: [], expiresAt: null });
 
-async function all<T>(list: (query: { cursor?: string; limit?: number }) => Promise<{ records: T[]; cursor: string | null }>) {
+async function all<T extends { id: string }>(
+  list: (query: { cursor?: string; limit?: number }) => Promise<T[]>,
+) {
   const records: T[] = [];
   let cursor: string | undefined;
   do {
     const page = await list({ cursor, limit: 100 });
-    records.push(...page.records);
-    cursor = page.cursor ?? undefined;
+    records.push(...page);
+    cursor = page.length === 100 ? page.at(-1)!.id : undefined;
   } while (cursor);
   return records;
 }
@@ -184,7 +186,7 @@ describe('SqliteRgapStore', () => {
     expect((await repository.authorize(value, resourceId('drive'), 'read')).allowed).toBe(true);
     expect((await repository.authorize(value, resourceId('drive'), 'write')).allowed).toBe(false);
 
-    const { records: audit } = await repository.audit.list();
+    const audit = await repository.audit.list();
     expect(audit.slice(0, 2).map((event) => event.result)).toEqual(['denied', 'allowed']);
     expect(audit.every((event) => event.action.length > 0)).toBe(true);
   });

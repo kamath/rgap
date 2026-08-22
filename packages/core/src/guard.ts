@@ -179,16 +179,12 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
     let cursor = query?.cursor;
     while (true) {
       const page = await load({ ...query, cursor, limit: maximumPageLimit } as Q);
-      for (let index = 0; index < page.records.length; index += 1) {
-        const record = page.records[index];
+      for (const record of page) {
         if (await allowed(record)) records.push(record);
-        if (records.length === limit) {
-          const more = index < page.records.length - 1 || page.cursor !== null;
-          return { records, cursor: more ? record.id : null };
-        }
+        if (records.length === limit) return records;
       }
-      if (!page.cursor) return { records, cursor: null };
-      cursor = page.cursor;
+      if (page.length < maximumPageLimit) return records;
+      cursor = page.at(-1)!.id;
     }
   };
 
