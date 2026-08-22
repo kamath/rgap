@@ -73,11 +73,11 @@ export class HttpRgapStore implements RgapStore {
     if (!this.options.adminToken) {
       throw new RgapError('missing_admin_token', 'HttpRgapStore requires an adminToken for admin().');
     }
-    return repositoryFrom(new HttpRgapCommands(this.client, tokenValue(this.options.adminToken)));
+    return repositoryFrom(new HttpRgapCommands(this.client, tokenValue(this.options.adminToken), true));
   }
 
   as(token: TokenValue): RgapRepository {
-    return repositoryFrom(new HttpRgapCommands(this.client, token));
+    return repositoryFrom(new HttpRgapCommands(this.client, token, false));
   }
 
   close() {}
@@ -87,6 +87,7 @@ class HttpRgapCommands implements RgapCommands {
   constructor(
     private readonly client: Client,
     private readonly bearer: TokenValue,
+    private readonly admin: boolean,
   ) {}
 
   async getResource(id: ReturnType<typeof resourceId>) {
@@ -140,8 +141,11 @@ class HttpRgapCommands implements RgapCommands {
   }
 
   async createGrant(input: Parameters<RgapCommands['createGrant']>[0]) {
+    const parentId = input.parentId === null && !this.admin
+      ? await this.actingGrantId()
+      : input.parentId;
     return asGrant(unwrap(await createGrant(this.options({
-      body: { ...input, capabilities: input.capabilities.map(asHttpCapability) },
+      body: { ...input, parentId, capabilities: input.capabilities.map(asHttpCapability) },
     }))));
   }
 
@@ -201,6 +205,14 @@ class HttpRgapCommands implements RgapCommands {
       client: this.client,
       headers: { authorization: `Bearer ${this.bearer}` },
     };
+  }
+
+  private async actingGrantId() {
+    const view = unwrap(await inspectToken(this.options({ body: { token: this.bearer } })));
+    if (!view.valid || view.grantId === null) {
+      throw new RgapError('unauthorized', view.detail);
+    }
+    return grantId(view.grantId);
   }
 }
 

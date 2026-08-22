@@ -255,13 +255,22 @@ describe('RGAP Hono API', () => {
     const issued = await grant.tokens.create({ label: 'remote' });
     const guarded = remote.as(issued.value);
     const child = await (await guarded.resources.get(root.id)).create({ name: 'docs' });
+    const delegated = await guarded.grants.create({
+      name: 'reader',
+      capabilities: [{ resourceId: root.id, permissions: ['read'] }],
+      expiresAt: null,
+    });
 
     expect(child.parentId).toBe(root.id);
+    expect(delegated.parentId).toBe(grant.id);
     expect((await guarded.resources.list()).map((resource) => resource.id))
       .toEqual([root.id, child.id]);
     expect((await guarded.inspectToken(issued.value)).valid).toBe(true);
-    await expect(guarded.resources.get(resourceId('missing'))).rejects.toMatchObject({
+    await expect(admin.resources.get(resourceId('missing'))).rejects.toMatchObject({
       code: 'missing_resource',
+    });
+    await expect(guarded.resources.get(resourceId('missing'))).rejects.toMatchObject({
+      code: 'unauthorized',
     });
     remote.close();
   });
