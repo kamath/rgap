@@ -565,16 +565,20 @@ export OPENAI_API_KEY=rgap_employee_token
 For each request, the gateway:
 
 1. Parses the RGAP bearer from `Authorization`.
-2. Authorizes `invoke` on one configured OpenAI gateway resource through the bearer's complete grant lineage.
-3. Clones the incoming headers, replaces the employee bearer with the server-side `OPENAI_API_KEY`, and removes `Host`.
+2. Authorizes `invoke` on the OpenAI gateway resource and `use` on its secret resource through the bearer's complete grant lineage.
+3. Reads the protected OpenAI key from the example's database-backed `SecretStore`, replaces the employee bearer, and removes `Host`.
 4. Calls `fetch` with the same method, path, query, body stream, and cancellation signal beneath `https://api.openai.com`.
 5. Returns the upstream `Response` directly.
 
 The proxy route is intentionally a small wrapper around `fetch`; it does not implement endpoint-specific request or response adapters. Returning the upstream response directly preserves JSON, SSE, binary bodies, statuses, and headers. The example uses direct RGAP authorization rather than `resource.invoke()` because the generic invocation protocol carries JSON-compatible `InvocationEvent` values rather than arbitrary HTTP responses.
 
-The package exports an app factory that accepts its RGAP store, OpenAI resource ID, upstream key, optional upstream origin, and fetch implementation. Its executable entry point reads `OPENAI_API_KEY`, `RGAP_DATABASE_URL`, `OPENAI_RESOURCE_ID`, and `PORT`. A bootstrap command creates the `llm/openai` resource.
+The package exports an app factory that accepts its RGAP store, encrypted database-backed secret store, OpenAI resource and secret IDs, optional upstream origin, and fetch implementation.
 
-`client.ts` demonstrates the employee flow. RGAP has no user record, so the example represents a user with a named grant and issued bearer. The client imports the shared store, creates a grant with `invoke` on `OPENAI_RESOURCE_ID`, issues a one-time token, constructs the official OpenAI SDK with that token and the local gateway base URL, and calls the Responses API. The package exposes this walkthrough through `pnpm --filter @rgap/llm-gateway-example client`.
+The trusted bootstrap command resets the configured database, creates `llm/openai` and `secrets/openai-key`, and writes `OPENAI_API_KEY` through the example's encrypted `SecretStore`. It prints the two resource IDs for the server and client configuration. Bootstrap receives both `OPENAI_API_KEY` and `RGAP_SECRET_KEY`.
+
+The server receives `RGAP_SECRET_KEY`, decrypts the provider key only after authorization, and never receives `OPENAI_API_KEY` directly. `client.ts` receives neither provider credential nor encryption key. It imports the shared RGAP store, creates a named employee grant with `invoke` on the gateway and `use` on the secret, issues a one-time bearer, constructs the official OpenAI SDK with that bearer and the local gateway base URL, and calls the Responses API.
+
+The example secret store uses AES-256-GCM with a random nonce and the resource ID as authenticated data. The same SQLite file stores ciphertext, authentication tag, nonce, version, and public RGAP secret metadata. `RGAP_SECRET_KEY` is a 32-byte base64 value shared only by trusted bootstrap and server processes. A production deployment may replace the example store with a KMS or vault without changing the gateway authorization flow.
 
 ## Testing
 
