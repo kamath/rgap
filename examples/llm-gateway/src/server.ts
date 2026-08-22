@@ -1,10 +1,9 @@
 import { serve } from '@hono/node-server';
 import { resourceId } from '@rgap/core';
-import { SqliteRgapStore } from '@rgap/sqlite';
 import { createLlmGateway } from './app';
-import { databaseUrl, requiredEnvironment, serverPort } from './config';
+import { requiredEnvironment, serverPort } from './config';
+import { store } from './store';
 
-const store = new SqliteRgapStore({ url: databaseUrl() });
 const port = serverPort();
 const app = createLlmGateway({
   store,

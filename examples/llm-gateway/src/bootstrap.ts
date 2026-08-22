@@ -1,8 +1,5 @@
 import type { ResourceHandle, RgapRepository } from '@rgap/core';
-import { SqliteRgapStore } from '@rgap/sqlite';
-import { databaseUrl } from './config';
-
-const store = new SqliteRgapStore({ url: databaseUrl() });
+import { store } from './store';
 
 try {
   const admin = store.admin();
