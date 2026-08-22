@@ -572,7 +572,9 @@ For each request, the gateway:
 
 The proxy route is intentionally a small wrapper around `fetch`; it does not implement endpoint-specific request or response adapters. Returning the upstream response directly preserves JSON, SSE, binary bodies, statuses, and headers. The example uses direct RGAP authorization rather than `resource.invoke()` because the generic invocation protocol carries JSON-compatible `InvocationEvent` values rather than arbitrary HTTP responses.
 
-The package exports an app factory that accepts its RGAP store, OpenAI resource ID, upstream key, optional upstream origin, and fetch implementation. Its executable entry point reads `OPENAI_API_KEY`, `RGAP_DATABASE_URL`, `OPENAI_RESOURCE_ID`, and `PORT`. A bootstrap command creates the `llm/openai` resource, an employee grant with `invoke`, and a one-time RGAP token for local use. Tests use an in-memory SQLite store and a fake upstream fetch to cover the authorization wrapper and representative JSON, multipart, binary, SSE, error, and cancellation passthrough without contacting OpenAI.
+The package exports an app factory that accepts its RGAP store, OpenAI resource ID, upstream key, optional upstream origin, and fetch implementation. Its executable entry point reads `OPENAI_API_KEY`, `RGAP_DATABASE_URL`, `OPENAI_RESOURCE_ID`, and `PORT`. A bootstrap command creates the `llm/openai` resource.
+
+`client.ts` demonstrates the employee flow. RGAP has no user record, so the example represents a user with a named grant and issued bearer. The client imports the shared store, creates a grant with `invoke` on `OPENAI_RESOURCE_ID`, issues a one-time token, constructs the official OpenAI SDK with that token and the local gateway base URL, and calls the Responses API. The package exposes this walkthrough through `pnpm --filter @rgap/llm-gateway-example client`.
 
 ## Testing
 
