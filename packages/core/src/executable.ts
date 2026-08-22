@@ -32,6 +32,21 @@ export type InvokeInput = {
   signal?: AbortSignal;
 };
 
+const authorizedLineage = Symbol('authorized invocation lineage');
+type AuthorizedInvokeInput = InvokeInput & { [authorizedLineage]?: GrantId[] };
+
+/** Internal command-plane context attached by the bearer guard after it authorizes invocation. */
+export function withAuthorizedLineage(input: InvokeInput, lineage: GrantId[]): InvokeInput {
+  const authorized = { ...input } as AuthorizedInvokeInput;
+  Object.defineProperty(authorized, authorizedLineage, { value: [...lineage] });
+  return authorized;
+}
+
+/** Returns command-plane context without exposing it on the JSON invocation shape. */
+export function getAuthorizedLineage(input: InvokeInput) {
+  return [...((input as AuthorizedInvokeInput)[authorizedLineage] ?? [])];
+}
+
 const cloned = <T>(value: T): T => structuredClone(value);
 
 export const validateRuntimeProgram = (runtimes: RuntimeRegistry, runtime: string, program: unknown) =>

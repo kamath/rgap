@@ -306,7 +306,7 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
         : error.code.startsWith('missing_') ? 404 : 409;
       return apiError(c, status, error.code, error.message);
     }
-    console.error(error);
+    console.error('Unhandled RGAP server error.');
     return apiError(c, 500, 'internal_error', 'Internal server error.');
   });
 
@@ -592,8 +592,20 @@ async function invocationResponse(
           close();
           return;
         }
-        stream.enqueue(encoder.encode(`${JSON.stringify(result.value)}\n`));
+        if (result.value.type === 'data' && result.value.value === undefined) {
+          throw new RgapError('invalid_runtime_event', 'Runtime data events require a JSON-compatible value.');
+        }
+        const encoded = JSON.stringify(result.value);
+        if (encoded === undefined) {
+          throw new RgapError('invalid_runtime_event', 'Runtime events must be JSON-compatible.');
+        }
+        stream.enqueue(encoder.encode(`${encoded}\n`));
       } catch (error) {
+        try {
+          await iterator.return?.();
+        } catch {
+          // Preserve the stream failure that required iterator cleanup.
+        }
         stream.error(error);
         close();
       }

@@ -4,6 +4,7 @@ import {
   deleteExecutable,
   deleteSecretMetadata,
   effectiveExecutionLimits,
+  getAuthorizedLineage,
   invokeExecutable,
   publishExecutable,
   recordRuntimePrivateMetadata,
@@ -12,6 +13,7 @@ import {
   validateBindings,
   validateExecutableRevision,
   validateRuntimeProgram,
+  withAuthorizedLineage,
   type InvocationServices,
   type PublishExecutableInput,
 } from './executable';
@@ -160,6 +162,15 @@ describe('invocation orchestration', () => {
     expect(mapRegistry.get('test')).toBe(runtime);
     expect(validateRuntimeProgram(objectRegistry, 'test', {})).toBeUndefined();
     expect(() => objectRegistry.get('missing')).toThrow('not registered');
+  });
+
+  it('carries authorized lineage outside the JSON invocation shape', () => {
+    const input = { input: { query: 'x' } };
+    const authorized = withAuthorizedLineage(input, [grantId('acting')]);
+
+    expect(getAuthorizedLineage(input)).toEqual([]);
+    expect(getAuthorizedLineage(authorized)).toEqual([grantId('acting')]);
+    expect(JSON.stringify(authorized)).toBe(JSON.stringify(input));
   });
 
   function services(

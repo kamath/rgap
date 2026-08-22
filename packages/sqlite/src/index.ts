@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import Database from 'better-sqlite3';
 import { and, asc, eq, gt, isNull } from 'drizzle-orm';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
@@ -15,6 +16,7 @@ import {
   deleteSecretMetadata,
   executableRevisionId,
   grantId,
+  getAuthorizedLineage,
   guardCommands,
   inspectAuthority,
   invokeExecutable,
@@ -307,7 +309,7 @@ class SqliteBackingRepository implements RgapCommands {
         // The selected repository plane already authorized invocation. The admin plane is unrestricted.
         authorize: async (resource) => {
           repository.requireLiveResource(resource);
-          return { lineage: [] };
+          return { lineage: getAuthorizedLineage(input) };
         },
         runtimes: repository.runtimes,
         validator: repository.validator,
@@ -711,8 +713,15 @@ const auditRecord = (row: typeof schema.audit.$inferSelect) => ({
   detail: row.detail,
 });
 const encodeJson = (value: unknown) => {
-  const encoded = JSON.stringify(value);
-  if (encoded === undefined) throw new RgapError('invalid_json', 'Executable values must be JSON-compatible.');
+  let encoded: string | undefined;
+  try {
+    encoded = JSON.stringify(value);
+  } catch {
+    throw new RgapError('invalid_json', 'Executable values must be JSON-compatible.');
+  }
+  if (encoded === undefined || !isDeepStrictEqual(value, JSON.parse(encoded))) {
+    throw new RgapError('invalid_json', 'Executable values must be JSON-compatible without lossy conversion.');
+  }
   return encoded;
 };
 const executableRevisionRecord = (row: typeof schema.executableRevisions.$inferSelect) => ({

@@ -232,6 +232,17 @@ describe('SqliteRgapStore', () => {
       .rejects.toMatchObject({ code: 'unknown_runtime' });
   });
 
+  it('refuses executable values that JSON persistence would change', async () => {
+    const runtime: InvokeRuntime = { validate() {}, async *invoke() { yield { type: 'done' }; } };
+    const repository = open({ initialState: acme(), runtimes: { test: runtime } }).admin();
+
+    await expect(repository.executables.publish(resourceId('drive'), {
+      ...publication(),
+      program: { operation: 'echo', lossy: Number.NaN },
+    })).rejects.toMatchObject({ code: 'invalid_json' });
+    expect(await repository.executables.get(resourceId('drive'))).toBeUndefined();
+  });
+
   it('keeps secret plaintext in the injected store and preserves metadata after a rejected write', async () => {
     const url = file();
     const secrets = new FakeSecrets();
@@ -339,6 +350,8 @@ describe('SqliteRgapStore', () => {
     const allowed = await invoker.tokens.create({ label: 'invoker' });
     expect(await collect(store.as(allowed.value).invoke(resourceId('drive'), { input: {} })))
       .toEqual([{ type: 'done' }]);
+    const invocation = (await admin.audit.list()).find(({ action }) => action === 'executable.invoke')!;
+    expect(JSON.parse(invocation.detail).grantLineageIds).toEqual([invoker.id]);
   });
 
   it('reset clears tracked metadata through injected stores and cannot discover untracked values', async () => {
