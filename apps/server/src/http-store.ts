@@ -1,0 +1,281 @@
+import {
+  grantId,
+  repositoryFrom,
+  resourceId,
+  RgapError,
+  tokenHash,
+  tokenId,
+  tokenValue,
+  type AuditEvent,
+  type Capability,
+  type Grant,
+  type Permission,
+  type RecordId,
+  type Resource,
+  type RgapCommands,
+  type RgapRepository,
+  type RgapStore,
+  type Token,
+  type TokenValue,
+} from '@rgap/core';
+import {
+  authorize,
+  createGrant,
+  createResource,
+  deleteResource,
+  getGrant,
+  getResource,
+  getToken,
+  inspectToken,
+  issueToken,
+  listAudit,
+  listGrants,
+  listResources,
+  listTokens,
+  moveResource,
+  reset,
+  revokeGrant,
+  revokeToken,
+  setCapabilities,
+} from './client/generated/sdk.gen';
+import { createClient, type Client } from './client/generated/client';
+import type {
+  ApiError,
+  AuditEvent as HttpAuditEvent,
+  Capability as HttpCapability,
+  Grant as HttpGrant,
+  Resource as HttpResource,
+  Token as HttpToken,
+} from './client/generated/types.gen';
+
+export type HttpRgapStoreOptions = {
+  baseUrl: string;
+  adminToken?: string;
+  fetch?: typeof globalThis.fetch;
+};
+
+/**
+ * An RgapStore whose command sink is the generated HTTP SDK.
+ *
+ * The adapter is stateless, so close() exists only to let callers switch it with a local store.
+ */
+export class HttpRgapStore implements RgapStore {
+  private readonly client: Client;
+
+  constructor(private readonly options: HttpRgapStoreOptions) {
+    this.client = createClient({
+      baseUrl: options.baseUrl,
+      fetch: options.fetch,
+    });
+  }
+
+  admin(): RgapRepository {
+    return repositoryFrom(new HttpRgapCommands(
+      this.client,
+      tokenValue(this.options.adminToken ?? 'test'),
+      true,
+    ));
+  }
+
+  as(token: TokenValue): RgapRepository {
+    return repositoryFrom(new HttpRgapCommands(this.client, token, false));
+  }
+
+  close() {}
+}
+
+class HttpRgapCommands implements RgapCommands {
+  constructor(
+    private readonly client: Client,
+    private readonly bearer: TokenValue,
+    private readonly admin: boolean,
+  ) {}
+
+  async getResource(id: ReturnType<typeof resourceId>) {
+    const result = await getResource(this.options({ path: { id } }));
+    return result.response?.status === 404 ? undefined : asResource(unwrap(result));
+  }
+
+  async listResources(query = {}) {
+    const result = await listResources(this.options({ query }));
+    return unwrap(result).map(asResource);
+  }
+
+  async getGrant(id: ReturnType<typeof grantId>) {
+    const result = await getGrant(this.options({ path: { id } }));
+    return result.response?.status === 404 ? undefined : asGrant(unwrap(result));
+  }
+
+  async listGrants(query = {}) {
+    const result = await listGrants(this.options({ query }));
+    return unwrap(result).map(asGrant);
+  }
+
+  async getToken(id: ReturnType<typeof tokenId>) {
+    const result = await getToken(this.options({ path: { id } }));
+    return result.response?.status === 404 ? undefined : asToken(unwrap(result));
+  }
+
+  async listTokens(query = {}) {
+    const result = await listTokens(this.options({ query }));
+    return unwrap(result).map(asToken);
+  }
+
+  async listAudit(query = {}) {
+    const result = await listAudit(this.options({ query }));
+    return unwrap(result).map(asAuditEvent);
+  }
+
+  async createResource(input: Parameters<RgapCommands['createResource']>[0]) {
+    return asResource(unwrap(await createResource(this.options({ body: input }))));
+  }
+
+  async moveResource(id: ReturnType<typeof resourceId>, parentId: ReturnType<typeof resourceId> | null) {
+    return asResource(unwrap(await moveResource(this.options({
+      path: { id },
+      body: { parentId },
+    }))));
+  }
+
+  async deleteResource(id: ReturnType<typeof resourceId>) {
+    unwrap<void>(await deleteResource(this.options({ path: { id } })));
+  }
+
+  async createGrant(input: Parameters<RgapCommands['createGrant']>[0]) {
+    const parentId = input.parentId === null && !this.admin
+      ? await this.actingGrantId()
+      : input.parentId;
+    return asGrant(unwrap(await createGrant(this.options({
+      body: { ...input, parentId, capabilities: input.capabilities.map(asHttpCapability) },
+    }))));
+  }
+
+  async setCapabilities(id: ReturnType<typeof grantId>, capabilities: Capability[]) {
+    return asGrant(unwrap(await setCapabilities(this.options({
+      path: { id },
+      body: { capabilities: capabilities.map(asHttpCapability) },
+    }))));
+  }
+
+  async issueToken(id: ReturnType<typeof grantId>, label: string) {
+    const issued = unwrap(await issueToken(this.options({
+      path: { id },
+      body: { label },
+    })));
+    return { record: asToken(issued.record), value: tokenValue(issued.value) };
+  }
+
+  async revokeToken(id: ReturnType<typeof tokenId>) {
+    unwrap<void>(await revokeToken(this.options({ path: { id } })));
+  }
+
+  async revokeGrant(id: ReturnType<typeof grantId>) {
+    unwrap<void>(await revokeGrant(this.options({ path: { id } })));
+  }
+
+  async authorize(token: TokenValue, id: ReturnType<typeof resourceId>, permission: Permission) {
+    const decision = unwrap(await authorize(this.options({
+      body: { token, resourceId: id, permission },
+    })));
+    return {
+      ...decision,
+      grantId: decision.grantId === null ? null : grantId(decision.grantId),
+      lineage: decision.lineage.map(grantId),
+    };
+  }
+
+  async inspectToken(token: TokenValue) {
+    const view = unwrap(await inspectToken(this.options({ body: { token } })));
+    return {
+      ...view,
+      grantId: view.grantId === null ? null : grantId(view.grantId),
+      lineage: view.lineage.map(grantId),
+    };
+  }
+
+  async reset() {
+    unwrap<void>(await reset(this.options({})));
+  }
+
+  private options<T extends object>(input: T): T & {
+    client: Client;
+    headers: { authorization: string };
+  } {
+    return {
+      ...input,
+      client: this.client,
+      headers: { authorization: `Bearer ${this.bearer}` },
+    };
+  }
+
+  private async actingGrantId() {
+    const view = unwrap(await inspectToken(this.options({ body: { token: this.bearer } })));
+    if (!view.valid || view.grantId === null) {
+      throw new RgapError('unauthorized', view.detail);
+    }
+    return grantId(view.grantId);
+  }
+}
+
+type RequestResult<T> = {
+  data?: T;
+  error?: unknown;
+  response?: Response;
+};
+
+function unwrap<T>(result: RequestResult<T>): T {
+  if (result.response?.ok) return result.data as T;
+  if (isApiError(result.error)) {
+    throw new RgapError(result.error.error.code, result.error.error.message);
+  }
+  throw new RgapError(
+    'http_error',
+    `RGAP API request failed${result.response ? ` with status ${result.response.status}` : ''}.`,
+  );
+}
+
+function isApiError(value: unknown): value is ApiError {
+  if (!value || typeof value !== 'object' || !('error' in value)) return false;
+  const error = value.error;
+  return Boolean(error && typeof error === 'object' && 'code' in error && 'message' in error);
+}
+
+function asResource(record: HttpResource): Resource {
+  return {
+    ...record,
+    id: resourceId(record.id),
+    parentId: record.parentId === null ? null : resourceId(record.parentId),
+  };
+}
+
+function asGrant(record: HttpGrant): Grant {
+  return {
+    ...record,
+    id: grantId(record.id),
+    parentId: record.parentId === null ? null : grantId(record.parentId),
+    capabilities: record.capabilities.map(asCapability),
+  };
+}
+
+function asCapability(capability: HttpCapability): Capability {
+  return 'resourceId' in capability
+    ? { ...capability, resourceId: resourceId(capability.resourceId) }
+    : capability;
+}
+
+function asHttpCapability(capability: Capability): HttpCapability {
+  return capability;
+}
+
+function asToken(record: HttpToken): Token {
+  return {
+    ...record,
+    id: tokenId(record.id),
+    grantId: grantId(record.grantId),
+    hash: tokenHash(record.hash),
+  };
+}
+
+function asAuditEvent(event: HttpAuditEvent): AuditEvent {
+  return { ...event, target: event.target as RecordId };
+}

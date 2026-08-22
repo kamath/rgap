@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit",
+    "prestart": "pnpm --filter @rgap/server generate",
     "start": "tsx index.ts"
   },
   "dependencies": {
     "@rgap/core": "workspace:*",
+    "@rgap/server": "workspace:*",
     "@rgap/sqlite": "workspace:*"
   },
   "devDependencies": {

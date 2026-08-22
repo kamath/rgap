@@ -171,10 +171,11 @@ A move or deletion commits the resource-tree change and its audit event atomical
 
 ## Repository architecture
 
-The repository contains three workspace packages:
+The repository contains four workspace packages:
 
 - `@rgap/core` defines the protocol records, pure authorization rules, and store and repository contracts.
 - `@rgap/sqlite` provides durable SQLite persistence.
+- `@rgap/server` exposes the repository as a Hono HTTP API.
 - `@rgap/examples` is an executable scratchpad for exploring the model.
 
 `@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, and asynchronous `RgapStore` and `RgapRepository` contracts. Identities in that TypeScript surface are branded (`ResourceId`, `GrantId`, `TokenId`, `TokenValue`, `TokenHash`); they serialize as ordinary strings. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. `as` takes a `TokenValue`. Neither contract exposes a subscription or requires a streaming transport. The package has no dependency on a storage implementation or transport.
@@ -249,6 +250,41 @@ Collection queries return an ordered array of plain serializable records directl
 
 Every command addresses resources by `ResourceId`. A resource path describes only where a resource currently sits, so it is a presentation concern: `@rgap/core` exports the pure helpers that render a resource's path and resolve a path to an ID, and callers use them before they look up a handle or issue a command. Keeping resolution outside the boundary means a command can never act on whatever happens to occupy a path at the moment it arrives.
 
+## HTTP API
+
+`@rgap/server` is a Node.js Hono application in `apps/server`. It opens a `SqliteRgapStore` at the path in `RGAP_DATABASE_URL` and serves every operation in `RgapCommands`. Every command route requires an `Authorization: Bearer <token>` header. An RGAP token selects `store.as(token)`. The bearer in `RGAP_ADMIN_TOKEN` selects `store.admin()` for trusted bootstrap and operational calls, including root creation and reset. The administrative bearer defaults to `test` when the environment variable is unset.
+
+The OpenAPI `operationId` in the right column is the generated HeyAPI function name. The mapping is exhaustive and one-to-one with `RgapCommands`:
+
+| Method and path | Input | Success | `operationId` |
+| --- | --- | --- | --- |
+| `GET /resources/{id}` | path `id` | `Resource` | `getResource` |
+| `GET /resources` | query `parentId`, `cursor`, `limit` | `Resource[]` | `listResources` |
+| `POST /resources` | `{ name, parentId }` | `Resource` | `createResource` |
+| `POST /resources/{id}/move` | path `id`, body `{ parentId }` | `Resource` | `moveResource` |
+| `DELETE /resources/{id}` | path `id` | no body | `deleteResource` |
+| `GET /grants/{id}` | path `id` | `Grant` | `getGrant` |
+| `GET /grants` | query `parentId`, `cursor`, `limit` | `Grant[]` | `listGrants` |
+| `POST /grants` | `{ name, parentId, capabilities, expiresAt }` | `Grant` | `createGrant` |
+| `PUT /grants/{id}/capabilities` | path `id`, body `{ capabilities }` | `Grant` | `setCapabilities` |
+| `POST /grants/{id}/tokens` | path `id`, body `{ label }` | `{ record, value }` | `issueToken` |
+| `POST /grants/{id}/revoke` | path `id` | no body | `revokeGrant` |
+| `GET /tokens/{id}` | path `id` | `Token` | `getToken` |
+| `GET /tokens` | query `grantId`, `cursor`, `limit` | `Token[]` | `listTokens` |
+| `POST /tokens/{id}/revoke` | path `id` | no body | `revokeToken` |
+| `GET /audit` | query `cursor`, `limit` | `AuditEvent[]` | `listAudit` |
+| `POST /authorize` | `{ token, resourceId, permission }` | `Decision` | `authorize` |
+| `POST /tokens/inspect` | `{ token }` | `AuthorityView` | `inspectToken` |
+| `POST /reset` | no body | no body | `reset` |
+
+`authorize` and `inspectToken` evaluate the bearer supplied in their JSON body while the authorization header selects the repository plane. Successful responses are the JSON-compatible `@rgap/core` records, arrays, decisions, and authority views shown in the table. Commands that return no value respond with status `204`. Input validation failures use status `400`, an invalid or missing authorization bearer uses status `401`, an operation outside the selected plane uses status `403`, a missing record uses status `404`, and other domain conflicts use status `409`.
+
+Each route is declared once with `@hono/zod-openapi`. Its Zod schemas validate path parameters, query parameters, headers, and JSON bodies at runtime and describe every success and error response. Hono derives the RPC `AppType` from the same chained route definitions, and the application publishes the generated OpenAPI document at `/openapi.json`. The public `/ui` route serves Swagger UI configured to load that document. Documentation routes are not command operations and do not add functions to either typed client.
+
+The server package generates `openapi.json` from the application and runs HeyAPI against that document. HeyAPI writes a fetch-based TypeScript SDK and its model types to `apps/server/src/client/generated`. Git ignores both generated outputs, and package commands regenerate them from the route declarations before they are consumed. The route declarations are the source of truth for runtime behavior, the OpenAPI contract, the Hono RPC client, and the HeyAPI SDK. The generated SDK has exactly one function for each row in the table, named by its `operationId`, with no extra API operations.
+
+The package exports the Hono application, `AppType`, generated HeyAPI client, and `HttpRgapStore`. `HttpRgapStore` implements `RgapStore` over the generated SDK: `admin()` sends its configured administrative bearer, which also defaults to `test`, while `as(token)` sends that RGAP bearer. It reconstructs the repository handles returned by `@rgap/core`, and maps non-success API responses to `RgapError`. `pnpm --filter @rgap/server generate` refreshes the OpenAPI document and SDK. The package build and test commands generate those artifacts before type-checking or running tests. Its tests exercise validation, authorization-plane selection, OpenAPI generation, Hono RPC calls, generated SDK calls, and the HTTP store against the in-process application.
+
 ## SQLite store
 
 `@rgap/sqlite` implements `SqliteRgapStore` over a SQLite database with Drizzle ORM, so the model runs from ordinary TypeScript — a script, a test, or a service — against a real database. It runs on `better-sqlite3`, whose synchronous API is what lets a command read, decide, and write inside one transaction.
@@ -305,7 +341,16 @@ Rows are written parents before children, so the foreign keys hold at every stat
 
 ### Scratchpad
 
-`examples/index.ts` is a scratchpad: ordinary TypeScript that opens a store, exercises whatever arrangement of resources, grants, and tokens is in question, and prints what the model decides. `pnpm scratch` runs it. It is a workspace package, so it imports `@rgap/sqlite` and `@rgap/core` the way any consumer does, and it is meant to be edited rather than preserved.
+`examples/index.ts` is a scratchpad: ordinary TypeScript that opens a store, exercises whatever arrangement of resources, grants, and tokens is in question, and prints what the model decides. `pnpm scratch` runs it against `examples/scratch.db`. The file imports both store implementations, so changing only its store-construction line points the unchanged walkthrough at a running Hono server:
+
+```ts
+const store = new HttpRgapStore({
+  baseUrl: 'http://localhost:3000',
+  adminToken: process.env.RGAP_ADMIN_TOKEN ?? 'test',
+});
+```
+
+Both implementations present the same `RgapStore` and `RgapRepository` interfaces and provide `close()`, which is a no-op for the HTTP store. The remote administrative bearer must match the running server because the walkthrough resets the store and creates root records. The example is a workspace package that consumes the packages the way any TypeScript caller does, and it is meant to be edited rather than preserved.
 
 The file currently walks a five-step delegation. Resources are the company's workspace. Grants are who holds authority over it. Each step issues a token for the current grant, selects that token's plane with `store.as`, and creates a narrower child grant:
 
@@ -330,7 +375,7 @@ Company     acme, all permissions
 
 The company grant covers the whole tree. The team grant covers only `platform`, so `finance` is withheld from everyone below. Write stops at the employee. The agent and subagent use path targets rather than resource IDs. Authorization prints show what each token may still do.
 
-It opens `examples/scratch.db` and resets it as it starts, so every run begins from the state the file declares and the database is left on disk afterwards to be read with any SQLite client. Removing the reset keeps what the previous run wrote.
+It resets the selected store as it starts, so every run begins from the state the file declares. Local mode leaves `examples/scratch.db` on disk afterwards to be read with any SQLite client. Remote mode changes the running server's configured database.
 
 The package's own suite runs against a `:memory:` database, so the tests exercise real SQL and real transactions rather than a stand-in.
 
