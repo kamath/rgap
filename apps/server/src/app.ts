@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { swaggerUI } from '@hono/swagger-ui';
 import { createRoute, OpenAPIHono, type RouteConfig, z } from '@hono/zod-openapi';
 import {
+  executableRevisionId,
   grantId,
   resourceId,
   RgapError,
@@ -9,6 +10,7 @@ import {
   tokenValue,
   type Capability,
   type GrantHandle,
+  type InvocationEvent,
   type ResourceHandle,
   type RgapRepository,
   type RgapStore,
@@ -19,6 +21,10 @@ import {
   AuthorityViewSchema,
   AuthorizationHeaderSchema,
   AuthorizeSchema,
+  ExecutableDefinitionSchema,
+  ExecutableRevisionSchema,
+  InvocationEventSchema,
+  InvokeSchema,
   DecisionSchema,
   ErrorSchema,
   GrantListQuerySchema,
@@ -29,9 +35,14 @@ import {
   IssuedTokenSchema,
   MoveResourceSchema,
   PageQuerySchema,
+  PublishExecutableSchema,
   ResourceListQuerySchema,
   ResourceSchema,
   ResourceWriteSchema,
+  RuntimeMetadataParamsSchema,
+  RuntimePrivateMetadataSchema,
+  SecretMetadataSchema,
+  SecretWriteSchema,
   SetCapabilitiesSchema,
   TokenListQuerySchema,
   TokenSchema,
@@ -94,6 +105,79 @@ const deleteResourceRoute = commandRoute({
   operationId: 'deleteResource',
   request: { params: IdParamsSchema },
   responses: { 204: { description: 'Resource deleted' }, ...errors },
+});
+const getExecutableRoute = commandRoute({
+  method: 'get',
+  path: '/resources/{id}/executable',
+  operationId: 'getExecutable',
+  request: { params: IdParamsSchema },
+  responses: { 200: jsonResponse(ExecutableDefinitionSchema, 'Executable definition'), ...errors },
+});
+const getExecutableRevisionRoute = commandRoute({
+  method: 'get',
+  path: '/executable-revisions/{id}',
+  operationId: 'getExecutableRevision',
+  request: { params: IdParamsSchema },
+  responses: { 200: jsonResponse(ExecutableRevisionSchema, 'Executable revision'), ...errors },
+});
+const listExecutableRevisionsRoute = commandRoute({
+  method: 'get',
+  path: '/resources/{id}/executable/revisions',
+  operationId: 'listExecutableRevisions',
+  request: { params: IdParamsSchema },
+  responses: { 200: jsonResponse(z.array(ExecutableRevisionSchema), 'Executable revisions'), ...errors },
+});
+const publishExecutableRoute = commandRoute({
+  method: 'post',
+  path: '/resources/{id}/executable/revisions',
+  operationId: 'publishExecutable',
+  request: { params: IdParamsSchema, body: jsonBody(PublishExecutableSchema) },
+  responses: { 200: jsonResponse(ExecutableRevisionSchema, 'Published executable revision'), ...errors },
+});
+const deleteExecutableRoute = commandRoute({
+  method: 'delete',
+  path: '/resources/{id}/executable',
+  operationId: 'deleteExecutable',
+  request: { params: IdParamsSchema },
+  responses: { 204: { description: 'Executable deleted' }, ...errors },
+});
+const getSecretMetadataRoute = commandRoute({
+  method: 'get',
+  path: '/resources/{id}/secret',
+  operationId: 'getSecretMetadata',
+  request: { params: IdParamsSchema },
+  responses: { 200: jsonResponse(SecretMetadataSchema, 'Secret metadata'), ...errors },
+});
+const writeSecretRoute = commandRoute({
+  method: 'put',
+  path: '/resources/{id}/secret',
+  operationId: 'writeSecret',
+  request: { params: IdParamsSchema, body: jsonBody(SecretWriteSchema) },
+  responses: { 200: jsonResponse(SecretMetadataSchema, 'Secret metadata'), ...errors },
+});
+const deleteSecretRoute = commandRoute({
+  method: 'delete',
+  path: '/resources/{id}/secret',
+  operationId: 'deleteSecret',
+  request: { params: IdParamsSchema },
+  responses: { 204: { description: 'Secret deleted' }, ...errors },
+});
+const getRuntimePrivateMetadataRoute = commandRoute({
+  method: 'get',
+  path: '/resources/{id}/runtime-private/{runtime}',
+  operationId: 'getRuntimePrivateMetadata',
+  request: { params: RuntimeMetadataParamsSchema },
+  responses: { 200: jsonResponse(RuntimePrivateMetadataSchema, 'Runtime-private metadata'), ...errors },
+});
+const invokeRoute = commandRoute({
+  method: 'post',
+  path: '/resources/{id}/invoke',
+  operationId: 'invoke',
+  request: { params: IdParamsSchema, body: jsonBody(InvokeSchema) },
+  responses: {
+    200: ndjsonResponse(InvocationEventSchema, 'Invocation event stream'),
+    ...errors,
+  },
 });
 const getGrantRoute = commandRoute({
   method: 'get',
@@ -259,6 +343,70 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
       await repository(c).resources.get(resourceId(id)).then((record) => record.delete());
       return c.body(null, 204);
     })
+    .openapi(getExecutableRoute, async (c) => {
+      const { id } = c.req.valid('param');
+      const definition = await repository(c).executables.get(resourceId(id));
+      return c.json(requireRecord(definition, 'missing_executable', 'Executable does not exist.'), 200);
+    })
+    .openapi(getExecutableRevisionRoute, async (c) => {
+      const { id } = c.req.valid('param');
+      const revision = await repository(c).executables.getRevision(executableRevisionId(id));
+      return c.json(requireRecord(revision, 'missing_revision', 'Executable revision does not exist.'), 200);
+    })
+    .openapi(listExecutableRevisionsRoute, async (c) => {
+      const { id } = c.req.valid('param');
+      return c.json(await repository(c).executables.revisions(resourceId(id)), 200);
+    })
+    .openapi(publishExecutableRoute, async (c) => {
+      const { id } = c.req.valid('param');
+      return c.json(await repository(c).executables.publish(resourceId(id), c.req.valid('json')), 200);
+    })
+    .openapi(deleteExecutableRoute, async (c) => {
+      const { id } = c.req.valid('param');
+      await repository(c).executables.delete(resourceId(id));
+      return c.body(null, 204);
+    })
+    .openapi(getSecretMetadataRoute, async (c) => {
+      const { id } = c.req.valid('param');
+      const metadata = await repository(c).secrets.metadata(resourceId(id));
+      return c.json(requireRecord(metadata, 'missing_secret', 'Secret does not exist.'), 200);
+    })
+    .openapi(writeSecretRoute, async (c) => {
+      const { id } = c.req.valid('param');
+      const { value } = c.req.valid('json');
+      try {
+        return c.json(await repository(c).secrets.write(resourceId(id), value), 200);
+      } catch (error) {
+        if (error instanceof RgapError) throw new RgapError(error.code, 'Secret write failed.');
+        throw error;
+      }
+    })
+    .openapi(deleteSecretRoute, async (c) => {
+      const { id } = c.req.valid('param');
+      await repository(c).secrets.delete(resourceId(id));
+      return c.body(null, 204);
+    })
+    .openapi(getRuntimePrivateMetadataRoute, async (c) => {
+      const { id, runtime } = c.req.valid('param');
+      const metadata = await repository(c).runtimePrivateMetadata(runtime, resourceId(id));
+      return c.json(requireRecord(
+        metadata,
+        'missing_runtime_metadata',
+        'Runtime-private metadata does not exist.',
+      ), 200);
+    })
+    .openapi(invokeRoute, async (c) => {
+      const { id } = c.req.valid('param');
+      const { input, bindings, revisionId } = c.req.valid('json');
+      return invocationResponse(c.req.raw.signal, (signal) => repository(c).invoke(resourceId(id), {
+        input,
+        bindings: bindings
+          ? Object.fromEntries(Object.entries(bindings).map(([name, boundId]) => [name, resourceId(boundId)]))
+          : undefined,
+        revisionId: revisionId ? executableRevisionId(revisionId) : undefined,
+        signal,
+      }));
+    })
     .openapi(getGrantRoute, async (c) => {
       const { id } = c.req.valid('param');
       return c.json(grantRecord(await repository(c).grants.get(grantId(id))), 200);
@@ -386,8 +534,75 @@ function jsonResponse<T extends z.ZodType>(schema: T, description: string) {
   };
 }
 
+function ndjsonResponse<T extends z.ZodType>(schema: T, description: string) {
+  return {
+    description,
+    content: {
+      'application/x-ndjson': { schema },
+    },
+  };
+}
+
 function repository(c: { get(name: 'repository'): RgapRepository }) {
   return c.get('repository');
+}
+
+async function invocationResponse(
+  requestSignal: AbortSignal,
+  invoke: (signal: AbortSignal) => AsyncIterable<InvocationEvent>,
+) {
+  const controller = new AbortController();
+  const cancel = () => controller.abort(requestSignal.reason);
+  if (requestSignal.aborted) cancel();
+  else requestSignal.addEventListener('abort', cancel, { once: true });
+
+  const iterator = invoke(controller.signal)[Symbol.asyncIterator]();
+  let next: IteratorResult<InvocationEvent>;
+  try {
+    next = await iterator.next();
+  } catch (error) {
+    requestSignal.removeEventListener('abort', cancel);
+    controller.abort(error);
+    throw error;
+  }
+
+  const encoder = new TextEncoder();
+  let first: IteratorResult<InvocationEvent> | undefined = next;
+  const close = () => {
+    requestSignal.removeEventListener('abort', cancel);
+    controller.abort();
+  };
+  const body = new ReadableStream<Uint8Array>({
+    async pull(stream) {
+      try {
+        const result = first ?? await iterator.next();
+        first = undefined;
+        if (result.done) {
+          stream.close();
+          close();
+          return;
+        }
+        stream.enqueue(encoder.encode(`${JSON.stringify(result.value)}\n`));
+      } catch (error) {
+        stream.error(error);
+        close();
+      }
+    },
+    async cancel(reason) {
+      controller.abort(reason);
+      requestSignal.removeEventListener('abort', cancel);
+      await iterator.return?.();
+    },
+  });
+  return new Response(body, {
+    status: 200,
+    headers: { 'content-type': 'application/x-ndjson' },
+  });
+}
+
+function requireRecord<T>(record: T | undefined, code: string, message: string): T {
+  if (record === undefined) throw new RgapError(code, message);
+  return record;
 }
 
 function resourceRecord(record: ResourceHandle) {

@@ -1,4 +1,5 @@
 import {
+  executableRevisionId,
   grantId,
   repositoryFrom,
   resourceId,
@@ -8,23 +9,34 @@ import {
   tokenValue,
   type AuditEvent,
   type Capability,
+  type ExecutableDefinition,
+  type ExecutableRevision,
+  type InvocationEvent,
   type Grant,
   type Permission,
   type RecordId,
   type Resource,
+  type RuntimePrivateMetadata,
   type RgapCommands,
   type RgapRepository,
   type RgapStore,
   type Token,
   type TokenValue,
+  type SecretMetadata,
 } from '@rgap/core';
 import {
   authorize,
   createGrant,
   createResource,
+  deleteExecutable,
   deleteResource,
+  deleteSecret,
+  getExecutable,
+  getExecutableRevision,
   getGrant,
   getResource,
+  getRuntimePrivateMetadata,
+  getSecretMetadata,
   getToken,
   inspectToken,
   issueToken,
@@ -33,18 +45,25 @@ import {
   listResources,
   listTokens,
   moveResource,
+  publishExecutable,
   reset,
   revokeGrant,
   revokeToken,
   setCapabilities,
+  writeSecret,
+  listExecutableRevisions,
 } from './client/generated/sdk.gen';
 import { createClient, type Client } from './client/generated/client';
 import type {
   ApiError,
   AuditEvent as HttpAuditEvent,
   Capability as HttpCapability,
+  ExecutableDefinition as HttpExecutableDefinition,
+  ExecutableRevision as HttpExecutableRevision,
   Grant as HttpGrant,
   Resource as HttpResource,
+  RuntimePrivateMetadata as HttpRuntimePrivateMetadata,
+  SecretMetadata as HttpSecretMetadata,
   Token as HttpToken,
 } from './client/generated/types.gen';
 
@@ -74,11 +93,12 @@ export class HttpRgapStore implements RgapStore {
       this.client,
       tokenValue(this.options.adminToken ?? 'test'),
       true,
+      this.options,
     ));
   }
 
   as(token: TokenValue): RgapRepository {
-    return repositoryFrom(new HttpRgapCommands(this.client, token, false));
+    return repositoryFrom(new HttpRgapCommands(this.client, token, false, this.options));
   }
 
   close() {}
@@ -89,6 +109,7 @@ class HttpRgapCommands implements RgapCommands {
     private readonly client: Client,
     private readonly bearer: TokenValue,
     private readonly admin: boolean,
+    private readonly storeOptions: HttpRgapStoreOptions,
   ) {}
 
   async getResource(id: ReturnType<typeof resourceId>) {
@@ -139,6 +160,110 @@ class HttpRgapCommands implements RgapCommands {
 
   async deleteResource(id: ReturnType<typeof resourceId>) {
     unwrap<void>(await deleteResource(this.options({ path: { id } })));
+  }
+
+  async getExecutable(id: ReturnType<typeof resourceId>) {
+    const result = await getExecutable(this.options({ path: { id } }));
+    return result.response?.status === 404 ? undefined : asExecutableDefinition(unwrap(result));
+  }
+
+  async getExecutableRevision(id: ReturnType<typeof executableRevisionId>) {
+    const result = await getExecutableRevision(this.options({ path: { id } }));
+    return result.response?.status === 404 ? undefined : asExecutableRevision(unwrap(result));
+  }
+
+  async listExecutableRevisions(id: ReturnType<typeof resourceId>) {
+    const result = await listExecutableRevisions(this.options({ path: { id } }));
+    return unwrap(result).map(asExecutableRevision);
+  }
+
+  async publishExecutable(
+    id: ReturnType<typeof resourceId>,
+    input: Parameters<RgapCommands['publishExecutable']>[1],
+  ) {
+    return asExecutableRevision(unwrap(await publishExecutable(this.options({
+      path: { id },
+      body: {
+        ...input,
+        program: input.program as HttpExecutableRevision['program'],
+        inputSchema: input.inputSchema as HttpExecutableRevision['inputSchema'],
+        outputSchema: input.outputSchema as HttpExecutableRevision['outputSchema'],
+      },
+    }))));
+  }
+
+  async deleteExecutable(id: ReturnType<typeof resourceId>) {
+    unwrap<void>(await deleteExecutable(this.options({ path: { id } })));
+  }
+
+  async getSecretMetadata(id: ReturnType<typeof resourceId>) {
+    const result = await getSecretMetadata(this.options({ path: { id } }));
+    return result.response?.status === 404 ? undefined : asSecretMetadata(unwrap(result));
+  }
+
+  async writeSecret(id: ReturnType<typeof resourceId>, value: string) {
+    return asSecretMetadata(unwrap(await writeSecret(this.options({
+      path: { id },
+      body: { value },
+    }))));
+  }
+
+  async deleteSecret(id: ReturnType<typeof resourceId>) {
+    unwrap<void>(await deleteSecret(this.options({ path: { id } })));
+  }
+
+  async getRuntimePrivateMetadata(runtime: string, id: ReturnType<typeof resourceId>) {
+    const result = await getRuntimePrivateMetadata(this.options({ path: { id, runtime } }));
+    return result.response?.status === 404 ? undefined : asRuntimePrivateMetadata(unwrap(result));
+  }
+
+  invoke(id: ReturnType<typeof resourceId>, input: Parameters<RgapCommands['invoke']>[1]) {
+    const commands = this;
+    return (async function* (): AsyncIterable<InvocationEvent> {
+      const response = await (commands.storeOptions.fetch ?? globalThis.fetch)(
+        new URL(
+          `${commands.storeOptions.baseUrl.replace(/\/$/, '')}/resources/${encodeURIComponent(id)}/invoke`,
+        ),
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${commands.bearer}`,
+            'content-type': 'application/json',
+            accept: 'application/x-ndjson',
+          },
+          body: JSON.stringify({
+            input: input.input,
+            bindings: input.bindings,
+            revisionId: input.revisionId,
+          }),
+          signal: input.signal,
+        },
+      );
+      if (!response.ok) throw await responseError(response);
+      if (!response.body) throw new RgapError('http_error', 'RGAP invocation response has no body.');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffered = '';
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          buffered += decoder.decode(value, { stream: !done });
+          let newline = buffered.indexOf('\n');
+          while (newline >= 0) {
+            const line = buffered.slice(0, newline);
+            buffered = buffered.slice(newline + 1);
+            if (line.trim()) yield asInvocationEvent(JSON.parse(line));
+            newline = buffered.indexOf('\n');
+          }
+          if (done) break;
+        }
+        if (buffered.trim()) yield asInvocationEvent(JSON.parse(buffered));
+      } finally {
+        await reader.cancel();
+        reader.releaseLock();
+      }
+    })();
   }
 
   async createGrant(input: Parameters<RgapCommands['createGrant']>[0]) {
@@ -240,12 +365,68 @@ function isApiError(value: unknown): value is ApiError {
   return Boolean(error && typeof error === 'object' && 'code' in error && 'message' in error);
 }
 
+async function responseError(response: Response) {
+  let value: unknown;
+  try {
+    value = await response.json();
+  } catch {
+    return new RgapError('http_error', `RGAP API request failed with status ${response.status}.`);
+  }
+  return isApiError(value)
+    ? new RgapError(value.error.code, value.error.message)
+    : new RgapError('http_error', `RGAP API request failed with status ${response.status}.`);
+}
+
 function asResource(record: HttpResource): Resource {
   return {
     ...record,
     id: resourceId(record.id),
     parentId: record.parentId === null ? null : resourceId(record.parentId),
   };
+}
+
+function asExecutableDefinition(record: HttpExecutableDefinition): ExecutableDefinition {
+  return {
+    ...record,
+    resourceId: resourceId(record.resourceId),
+    activeRevisionId: record.activeRevisionId === null
+      ? null
+      : executableRevisionId(record.activeRevisionId),
+  };
+}
+
+function asExecutableRevision(record: HttpExecutableRevision): ExecutableRevision {
+  return {
+    ...record,
+    id: executableRevisionId(record.id),
+    resourceId: resourceId(record.resourceId),
+  };
+}
+
+function asSecretMetadata(metadata: HttpSecretMetadata): SecretMetadata {
+  return { ...metadata, resourceId: resourceId(metadata.resourceId) };
+}
+
+function asRuntimePrivateMetadata(metadata: HttpRuntimePrivateMetadata): RuntimePrivateMetadata {
+  return { ...metadata, resourceId: resourceId(metadata.resourceId) };
+}
+
+function asInvocationEvent(value: unknown): InvocationEvent {
+  if (!value || typeof value !== 'object' || !('type' in value)) {
+    throw new RgapError('invalid_response', 'RGAP invocation returned an invalid event.');
+  }
+  if (value.type === 'done') return { type: 'done' };
+  if (value.type === 'data' && 'value' in value) return { type: 'data', value: value.value };
+  if (
+    value.type === 'error'
+    && 'code' in value
+    && typeof value.code === 'string'
+    && 'message' in value
+    && typeof value.message === 'string'
+  ) {
+    return { type: 'error', code: value.code, message: value.message };
+  }
+  throw new RgapError('invalid_response', 'RGAP invocation returned an invalid event.');
 }
 
 function asGrant(record: HttpGrant): Grant {

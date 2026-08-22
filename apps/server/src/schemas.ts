@@ -14,6 +14,94 @@ export const ResourceSchema = z.object({
   deletedAt: NullableTimestampSchema,
 }).openapi('Resource');
 
+export const ExecutableDefinitionSchema = z.object({
+  resourceId: IdSchema,
+  activeRevisionId: NullableIdSchema,
+  deletedAt: NullableTimestampSchema,
+}).openapi('ExecutableDefinition');
+
+export const JsonValueSchema = z.union([
+  z.null(),
+  z.boolean(),
+  z.number(),
+  z.string(),
+  z.array(z.unknown()),
+  z.record(z.string(), z.unknown()),
+]);
+
+export const JsonSchemaSchema = z.union([
+  z.boolean(),
+  z.record(z.string(), z.unknown()),
+]).openapi('JsonSchema');
+
+export const BindingSlotSchema = z.object({
+  kind: z.enum(['resource', 'secret', 'runtime-private']),
+  access: z.enum(['use', 'write']),
+  required: z.boolean().optional(),
+}).strict().openapi('BindingSlot');
+
+export const ExecutionLimitsSchema = z.object({
+  timeoutMs: z.number().int().positive().optional(),
+  memoryBytes: z.number().int().positive().optional(),
+  outputBytes: z.number().int().positive().optional(),
+  concurrency: z.number().int().positive().optional(),
+  network: z.object({
+    allowedOrigins: z.array(z.string()),
+  }).strict().optional(),
+}).strict().openapi('ExecutionLimits');
+
+export const ExecutableRevisionSchema = z.object({
+  id: IdSchema,
+  resourceId: IdSchema,
+  runtime: z.string(),
+  program: JsonValueSchema,
+  inputSchema: JsonSchemaSchema,
+  outputSchema: JsonSchemaSchema.nullable(),
+  bindingSchema: z.record(z.string(), BindingSlotSchema),
+  limits: ExecutionLimitsSchema,
+  createdAt: TimestampSchema,
+}).openapi('ExecutableRevision');
+
+export const PublishExecutableSchema = ExecutableRevisionSchema.omit({
+  id: true,
+  resourceId: true,
+  createdAt: true,
+}).strict();
+
+export const SecretMetadataSchema = z.object({
+  resourceId: IdSchema,
+  version: z.string(),
+  updatedAt: TimestampSchema,
+}).openapi('SecretMetadata');
+
+export const SecretWriteSchema = z.object({
+  value: z.string(),
+}).strict();
+
+export const RuntimePrivateMetadataSchema = z.object({
+  runtime: z.string(),
+  resourceId: IdSchema,
+  version: z.string(),
+  updatedAt: TimestampSchema,
+}).openapi('RuntimePrivateMetadata');
+
+export const RuntimeMetadataParamsSchema = z.object({
+  id: IdSchema.openapi({ param: { name: 'id', in: 'path' } }),
+  runtime: z.string().min(1).openapi({ param: { name: 'runtime', in: 'path' } }),
+});
+
+export const InvokeSchema = z.object({
+  input: JsonValueSchema,
+  bindings: z.record(z.string(), IdSchema).optional(),
+  revisionId: IdSchema.optional(),
+}).strict();
+
+export const InvocationEventSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('data'), value: JsonValueSchema }).strict(),
+  z.object({ type: z.literal('error'), code: z.string(), message: z.string() }).strict(),
+  z.object({ type: z.literal('done') }).strict(),
+]).openapi('InvocationEvent');
+
 const CapabilityConfigSchema = {
   permissions: z.array(PermissionSchema),
 };
