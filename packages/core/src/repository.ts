@@ -1,21 +1,46 @@
-import type {
-  AuthorityView,
-  Capability,
-  CreateGrantInput,
-  CreateResourceInput,
-  Decision,
-  Grant,
-  GrantId,
-  Permission,
-  Resource,
-  ResourceId,
-  State,
-  Token,
-  TokenId,
-  TokenValue,
+import {
+  isLive,
+  RgapError,
+  type AuthorityView,
+  type Capability,
+  type Decision,
+  type Grant,
+  type GrantId,
+  type Permission,
+  type Resource,
+  type ResourceId,
+  type State,
+  type Token,
+  type TokenId,
+  type TokenValue,
 } from './domain';
 
-export type IssuedToken = { record: Token; value: TokenValue };
+export type ResourceWrite = { name: string };
+export type GrantWrite = { name: string; capabilities: Capability[]; expiresAt: string | null };
+export type TokenWrite = { label: string };
+
+export type ResourceHandle = Resource & {
+  create(input: ResourceWrite): Promise<ResourceHandle>;
+  move(parentId: ResourceId | null): Promise<ResourceHandle>;
+  delete(): Promise<void>;
+};
+
+export type CapabilitiesHandle = Capability[] & {
+  set(capabilities: Capability[]): Promise<GrantHandle>;
+};
+
+export type GrantHandle = Omit<Grant, 'capabilities'> & {
+  capabilities: CapabilitiesHandle;
+  create(input: GrantWrite): Promise<GrantHandle>;
+  tokens: { create(input: TokenWrite): Promise<IssuedToken> };
+  revoke(): Promise<void>;
+};
+
+export type TokenHandle = Token & {
+  revoke(): Promise<void>;
+};
+
+export type IssuedToken = TokenHandle & { value: TokenValue };
 
 /**
  * Selects an authorized or explicitly administrative command plane over one backing store.
@@ -26,17 +51,111 @@ export interface RgapStore {
   admin(): RgapRepository;
 }
 
-export interface RgapRepository {
+/**
+ * The ID-based command sink adapters implement. `repositoryFrom` turns it into the handle API.
+ */
+export interface RgapCommands {
   readState(): Promise<State>;
-  createResource(input: CreateResourceInput): Promise<Resource>;
+  createResource(input: ResourceWrite & { parentId: ResourceId | null }): Promise<Resource>;
   moveResource(id: ResourceId, parentId: ResourceId | null): Promise<Resource>;
   deleteResource(id: ResourceId): Promise<void>;
-  createGrant(input: CreateGrantInput): Promise<Grant>;
+  createGrant(input: GrantWrite & { parentId: GrantId | null }): Promise<Grant>;
   setCapabilities(grantId: GrantId, capabilities: Capability[]): Promise<Grant>;
-  issueToken(grantId: GrantId, label: string): Promise<IssuedToken>;
+  issueToken(grantId: GrantId, label: string): Promise<{ record: Token; value: TokenValue }>;
   revokeToken(id: TokenId): Promise<void>;
   revokeGrant(id: GrantId): Promise<void>;
   authorize(token: TokenValue, resourceId: ResourceId, permission: Permission): Promise<Decision>;
   inspectToken(token: TokenValue): Promise<AuthorityView>;
   reset(): Promise<void>;
+}
+
+export interface RgapRepository {
+  resources: {
+    create(input: ResourceWrite): Promise<ResourceHandle>;
+    get(id: ResourceId): Promise<ResourceHandle>;
+  };
+  grants: {
+    create(input: GrantWrite): Promise<GrantHandle>;
+    get(id: GrantId): Promise<GrantHandle>;
+  };
+  tokens: {
+    get(id: TokenId): Promise<TokenHandle>;
+  };
+  readState(): Promise<State>;
+  authorize(token: TokenValue, resourceId: ResourceId, permission: Permission): Promise<Decision>;
+  inspectToken(token: TokenValue): Promise<AuthorityView>;
+  reset(): Promise<void>;
+}
+
+export function repositoryFrom(commands: RgapCommands): RgapRepository {
+  return {
+    resources: {
+      create: async (input) => asResource(commands, await commands.createResource({ ...input, parentId: null })),
+      get: async (id) => asResource(commands, await requireResource(commands, id)),
+    },
+    grants: {
+      create: async (input) => asGrant(commands, await commands.createGrant({ ...input, parentId: null })),
+      get: async (id) => asGrant(commands, await requireGrant(commands, id)),
+    },
+    tokens: {
+      get: async (id) => asToken(commands, await requireToken(commands, id)),
+    },
+    readState: () => commands.readState(),
+    authorize: (token, resourceId, permission) => commands.authorize(token, resourceId, permission),
+    inspectToken: (token) => commands.inspectToken(token),
+    reset: () => commands.reset(),
+  };
+}
+
+async function requireResource(commands: RgapCommands, id: ResourceId) {
+  const resource = (await commands.readState()).resources[id];
+  if (!isLive(resource)) throw new RgapError('missing_resource', 'Resource does not exist.');
+  return resource;
+}
+
+async function requireGrant(commands: RgapCommands, id: GrantId) {
+  const grant = (await commands.readState()).grants[id];
+  if (!grant) throw new RgapError('missing_grant', 'Grant does not exist.');
+  return grant;
+}
+
+async function requireToken(commands: RgapCommands, id: TokenId) {
+  const token = (await commands.readState()).tokens[id];
+  if (!token) throw new RgapError('missing_token', 'Token does not exist.');
+  return token;
+}
+
+function asResource(commands: RgapCommands, resource: Resource): ResourceHandle {
+  return {
+    ...resource,
+    create: async (input) => asResource(commands, await commands.createResource({ ...input, parentId: resource.id })),
+    move: async (parentId) => asResource(commands, await commands.moveResource(resource.id, parentId)),
+    delete: () => commands.deleteResource(resource.id),
+  };
+}
+
+function asGrant(commands: RgapCommands, grant: Grant): GrantHandle {
+  const capabilities = Object.assign([...grant.capabilities], {
+    set: async (entries: Capability[]) => asGrant(commands, await commands.setCapabilities(grant.id, entries)),
+  });
+  return {
+    ...grant,
+    capabilities,
+    create: async (input) => asGrant(commands, await commands.createGrant({ ...input, parentId: grant.id })),
+    tokens: {
+      create: async (input) => asIssued(commands, await commands.issueToken(grant.id, input.label)),
+    },
+    revoke: () => commands.revokeGrant(grant.id),
+  };
+}
+
+function asToken(commands: RgapCommands, token: Token): TokenHandle {
+  return {
+    ...token,
+    revoke: () => commands.revokeToken(token.id),
+  };
+}
+
+function asIssued(commands: RgapCommands, issued: { record: Token; value: TokenValue }): IssuedToken {
+  return { ...asToken(commands, issued.record), value: issued.value };
 }

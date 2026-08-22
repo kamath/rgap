@@ -36,7 +36,7 @@ apps/frontend/src/
 
 ## Boundary under test
 
-`@rgap/core` exports `RgapStore` and `RgapRepository`. A store exposes `as(token)` and `admin()` but no commands. Either method returns a repository, which exposes an asynchronous state read and asynchronous methods for every query and command, including `setCapabilities(grantId, capabilities)`, the one command that changes an existing grant. Every method addresses resources by stable ID; path parsing, path rendering, and path resolution are pure helpers the caller applies first. The package also exports the domain records and pure rules and has no framework, browser, persistence, or transport dependency.
+`@rgap/core` exports `RgapStore` and `RgapRepository`. A store exposes `as(token)` and `admin()` but no commands. Either method returns a repository whose collections mint and look up handles: `resources.create` and `grants.create` mint roots, `resource.create` and `grant.create` mint children, and `grant.tokens.create` mints a token. `grant.capabilities.set` is the one command that changes an existing grant. Adapters implement an ID-based `RgapCommands` sink; `repositoryFrom` is the handle surface. Every command addresses resources by stable ID; path parsing, path rendering, and path resolution are pure helpers the caller applies first. The package also exports the domain records and pure rules and has no framework, browser, persistence, or transport dependency.
 
 `store.as(token)` returns a repository whose commands authorize the required permission before delegating and reject with the decision's explanation otherwise. `store.admin()` returns an unrestricted repository for trusted bootstrap and operations code. Plane selection is explicit, and the store itself has no command methods that application code can call accidentally. Token enforcement applies to commands only; `inspectToken` remains the read-side lens.
 
@@ -60,11 +60,11 @@ The contract stays asynchronous and JSON-compatible even though its browser impl
 The interface exposes all repository methods without extra workflow abstractions:
 
 - Browse the resource tree by path, with the current path in the URL
-- Create a resource by name and parent ID
+- Create a resource on the listing's parent handle, or on `resources.create` at the tree root
 - Move a resource under another parent, or delete its subtree by marking it deleted and retaining its stable ID
-- Create a root grant or delegate from a parent grant
+- Create a root grant on `grants.create`, or a child grant on the addressed grant's `create`
 - Set ID-targeted capabilities that follow resources or path-targeted capabilities that remain at locations
-- Issue, activate, paste, clear, or revoke a token
+- Issue a token with `grant.tokens.create`, then activate, paste, clear, or revoke it
 - Revoke a grant branch
 - Authorize a token for a resource and permission
 - Run commands through `store.admin()`, or through `store.as(token)` when a token is active

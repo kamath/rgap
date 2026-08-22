@@ -17,18 +17,24 @@ describe('RgapClient', () => {
     let current = state(['initial']);
     const repository = {
       readState: vi.fn(async () => structuredClone(current)),
-      createResource: vi.fn(async () => {
-        current = state(['initial', 'created']);
-        return current.resources.created;
-      }),
+      resources: {
+        create: vi.fn(async () => {
+          current = state(['initial', 'created']);
+          return {
+            ...current.resources.created,
+            create: vi.fn(),
+            move: vi.fn(),
+            delete: vi.fn(),
+          };
+        }),
+        get: vi.fn(),
+      },
     } as unknown as RgapRepository;
     const client = await RgapClient.connect(repository);
     const listener = vi.fn();
     client.subscribe(listener);
 
-    const created = await client.createResource({
-      name: 'created', parentId: null,
-    });
+    const created = await client.resources.create({ name: 'created' });
 
     expect(created.id).toBe('created');
     expect(client.getSnapshot()).toEqual(current);

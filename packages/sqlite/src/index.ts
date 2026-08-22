@@ -24,6 +24,7 @@ import {
   tokenHash,
   tokenId,
   tokenValue,
+  repositoryFrom,
   RgapError,
   type Capability,
   type CreateGrantInput,
@@ -32,6 +33,7 @@ import {
   type Permission,
   type RecordId,
   type ResourceId,
+  type RgapCommands,
   type RgapRepository,
   type RgapStore,
   type State,
@@ -58,11 +60,11 @@ export class SqliteRgapStore implements RgapStore {
   }
 
   admin(): RgapRepository {
-    return this.repository;
+    return repositoryFrom(this.repository);
   }
 
   as(token: TokenValue): RgapRepository {
-    return guardCommands(this.repository, token);
+    return guardCommands(repositoryFrom(this.repository), token);
   }
 
   /** Releases the connection. A `:memory:` database ceases to exist with it. */
@@ -71,7 +73,7 @@ export class SqliteRgapStore implements RgapStore {
   }
 }
 
-class SqliteBackingRepository implements RgapRepository {
+class SqliteBackingRepository implements RgapCommands {
   private connection: Database.Database;
   private db: BetterSQLite3Database;
   private initialState: State;

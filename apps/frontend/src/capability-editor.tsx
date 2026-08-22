@@ -95,10 +95,11 @@ function CapabilityEditor({ grant, onClose }: { grant: Grant; onClose: () => voi
       ? { ...entry, target: { type: 'path' as const, path: normalizePath(entry.target.path) } }
       : entry,
   );
-  const request = { method: 'setCapabilities', params: { grantId: grant.id, capabilities: normalizedDraft } };
+  const request = { grant: grant.id, method: 'capabilities.set', params: { capabilities: normalizedDraft } };
 
   const submit = async () => {
-    const committed = await execute('setCapabilities', () => client.setCapabilities(grant.id, normalizedDraft));
+    const committed = await execute('capabilities.set', async () =>
+      (await client.grants.get(grant.id)).capabilities.set(normalizedDraft));
     if (committed) onClose();
   };
 

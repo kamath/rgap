@@ -28,8 +28,7 @@ export function GrantFields({
 
   const input = {
     name,
-    parentId: parent?.id ?? null,
-    capabilities: [],
+    capabilities: [] as Grant['capabilities'],
     expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
   };
 
@@ -38,8 +37,10 @@ export function GrantFields({
       onSubmit={(event) => {
         event.preventDefault();
         void (async () => {
-          const committed = await execute('createGrant', async () => {
-            const grant = await client.createGrant(input);
+          const committed = await execute('create', async () => {
+            const grant = parent
+              ? await (await client.grants.get(parent.id)).create(input)
+              : await client.grants.create(input);
             setName('');
             return grant;
           });
@@ -56,7 +57,11 @@ export function GrantFields({
         <input type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} />
       </label>
       {parent?.expiresAt ? <p className="field-note">Must not exceed {parent.expiresAt}.</p> : null}
-      <Json value={{ method: 'createGrant', params: input }} />
+      <Json
+        value={parent
+          ? { grant: parent.id, method: 'create', params: input }
+          : { method: 'grants.create', params: input }}
+      />
       <Execute label="Execute operation" />
     </form>
   );

@@ -31,17 +31,17 @@ export function RevokeGrantsDrawer({ targets, onClose }: { targets: Grant[]; onC
   const snapshot = useRgapSnapshot();
   const plane = usePlane();
   const { response, executeEach } = useOperation();
-  const request = { method: 'revokeGrant', calls: targets.map((target) => ({ id: target.id })) };
+  const request = { method: 'revoke', calls: targets.map((target) => ({ grant: target.id })) };
   // Revocation reaches the whole subtree, so the drawer states that extent before the command runs.
   const extent = targets.map((target) => ({ target, descendants: grantDescendants(snapshot.grants, target.id) }));
   const reached = new Set(extent.flatMap(({ target, descendants }) => [target.id, ...descendants.map((g) => g.id)]));
 
   const submit = async () => {
     const committed = await executeEach(
-      'revokeGrant',
+      'revoke',
       targets,
       (target) => target.name,
-      (target) => client.revokeGrant(target.id),
+      async (target) => (await client.grants.get(target.id)).revoke(),
     );
     if (committed) onClose();
   };
@@ -85,11 +85,11 @@ export function IssueTokenDrawer({ grant, onClose }: { grant: Grant; onClose: ()
   const [issued, setIssued] = useState<string | null>(null);
 
   const submit = async () => {
-    await execute('issueToken', async () => {
-      const token = await client.issueToken(grant.id, label);
+    await execute('tokens.create', async () => {
+      const token = await (await client.grants.get(grant.id)).tokens.create({ label });
       setToken(token.value);
       setIssued(token.value);
-      return { record: token.record, value: token.value, activated: true };
+      return { id: token.id, grantId: token.grantId, label: token.label, hash: token.hash, value: token.value, activated: true };
     });
   };
 
@@ -114,7 +114,7 @@ export function IssueTokenDrawer({ grant, onClose }: { grant: Grant; onClose: ()
             <input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="research sub-agent" />
           </label>
           <p className="field-note">The issued bearer value is returned once, activated here, and never stored.</p>
-          <Json value={{ method: 'issueToken', params: { grantId: grant.id, label } }} />
+          <Json value={{ grant: grant.id, method: 'tokens.create', params: { label } }} />
           <Execute label="Execute operation" />
         </Form>
       )}
@@ -153,14 +153,14 @@ export function RevokeTokensDrawer({ targets, onClose }: { targets: Token[]; onC
   const client = useRgapClient();
   const plane = usePlane();
   const { response, executeEach } = useOperation();
-  const request = { method: 'revokeToken', calls: targets.map((target) => ({ id: target.id })) };
+  const request = { method: 'revoke', calls: targets.map((target) => ({ token: target.id })) };
 
   const submit = async () => {
     const committed = await executeEach(
-      'revokeToken',
+      'revoke',
       targets,
       (target) => target.label,
-      (target) => client.revokeToken(target.id),
+      async (target) => (await client.tokens.get(target.id)).revoke(),
     );
     if (committed) onClose();
   };

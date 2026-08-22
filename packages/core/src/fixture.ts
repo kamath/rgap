@@ -2,7 +2,7 @@ import {
   authorize, inspectAuthority, grantId, resourceId, tokenHash, tokenId, tokenValue,
   type Capability, type Resource, type State,
 } from './domain';
-import type { RgapRepository } from './repository';
+import { repositoryFrom, type RgapCommands } from './repository';
 
 export function fixture(): State {
   const resources = [
@@ -43,17 +43,17 @@ const cap = (id: string): Capability => ({
   target: { type: 'resource', resourceId: resourceId(id) }, permissions: ['invoke'], descendants: false,
 });
 
-/** A call the guard forwarded to the repository, in the order the guard made it. */
+/** A call the guard forwarded to the command sink, in the order the guard made it. */
 export type RecordedCall = { method: string; args: unknown[] };
 
 /**
- * A repository that answers the guard's reads from a fixed state and records its commands.
+ * A command sink that answers the guard's reads from a fixed state and records its commands.
  *
  * The guard decides which commands may run; it does not compute state transitions. Recording the
  * forwarded call rather than applying it keeps a guard test about the decision alone, and keeps it
  * independent of any repository implementation.
  */
-export function stubRepository(state: State, at: string) {
+export function stubCommands(state: State, at: string) {
   const calls: RecordedCall[] = [];
   const record = <T>(method: string, args: unknown[], result: T) => {
     calls.push({ method, args });
@@ -62,7 +62,7 @@ export function stubRepository(state: State, at: string) {
   const resourceStub = (id: Resource['id'], parentId: Resource['parentId']): Resource =>
     ({ id, parentId, name: id, deletedAt: null });
 
-  const repository: RgapRepository = {
+  const commands: RgapCommands = {
     readState: () => Promise.resolve(state),
     // Tests treat the bearer as the stored hash, so the stub re-brands rather than hashing.
     authorize: (token, id, permission) => Promise.resolve(authorize(state, tokenHash(token), id, permission, at)),
@@ -83,5 +83,5 @@ export function stubRepository(state: State, at: string) {
     revokeGrant: (id) => record('revokeGrant', [id], undefined),
     reset: () => record('reset', [], undefined),
   };
-  return { repository, calls };
+  return { commands, calls };
 }

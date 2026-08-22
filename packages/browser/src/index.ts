@@ -18,11 +18,13 @@ import {
   tokenHash,
   tokenId,
   tokenValue,
+  repositoryFrom,
   type Capability,
   type CreateGrantInput,
   type CreateResourceInput,
   type GrantId,
   type Permission,
+  type RgapCommands,
   type RgapStore,
   type ResourceId,
   type State,
@@ -46,15 +48,15 @@ export class BrowserRgapStore implements RgapStore {
   }
 
   admin(): RgapRepository {
-    return this.repository;
+    return repositoryFrom(this.repository);
   }
 
   as(token: TokenValue): RgapRepository {
-    return guardCommands(this.repository, token);
+    return guardCommands(repositoryFrom(this.repository), token);
   }
 }
 
-class BrowserBackingRepository implements RgapRepository {
+class BrowserBackingRepository implements RgapCommands {
   private store: StoreApi<State>;
   private initialState: State;
 

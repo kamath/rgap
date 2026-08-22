@@ -2,25 +2,25 @@ import { createContext, useContext, useEffect, useState, useSyncExternalStore, t
 import type {
   AuthorityView,
   Capability,
-  CreateGrantInput,
-  CreateResourceInput,
   Decision,
-  Grant,
-  GrantId,
+  GrantHandle,
+  GrantWrite,
   IssuedToken,
   Permission,
-  Resource,
+  ResourceHandle,
   ResourceId,
+  ResourceWrite,
   RgapRepository,
   State,
-  TokenId,
+  TokenHandle,
   TokenValue,
+  TokenWrite,
 } from '@rgap/core';
 import { tokenValue } from '@rgap/core';
 
 type Listener = () => void;
 
-export class RgapClient {
+export class RgapClient implements RgapRepository {
   private listeners = new Set<Listener>();
 
   private constructor(private repository: RgapRepository, private snapshot: State) {}
@@ -46,36 +46,22 @@ export class RgapClient {
     this.listeners.forEach((listener) => listener());
   }
 
-  createResource(input: CreateResourceInput): Promise<Resource> {
-    return this.run(() => this.repository.createResource(input));
-  }
+  resources = {
+    create: (input: ResourceWrite) => this.run(async () => this.wrapResource(await this.repository.resources.create(input))),
+    get: async (id: ResourceId) => this.wrapResource(await this.repository.resources.get(id)),
+  };
 
-  moveResource(id: ResourceId, parentId: ResourceId | null): Promise<Resource> {
-    return this.run(() => this.repository.moveResource(id, parentId));
-  }
+  grants = {
+    create: (input: GrantWrite) => this.run(async () => this.wrapGrant(await this.repository.grants.create(input))),
+    get: async (id: GrantHandle['id']) => this.wrapGrant(await this.repository.grants.get(id)),
+  };
 
-  deleteResource(id: ResourceId): Promise<void> {
-    return this.run(() => this.repository.deleteResource(id));
-  }
+  tokens = {
+    get: async (id: TokenHandle['id']) => this.wrapToken(await this.repository.tokens.get(id)),
+  };
 
-  createGrant(input: CreateGrantInput): Promise<Grant> {
-    return this.run(() => this.repository.createGrant(input));
-  }
-
-  setCapabilities(grantId: GrantId, capabilities: Capability[]): Promise<Grant> {
-    return this.run(() => this.repository.setCapabilities(grantId, capabilities));
-  }
-
-  issueToken(grantId: GrantId, label: string): Promise<IssuedToken> {
-    return this.run(() => this.repository.issueToken(grantId, label));
-  }
-
-  revokeToken(id: TokenId): Promise<void> {
-    return this.run(() => this.repository.revokeToken(id));
-  }
-
-  revokeGrant(id: GrantId): Promise<void> {
-    return this.run(() => this.repository.revokeGrant(id));
+  readState(): Promise<State> {
+    return this.repository.readState();
   }
 
   authorize(token: TokenValue, resourceId: ResourceId, permission: Permission): Promise<Decision> {
@@ -88,6 +74,41 @@ export class RgapClient {
 
   reset(): Promise<void> {
     return this.run(() => this.repository.reset());
+  }
+
+  private wrapResource(resource: ResourceHandle): ResourceHandle {
+    return {
+      ...resource,
+      create: (input) => this.run(async () => this.wrapResource(await resource.create(input))),
+      move: (parentId) => this.run(async () => this.wrapResource(await resource.move(parentId))),
+      delete: () => this.run(() => resource.delete()),
+    };
+  }
+
+  private wrapGrant(grant: GrantHandle): GrantHandle {
+    const capabilities = Object.assign([...grant.capabilities], {
+      set: (entries: Capability[]) => this.run(async () => this.wrapGrant(await grant.capabilities.set(entries))),
+    });
+    return {
+      ...grant,
+      capabilities,
+      create: (input) => this.run(async () => this.wrapGrant(await grant.create(input))),
+      tokens: {
+        create: (input: TokenWrite) => this.run(async () => this.wrapIssued(await grant.tokens.create(input))),
+      },
+      revoke: () => this.run(() => grant.revoke()),
+    };
+  }
+
+  private wrapToken(token: TokenHandle): TokenHandle {
+    return {
+      ...token,
+      revoke: () => this.run(() => token.revoke()),
+    };
+  }
+
+  private wrapIssued(issued: IssuedToken): IssuedToken {
+    return { ...this.wrapToken(issued), value: issued.value };
   }
 
   private async run<T>(command: () => Promise<T>) {

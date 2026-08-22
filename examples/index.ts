@@ -5,7 +5,7 @@
  * `pnpm scratch` runs this file against examples/scratch.db.
  */
 import { fileURLToPath } from 'node:url';
-import { resourcePath, InvalidParentError, type Permission } from '@rgap/core';
+import { resourceId, resourcePath, type Permission, type ResourceId, type TokenValue } from '@rgap/core';
 import { SqliteRgapStore } from '@rgap/sqlite';
 
 const store = new SqliteRgapStore({ url: fileURLToPath(new URL('scratch.db', import.meta.url)) });
@@ -14,71 +14,56 @@ const root = store.admin();
 // Every run starts from an empty store. Remove this to keep what the last run wrote.
 await root.reset();
 
-const acme = await root.createResource({ name: 'acme-company', parentId: null });
-
-try {
-const badAdminGrant = await root.createGrant({
-  // @ts-expect-error - we're using a grant id where a resource id is expected
-  name: 'Acme admin', parentId: acme.id, capabilities: [], expiresAt: null,
+const acme = await root.resources.create({ name: 'acme-company' });
+const adminGrant = await root.grants.create({
+  name: 'Acme admin', capabilities: [], expiresAt: null,
 });
-} catch (error) {
-  if (error instanceof InvalidParentError)
-    console.error(error.message);
-  else
-    throw error;
-}
-
-const adminGrant = await root.createGrant({
-  name: 'Acme admin', parentId: null, capabilities: [], expiresAt: null,
-});
-
-await root.setCapabilities(adminGrant.id, [
+await adminGrant.capabilities.set([
   {
     target: { type: 'resource', resourceId: acme.id },
     permissions: ['read', 'write', 'invoke', 'move', 'delete'],
     descendants: true,
   },
 ]);
-const adminToken = await root.issueToken(adminGrant.id, 'admin')
+const adminToken = await adminGrant.tokens.create({ label: 'admin' });
 const admin = store.as(adminToken.value);
 
-const drive = await admin.createResource({ name: 'drive', parentId: acme.id });
-const notes = await admin.createResource({ name: 'notes', parentId: drive.id });
-const secret = await admin.createResource({ name: 'secret', parentId: acme.id });
+const drive = await (await admin.resources.get(acme.id)).create({ name: 'drive' });
+const notes = await drive.create({ name: 'notes' });
+const secret = await (await admin.resources.get(acme.id)).create({ name: 'secret' });
 
-const aliceToken = await admin.issueToken(adminGrant.id, 'alice cli');
+const aliceToken = await (await admin.grants.get(adminGrant.id)).tokens.create({ label: 'alice cli' });
 const alice = store.as(aliceToken.value);
 
 // Alice delegates through her token-authorized plane, so the child can only be narrower than her grant.
-const readerGrant = await alice.createGrant({
-  name: 'Drive read', parentId: adminGrant.id, capabilities: [], expiresAt: null,
+const readerGrant = await (await alice.grants.get(adminGrant.id)).create({
+  name: 'Drive read', capabilities: [], expiresAt: null,
 });
-await alice.setCapabilities(readerGrant.id, [
-  { target: { type: 'path', path: 'acme/drive' }, permissions: ['read'], descendants: true },
+await readerGrant.capabilities.set([
+  { target: { type: 'path', path: 'acme-company/drive' }, permissions: ['read'], descendants: true },
 ]);
 
-const bobToken = await alice.issueToken(readerGrant.id, 'bob');
-const bob = store.as(bobToken.value);
+const bobToken = await readerGrant.tokens.create({ label: 'bob' });
 
 const { resources } = await admin.readState();
-const path = (id: string) => resourcePath(resources, id);
+const path = (id: ResourceId) => resourcePath(resources, id);
 
-const check = async (label: string, token: string, resourceId: string, permission: Permission) => {
+const check = async (label: string, token: TokenValue, resourceId: ResourceId, permission: Permission) => {
   const decision = await admin.authorize(token, resourceId, permission);
   const verdict = decision.allowed ? 'allow' : 'deny ';
   console.log(`${verdict}  ${label.padEnd(6)} ${permission.padEnd(7)} ${path(resourceId).padEnd(18)} ${decision.detail}`);
 };
 
-await check('alice', alice.value, notes.id, 'read');
-await check('bob', bob.value, notes.id, 'read');
-await check('bob', bob.value, notes.id, 'write');
-await check('bob', bob.value, secret.id, 'read');
+await check('alice', aliceToken.value, notes.id, 'read');
+await check('bob', bobToken.value, notes.id, 'read');
+await check('bob', bobToken.value, notes.id, 'write');
+await check('bob', bobToken.value, secret.id, 'read');
 
-for (const [label, token] of [['alice', alice.value], ['bob', bob.value]] as const) {
+for (const [label, token] of [['alice', aliceToken.value], ['bob', bobToken.value]] as const) {
   const authority = await admin.inspectToken(token);
   console.log(`\n${label}: ${authority.detail}`);
   Object.entries(authority.permissions).forEach(([id, held]) => {
-    console.log(`  ${path(id).padEnd(18)} ${held.join(' ')}`);
+    console.log(`  ${path(resourceId(id)).padEnd(18)} ${held.join(' ')}`);
   });
 }
 

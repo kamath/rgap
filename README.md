@@ -75,13 +75,13 @@ Resources, grants, and tokens each have their own identity. A grant's parent is 
 
 | Type | Names |
 | --- | --- |
-| `ResourceId` | A resource's `id` and `parentId`, a capability's resource target, and every resource command argument. |
-| `GrantId` | A grant's `id` and `parentId`, a token's `grantId`, and every grant command argument. |
-| `TokenId` | A token record's `id`, and `revokeToken`. |
-| `TokenValue` | The bearer secret returned once by `issueToken`. `store.as`, `authorize`, and `inspectToken` take this value. |
+| `ResourceId` | A resource's `id` and `parentId`, a capability's resource target, and `move`'s destination. |
+| `GrantId` | A grant's `id` and `parentId`, and a token's `grantId`. |
+| `TokenId` | A token record's `id`. |
+| `TokenValue` | The bearer secret returned once by `grant.tokens.create`. `store.as`, `authorize`, and `inspectToken` take this value. |
 | `TokenHash` | The hash stored on the token record. The bearer is never stored. |
 
-A branded value is still a string at runtime. Records serialize as JSON strings and SQLite text, and [PROTOCOL.md](PROTOCOL.md) states the wire types as `string`. TypeScript does not treat the brands as interchangeable: `createGrant({ parentId: resource.id })` and `store.as(grant.id)` are type errors.
+A branded value is still a string at runtime. Records serialize as JSON strings and SQLite text, and [PROTOCOL.md](PROTOCOL.md) states the wire types as `string`. TypeScript does not treat the brands as interchangeable: `grant.create({ name: 'Drive read' })` cannot take a `ResourceId` parent, and `store.as(grant.id)` is a type error.
 
 A path remains an ordinary string. Targeting `acme/drive` when the resource is named `acme-company` is a wrong location, not a wrong kind of identity, so it type-checks. Callers that want a stable object rather than a location use a `ResourceId` target.
 
@@ -112,7 +112,7 @@ const repository = store.as(token);  // commands authorized by this bearer token
 const admin = store.admin();         // unrestricted administrative commands
 ```
 
-`store.as(token)` returns an `RgapRepository` whose commands check the authority required for each operation and refuse with the decision's explanation otherwise. `store.admin()` returns the same repository interface without token checks for trusted bootstrap and operational code. The store object remains inside trusted infrastructure code; request handlers receive only the repository returned by `as(token)`, so forgetting an authorization wrapper cannot silently select the administrative plane.
+`store.as(token)` returns an `RgapRepository` whose commands check the authority required for each operation and refuse with the decision's explanation otherwise. `store.admin()` returns the same repository interface without token checks for trusted bootstrap and operational code. Handles obtained from either repository inherit that plane: `grant.tokens.create` on a guarded handle is the same authorized command as the repository would have run. The store object remains inside trusted infrastructure code; request handlers receive only the repository returned by `as(token)`, so forgetting an authorization wrapper cannot silently select the administrative plane.
 
 The store does not authenticate the process allowed to call `admin()`. A host protects the store object with its module and process boundary and protects any remote administrative surface with infrastructure authentication. Administrative commands remain explicit and are recorded in the audit log.
 
@@ -193,9 +193,9 @@ The application is dark, typographic, and flat. Structure comes from hairline ru
 
 ### Operations surfaces
 
-Every command runs through the same request-and-response pair. The request holds the form and, under it, the exact repository call the form will make as monospace JSON. The response holds the returned record, decision, or error as monospace JSON. The request preview is a read-only rendering of the form, not a JSON editor, so the domain rules always receive typed input.
+Every command runs through the same request-and-response pair. The request holds the form and, under it, the exact call the form will make as monospace JSON: a collection method on the repository, a method on a resource, grant, or token handle, or `grant.tokens.create`. The response holds the returned record, decision, or error as monospace JSON. The request preview is a read-only rendering of the form, not a JSON editor, so the domain rules always receive typed input.
 
-Every repository command names resources by stable ID, never by path. Forms still accept a path, because a path is what a person can read and type; the interface resolves it against the current tree and sends the resolved ID, and the request preview shows that ID. A path that resolves to nothing has no ID to show, so the request preview omits it and the form marks it; executing anyway reports it in the response before any command is sent.
+Every command names resources by stable ID, never by path. A handle is that ID plus the collections and methods that act on it. Forms still accept a path, because a path is what a person can read and type; the interface resolves it against the current tree and looks up the handle, and the request preview shows that ID. A path that resolves to nothing has no ID to show, so the request preview omits it and the form marks it; executing anyway reports it in the response before any command is sent.
 
 Routes present their operations one of two ways. An operations pane sits beside a response pane and is always open, which suits the simulator, whose whole purpose is the form. A drawer holds one operation, opens from a named button in an action bar, and closes when that operation is finished or abandoned, so a route with drawers shows no form until one is asked for.
 
@@ -230,7 +230,7 @@ The breadcrumb spells out the current path as `root / acme / mcp`, and every seg
 
 The listing has one row per live child of the current path, with the child's name, stable ID, and permissions under the active token. Deleted resources appear in no listing. Clicking a name navigates into that child, replacing the listing with that child's contents. Because RGAP assigns no resource kinds, a resource with no children lists nothing.
 
-The create drawer takes a name. It creates the resource in the location the listing shows: the parent is that location, stated as a read-only path rather than typed, so creating somewhere else means navigating there first. At the tree root the parent is no resource, so the drawer creates a root resource, which no token authorizes and which the guarded plane therefore refuses.
+The create drawer takes a name. It creates the resource on the handle the listing shows: a child via `resource.create` when a resource is addressed, and a root via `resources.create` at the tree root, which no token authorizes and which the guarded plane therefore refuses. The parent is that location, stated as a read-only path rather than typed, so creating somewhere else means navigating there first.
 
 The move drawer lists the checked resources as paths and takes one destination parent path, resolved against the current tree to the stable ID the commands send, where an empty path moves them to roots. The delete drawer lists the checked resources as paths and removes each together with its descendants.
 
@@ -248,7 +248,7 @@ Grants are explored the way resources are. `/grants` lists the root grants, `/gr
 
 A grant row states the grant's name, each capability entry as a resource path and permission set, expiration, and status. A revoked or expired grant is marked inactive, and so is every grant delegated beneath it, because an inactive ancestor disables its descendants. Status is therefore a property of a grant's lineage rather than of the grant record alone, and the listing reports it that way.
 
-The listing's action bar creates, revokes, and inspects. `Create` creates a grant inside the grant the route addresses, exactly as create makes a resource inside the addressed location in the explorer: at `/grants/$grantId` it delegates from that grant, and at `/grants` it creates a root grant, an administrative operation no token authorizes. Its form takes the name and optional expiration and nothing else. The new grant starts with no capability entries, because what a grant reaches is set from the grant itself, where the whole set is visible at once. `Revoke` revokes each checked grant together with the grants delegated from it, and its drawer lists those descendants under each target, so the extent of a revocation is stated before it runs.
+The listing's action bar creates, revokes, and inspects. `Create` creates a grant on the handle the route addresses: at `/grants/$grantId` that is `grant.create`, and at `/grants` it is `grants.create`, an administrative operation no token authorizes. Its form takes the name and optional expiration and nothing else. The new grant starts with no capability entries, because what a grant reaches is set from the grant itself, where the whole set is visible at once. `Revoke` revokes each checked grant together with the grants delegated from it, and its drawer lists those descendants under each target, so the extent of a revocation is stated before it runs.
 
 `Inspect` is the one action bar entry that navigates rather than opening a drawer. It addresses the same grant the route addresses, so it is present wherever a grant is addressed and absent at `/grants`, where the route addresses no grant and a root grant is reached by navigating into it.
 
@@ -300,17 +300,67 @@ RgapRepository in @rgap/core
 Browser storage, a SQLite database, or an HTTP API
 ```
 
-`@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, and asynchronous `RgapStore` and `RgapRepository` contracts. Identities in that TypeScript surface are branded (`ResourceId`, `GrantId`, `TokenId`, `TokenValue`, `TokenHash`); they serialize as ordinary strings. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. `as` takes a `TokenValue`. A repository is the request-response interface returned by either method: it reads current state and exposes asynchronous query and command methods. Neither contract exposes a subscription or requires a streaming transport. The package has no dependency on React, Zustand, browser storage, or a transport.
+`@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, and asynchronous `RgapStore` and `RgapRepository` contracts. Identities in that TypeScript surface are branded (`ResourceId`, `GrantId`, `TokenId`, `TokenValue`, `TokenHash`); they serialize as ordinary strings. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. `as` takes a `TokenValue`. Neither contract exposes a subscription or requires a streaming transport. The package has no dependency on React, Zustand, browser storage, or a transport.
 
-Every method of that contract addresses resources by `ResourceId`. A resource path describes only where a resource currently sits, so it is a presentation concern: `@rgap/core` exports the pure helpers that render a resource's path and resolve a path to an ID, and callers use them before they issue a command. Keeping resolution outside the boundary means a command can never act on whatever happens to occupy a path at the moment it arrives.
+A repository is the request-response interface returned by `as` or `admin`. It exposes collections, looks up existing records, reads current state, and answers decision queries. Creating a grant or a resource is one command; the parent is an argument. TypeScript fills that argument from the receiver so the caller does not pass it: a root from the repository collection, a child from the parent handle.
+
+```ts
+const acme = await admin.resources.create({ name: 'acme' });
+const drive = await acme.create({ name: 'drive' });
+const notes = await drive.create({ name: 'notes' });
+
+const grant = await admin.grants.create({
+  name: 'Acme admin', capabilities: [], expiresAt: null,
+});
+await grant.capabilities.set([
+  { target: { type: 'resource', resourceId: acme.id }, permissions: ['read', 'write'], descendants: true },
+]);
+const reader = await grant.create({
+  name: 'Drive read', capabilities: [], expiresAt: null,
+});
+const issued = await grant.tokens.create({ label: 'cli' });
+await issued.revoke();
+await reader.revoke();
+
+await notes.move(acme.id);
+await notes.delete();
+```
+
+`resources.create` and `grants.create` mint roots. `resource.create` and `grant.create` mint children. `grant.tokens.create` mints a token for that grant and returns the token handle together with the one-time bearer `value`. `resources.get(id)`, `grants.get(id)`, and `tokens.get(id)` return handles for records that already exist, and throw if the record is missing or, for a resource, deleted.
+
+A handle carries the record's fields plus the collections and methods that act on it: a resource `create`s children, `move`s, and `delete`s; a grant `create`s child grants, `capabilities.set`s, `tokens.create`s, and `revoke`s; a token `revoke`s.
+
+An HTTP adapter is the same commands as paths. Creating a grant or a resource is always one collection:
+
+```text
+POST /resources          { name, parentId }
+POST /grants             { name, parentId, capabilities, expiresAt }
+```
+
+`parentId` is `null` for a root and the parent's id for a child. There is no `POST /grants/:id/grants` or `POST /resources/:id/resources`; those would be two routes for the same command. Nested paths are only for records that belong to another record, and for verbs:
+
+```text
+POST /grants/:id/tokens
+PUT  /grants/:id/capabilities
+POST /grants/:id/revoke
+POST /resources/:id/move
+DELETE /resources/:id
+POST /tokens/:id/revoke
+```
+
+`readState` still returns plain serializable records, not handles. Persistence, snapshots, and the HTTP bodies stay JSON-compatible records and IDs; handles are the TypeScript command surface. A handle method that returns a record returns an updated handle.
+
+`authorize` and `inspectToken` remain repository queries about a presented bearer rather than methods on a token handle, because the caller often has only the secret, not a stored record.
+
+Every command addresses resources by `ResourceId`. A resource path describes only where a resource currently sits, so it is a presentation concern: `@rgap/core` exports the pure helpers that render a resource's path and resolve a path to an ID, and callers use them before they look up a handle or issue a command. Keeping resolution outside the boundary means a command can never act on whatever happens to occupy a path at the moment it arrives.
 
 `@rgap/browser` implements `BrowserRgapStore` over local storage. It accepts initial state from its caller, so the package has no dependency on the reference application's example data.
 
-`@rgap/react` provides an `RgapClient` that owns a cached snapshot, a client-local subscription, and the repository used to load and mutate state. It also provides a client context plus hooks for the current snapshot, repository commands, and token-derived authority. After a command completes, the client reloads the repository state and notifies its local subscribers. React components therefore retain reactive snapshots without requiring the repository or a remote backend to implement SSE, WebSockets, or another push protocol. The Vite application owns only its example seed, interface components, and styles.
+`@rgap/react` provides an `RgapClient` that owns a cached snapshot, a client-local subscription, and the repository used to load and mutate state. It also provides a client context plus hooks for the current snapshot, the same handle-based commands, and token-derived authority. After a command completes — including a method invoked on a handle the client returned — the client reloads the repository state and notifies its local subscribers. React components therefore retain reactive snapshots without requiring the repository or a remote backend to implement SSE, WebSockets, or another push protocol. The Vite application owns only its example seed, interface components, and styles.
 
 The store contains resources, grants, token records, and audit events in normalized collections. Repository snapshots contain only this serializable application data; Zustand actions and other functions remain private to the adapter and never cross into domain operations. Each command computes and commits its complete state change atomically. Local persistence, when enabled, serializes the same application-state schema to browser storage. Stored state is loaded only when every ID it refers to resolves to a record; state that refers to resources, grants, or tokens it does not contain cannot be read at all, so it is discarded for the example seed rather than loaded into records that name things that are gone. Raw bearer-token values exist only in transient UI memory; persisted token records contain only token hashes.
 
-The repository contract uses asynchronous methods and JSON-compatible inputs and outputs even though the browser implementation is local. An HTTP-backed store implements the same plane selection and can replace `BrowserRgapStore` without changing pages, components, or domain types. Live updates from changes made by other clients are optional client behavior. A client may refresh on demand, on window focus, or on an interval, and may add a streaming transport when an application specifically needs one. Backend-specific concerns such as transport, durable storage, concurrent transactions, authentication, and secret management remain outside the browser implementation.
+The repository contract is asynchronous even though the browser implementation is local. Command inputs and `readState` outputs are JSON-compatible records and IDs; handles are a TypeScript surface over those same calls. An HTTP-backed store implements the same plane selection and the same create-with-parentId routes, and can replace `BrowserRgapStore` without changing pages, components, or domain types. Live updates from changes made by other clients are optional client behavior. A client may refresh on demand, on window focus, or on an interval, and may add a streaming transport when an application specifically needs one. Backend-specific concerns such as transport, durable storage, concurrent transactions, authentication, and secret management remain outside the browser implementation.
 
 The reference application does not expose a JSON API and is not a production authorization service. Browser state is appropriate for demonstrating the model, not for enforcing access between mutually untrusted parties.
 
@@ -324,19 +374,18 @@ import { SqliteRgapStore } from '@rgap/sqlite';
 const store = new SqliteRgapStore({ url: 'rgap.db' });
 const admin = store.admin();
 
-const acme = await admin.createResource({
-  name: 'acme', parentId: null,
+const acme = await admin.resources.create({ name: 'acme' });
+const grant = await admin.grants.create({
+  name: 'Acme admin', capabilities: [], expiresAt: null,
 });
-const grant = await admin.createGrant({
-  name: 'Acme admin', parentId: null, capabilities: [], expiresAt: null,
-});
-await admin.setCapabilities(grant.id, [
+await grant.capabilities.set([
   { target: { type: 'resource', resourceId: acme.id }, permissions: ['read', 'write'], descendants: true },
 ]);
 
-const { value } = await admin.issueToken(grant.id, 'cli');
+const { value } = await grant.tokens.create({ label: 'cli' });
 const repository = store.as(value);
-const child = await repository.createResource({ name: 'notes', parentId: acme.id });
+const acmeOnPlane = await repository.resources.get(acme.id);
+const child = await acmeOnPlane.create({ name: 'notes' });
 const decision = await repository.authorize(value, child.id, 'read');
 
 store.close();
@@ -381,11 +430,11 @@ The package's own suite runs against a `:memory:` database, so the tests exercis
 
 `@rgap/core` carries the RGAP rules, so its test suite covers all of it. The package measures coverage with Vitest's v8 provider and sets statement, branch, function, and line thresholds to 100 percent over `src`. `pnpm test` in the package runs the suite with coverage, so the threshold is a gate rather than a report, and the repository-wide `pnpm test` enforces it too. Coverage below the threshold fails the run.
 
-The package is self-covering: everything the threshold measures is exercised by tests inside `@rgap/core`, so the gate never depends on a downstream package's suite. `domain.test.ts` covers the pure rules, and `guard.test.ts` covers the enforced path by wrapping a stub repository that records the calls the guard forwards. The stub answers the guard's reads from a fixture state and returns a recorded result for each command, which isolates the guard's own decisions from any repository implementation.
+The package is self-covering: everything the threshold measures is exercised by tests inside `@rgap/core`, so the gate never depends on a downstream package's suite. `domain.test.ts` covers the pure rules, which still take a state value and the record IDs those rules name. `guard.test.ts` covers the enforced path by wrapping a stub command sink that records the calls the guard forwards, including methods invoked on the handles that repository returns. The stub answers the guard's reads from a fixture state and returns a recorded result for each command, which isolates the guard's own decisions from any repository implementation.
 
 Reaching every path means the suite asserts each rejection, not only each success: an invalid name, a duplicate ID or path, a missing parent, an expiration or capability that expands past a parent, and an amendment to a grant that is not active. It also asserts ID and path target behavior across moves, deletion, empty paths, and replacement resources, plus the structural guards. A cycle in the resource tree, a cycle in the grant tree, and a reference to a grant that does not exist are unreachable from the commands, because the commands maintain those properties; tests reach them by constructing such a state directly and calling the readers, which is what those guards exist to catch.
 
-`fixture.ts` holds the shared fixture state and the stub repository. It is test support rather than package surface, so the package entry point does not export it and coverage measurement excludes it along with the test files themselves.
+`fixture.ts` holds the shared fixture state and the stub command sink. It is test support rather than package surface, so the package entry point does not export it and coverage measurement excludes it along with the test files themselves.
 
 ## Example grant
 
