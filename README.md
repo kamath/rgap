@@ -14,6 +14,8 @@ Additional documents:
 - [EXAMPLES.md](EXAMPLES.md) shows MCP server governance, tool aggregation, and sub-agent downscoping.
 - [IMPLEMENTATION.md](IMPLEMENTATION.md) defines the repository contract and SQLite implementation.
 - [LANDSCAPE.md](LANDSCAPE.md) compares RGAP with existing capability, authorization, and agent-access systems.
+- [LLM_GATEWAY.md](LLM_GATEWAY.md) shows an OpenAI-compatible employee gateway built from executable and secret resources.
+- [OAUTH_BROKER.md](OAUTH_BROKER.md) shows mediated OAuth connections whose credentials remain behind RGAP.
 
 ## Core model
 
@@ -21,7 +23,7 @@ Additional documents:
 
 Resources form a tree, like folders and files. Every resource has a stable ID; its path is only its current location.
 
-A resource record contains only its stable ID, parent resource ID, name, and deletion marker. RGAP does not assign resource kinds such as organization, collection, server, folder, tool, or document. Applications may understand the objects referenced by resources, but that classification is not part of the resource hierarchy.
+A resource record contains only its stable ID, parent resource ID, name, and deletion marker. Optional executable definitions and protected secret values refer to resources by stable ID without adding kinds to the resource hierarchy. Applications may attach other objects to resource IDs in the same way.
 
 ```text
 projects/
@@ -107,6 +109,7 @@ A capability entry carries a plain set of permissions:
 | --- | --- |
 | `read` | Reading the resource and listing its children. |
 | `write` | Modifying what the resource refers to, and creating children under it. |
+| `use` | Supplying the resource as an opaque binding to an invocation without reading its protected value. |
 | `invoke` | Calling the resource, such as executing a tool. |
 | `move` | Relocating the resource to a different parent. |
 | `delete` | Deleting the resource together with its descendants. |
@@ -114,6 +117,146 @@ A capability entry carries a plain set of permissions:
 No permission implies another. `write` does not imply `read`, and `read` is not included by holding anything else. Implication would force delegation to compare closures rather than sets, which is where containment bugs hide, and it would make write-only authority — a drop box, an append-only sink — inexpressible. Callers that want familiar bundles offer presets when a grant is issued; the algebra underneath stays a set.
 
 [PROTOCOL.md](PROTOCOL.md) states the authority each operation requires, so that independent implementations agree. Two rulings there are worth repeating here. A move requires `move` on the resource **and** `write` on the destination parent, because relocation changes who reaches the resource: without authority at the destination, a move would place a resource inside a scope the mover does not hold. Creating a root resource, creating a root grant, and moving a resource to a root are administrative operations; no token authorizes them.
+
+## Executable resources
+
+An executable definition attaches bounded code or a declarative program to an existing resource ID. The resource remains the authority boundary, while the executable definition describes how a registered runtime invokes it.
+
+```ts
+type ExecutableDefinition = {
+  resourceId: ResourceId;
+  activeRevisionId: ExecutableRevisionId | null;
+  deletedAt: string | null;
+};
+
+type ExecutableRevision = {
+  id: ExecutableRevisionId;
+  resourceId: ResourceId;
+  runtime: string;
+  program: unknown;
+  inputSchema: JsonSchema;
+  outputSchema: JsonSchema | null;
+  bindingSchema: Record<string, BindingSlot>;
+  limits: ExecutionLimits;
+  createdAt: string;
+};
+```
+
+Revisions are immutable. Creating an executable publishes its first revision, updating it publishes another revision and changes the active revision, and deleting it prevents new invocations without erasing retained revisions or audit history. Reads return the definition and revisions only with `read`; publishing and deleting require `write` on the resource.
+
+The runtime name selects a host-registered implementation. RGAP does not define fetch, GraphQL, MCP, or a programming language as special execution paths:
+
+```ts
+const store = new SqliteRgapStore({
+  url: 'rgap.db',
+  runtimes: {
+    fetch: new FetchRuntime(),
+    graphql: new GraphQLRuntime(),
+    mcp: new McpRuntime(),
+    sandbox: new SandboxRuntime(),
+  },
+  secrets: secretStore,
+});
+```
+
+Every runtime implements the same boundary:
+
+```ts
+type InvocationEvent =
+  | { type: 'data'; value: unknown }
+  | { type: 'error'; code: string; message: string }
+  | { type: 'done' };
+
+interface InvokeRuntime {
+  validate(program: unknown): void;
+  invoke(context: RuntimeInvocation): AsyncIterable<InvocationEvent>;
+}
+```
+
+The registry is deployment configuration and is not writable through a grant. Executable definitions name registered runtimes, but they cannot configure or replace runtime implementations. A runtime validates its program when a revision is published and again before execution.
+
+Global runtime limits are ceilings. A revision may narrow timeout, memory, output, concurrency, or network limits but cannot expand the runtime's configured policy.
+
+Protocol integrations are executable resources rather than dedicated RGAP record types or collections. For example, an OAuth authorization operation and token-exchange operation use the configured fetch runtime, with client ID and client secret supplied through ordinary resource bindings. Provider endpoints, scopes, audiences, redirect URIs, and request construction live in those executable revisions and remain subject to the fetch runtime's destination policy.
+
+```ts
+await oauthTokenExchange.invoke({
+  input: { code, redirectUri, verifier },
+  bindings: {
+    clientId: oauthClientIdResource.id,
+    clientSecret: oauthClientSecretResource.id,
+  },
+});
+```
+
+Fetch, GraphQL, MCP, OAuth, and application-specific wrappers therefore share executable CRUD, immutable revisions, invocation authorization, bindings, limits, streaming events, and auditing. RGAP adds a runtime only when an execution mechanism requires a distinct trusted implementation; it does not add a domain collection for each protocol.
+
+## Bindings and secrets
+
+An invocation supplies named bindings whose values are stable resource IDs:
+
+```ts
+await executable.invoke({
+  input: { userId: 'user_123' },
+  bindings: {
+    provider: providerResource.id,
+    token: tokenResource.id,
+  },
+});
+```
+
+The executable revision declares each slot's expected binding kind. Before execution, RGAP checks `use` on every bound resource through the same complete grant lineage used for other permissions. The runtime receives opaque binding handles rather than unrestricted repository handles.
+
+A secret is a protected value attached to a resource ID through a `SecretStore` configured by the host:
+
+```ts
+interface SecretStore {
+  write(resourceId: ResourceId, value: string): Promise<SecretMetadata>;
+  delete(resourceId: ResourceId): Promise<void>;
+  handle(resourceId: ResourceId): Promise<SecretHandle>;
+}
+```
+
+Secret writes and rotations require `write` on the resource. Secret reads return metadata only; no repository or HTTP command returns plaintext. `use` permits the secret resource to participate in an invocation but does not imply `read` or `write`.
+
+Trusted runtimes may materialize a secret handle only at a controlled sink, such as an allowed HTTP header, OAuth token exchange, MCP connection, or GraphQL transport. Sandboxed programs receive opaque handles and cannot materialize secret values. Runtime implementations are trusted deployment code; granting a runtime access to the secret resolver places that runtime inside the secret-handling boundary.
+
+Bindings are checked independently from the executable. A caller must hold `invoke` on the executable resource and `use` on every resource supplied as a binding. Runtime destination and audience policies are applied before a credential is materialized.
+
+## Invocation
+
+`invoke` is a generic resource command:
+
+```ts
+type InvokeInput = {
+  input: unknown;
+  bindings?: Record<string, ResourceId>;
+  revisionId?: ExecutableRevisionId;
+};
+
+const events = resource.invoke({
+  input: { messages: [{ role: 'user', content: 'Hello' }] },
+  bindings: { provider: openAiService.id },
+});
+
+for await (const event of events) {
+  // Consume values, stream chunks, errors, and completion.
+}
+```
+
+Invocation performs one ordered decision:
+
+1. Resolve the requested resource and executable revision. An omitted `revisionId` selects the active revision.
+2. Authorize `invoke` on the executable resource through every grant in the token's lineage.
+3. Validate input and the binding map against the revision schemas.
+4. Authorize `use` on every bound resource through every grant in the same lineage.
+5. Resolve opaque binding handles and apply the effective runtime limits.
+6. Call the registered runtime and validate its output events.
+7. Record resource ID, revision ID, runtime, grant lineage, binding resource IDs, timing, and result without recording inputs, outputs, or secret values.
+
+The authorization snapshot is taken before runtime execution. Revocation prevents the next invocation immediately. Long-lived streams and connections have configured maximum durations and may recheck grant activity at runtime-defined checkpoints. Downstream cancellation aborts runtime work through an `AbortSignal`.
+
+Executable revisions make code changes visible and auditable. A caller may pin a revision in the invocation, and a gateway may pin the revision selected for a grant in its own policy. Anyone authorized both to publish an executable and to use a bound secret is trusted to cause that secret to be exercised through the runtime's policy; deployments separate those authorities when code authors must not control credential use.
 
 ## Enforcement boundary
 
