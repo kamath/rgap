@@ -171,10 +171,11 @@ A move or deletion commits the resource-tree change and its audit event atomical
 
 ## Repository architecture
 
-The repository contains three workspace packages:
+The repository contains four workspace packages:
 
 - `@rgap/core` defines the protocol records, pure authorization rules, and store and repository contracts.
 - `@rgap/sqlite` provides durable SQLite persistence.
+- `@rgap/server` exposes the repository as a Hono HTTP API.
 - `@rgap/examples` is an executable scratchpad for exploring the model.
 
 `@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, and asynchronous `RgapStore` and `RgapRepository` contracts. Identities in that TypeScript surface are branded (`ResourceId`, `GrantId`, `TokenId`, `TokenValue`, `TokenHash`); they serialize as ordinary strings. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. `as` takes a `TokenValue`. Neither contract exposes a subscription or requires a streaming transport. The package has no dependency on a storage implementation or transport.
@@ -248,6 +249,26 @@ Collection queries return an ordered array of plain serializable records directl
 `authorize` and `inspectToken` remain repository queries about a presented bearer rather than methods on a token handle, because the caller often has only the secret, not a stored record.
 
 Every command addresses resources by `ResourceId`. A resource path describes only where a resource currently sits, so it is a presentation concern: `@rgap/core` exports the pure helpers that render a resource's path and resolve a path to an ID, and callers use them before they look up a handle or issue a command. Keeping resolution outside the boundary means a command can never act on whatever happens to occupy a path at the moment it arrives.
+
+## HTTP API
+
+`@rgap/server` is a Node.js Hono application in `apps/server`. It opens a `SqliteRgapStore` at the path in `RGAP_DATABASE_URL` and serves the repository operations described above. Every repository route requires an `Authorization: Bearer <token>` header and selects its command plane with `store.as(token)`. The HTTP application never exposes `store.admin()`; trusted bootstrap and operational code use the SQLite store directly.
+
+The API includes the resource, grant, token, and audit collection routes listed above together with:
+
+```text
+POST /authorize       { token, resourceId, permission }
+POST /tokens/inspect  { token }
+GET  /openapi.json
+```
+
+`POST /authorize` and `POST /tokens/inspect` evaluate the bearer supplied in their JSON body while the authorization header controls access to the repository plane. Successful responses are the JSON-compatible `@rgap/core` records, arrays, decisions, and authority views. Commands that return no value respond with status `204`. Input validation failures use status `400`, an invalid or missing authorization bearer uses status `401`, an operation outside the selected plane uses status `403`, a missing record uses status `404`, and other domain conflicts use status `409`.
+
+Each route is declared once with `@hono/zod-openapi`. Its Zod schemas validate path parameters, query parameters, headers, and JSON bodies at runtime and describe every success and error response. Hono derives the RPC `AppType` from the same chained route definitions, and the application publishes the generated OpenAPI document at `/openapi.json`.
+
+The server package generates `openapi.json` from the application and runs HeyAPI against that document. HeyAPI writes a fetch-based TypeScript SDK and its model types to `apps/server/src/client/generated`. Generated files are never edited by hand. The route declarations are the source of truth for runtime behavior, the OpenAPI contract, the Hono RPC client, and the HeyAPI SDK, so both typed clients expose the same paths, inputs, statuses, and response bodies.
+
+The package exports the Hono application, `AppType`, and generated HeyAPI client. `pnpm --filter @rgap/server generate` refreshes the OpenAPI document and SDK. The package build checks that generated output is current before type-checking, and its tests exercise validation, authorization-plane selection, OpenAPI generation, Hono RPC calls, and generated SDK calls against the in-process application.
 
 ## SQLite store
 
