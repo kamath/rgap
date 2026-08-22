@@ -566,14 +566,13 @@ For each request, the gateway:
 
 1. Parses the RGAP bearer from `Authorization`.
 2. Authorizes `invoke` on one configured OpenAI gateway resource through the bearer's complete grant lineage.
-3. Removes the employee bearer and hop-by-hop headers.
-4. Injects the server-side `OPENAI_API_KEY` as the upstream bearer.
-5. Proxies the request to the same path and query beneath `https://api.openai.com`.
-6. Streams the upstream status, headers, and body back without buffering.
+3. Clones the incoming headers, replaces the employee bearer with the server-side `OPENAI_API_KEY`, and removes `Host`.
+4. Calls `fetch` with the same method, path, query, body stream, and cancellation signal beneath `https://api.openai.com`.
+5. Returns the upstream `Response` directly.
 
-The example uses direct RGAP authorization rather than `resource.invoke()`. This transport adapter must preserve arbitrary HTTP bytes and headers, while the generic invocation protocol carries JSON-compatible `InvocationEvent` values. Provider-specific policy may inspect a request before proxying, but it cannot rewrite the upstream destination or expose the OpenAI credential.
+The proxy route is intentionally a small wrapper around `fetch`; it does not implement endpoint-specific request or response adapters. Returning the upstream response directly preserves JSON, SSE, binary bodies, statuses, and headers. The example uses direct RGAP authorization rather than `resource.invoke()` because the generic invocation protocol carries JSON-compatible `InvocationEvent` values rather than arbitrary HTTP responses.
 
-The package exports an app factory that accepts its RGAP store, OpenAI resource ID, upstream key, optional upstream origin, and fetch implementation. Its executable entry point reads `OPENAI_API_KEY`, `RGAP_DATABASE_URL`, `OPENAI_RESOURCE_ID`, and `PORT`. A bootstrap command creates the `llm/openai` resource, an employee grant with `invoke`, and a one-time RGAP token for local use. Tests use an in-memory SQLite store and a fake upstream fetch to cover authentication, authorization, path/query forwarding, header replacement, JSON requests, multipart bodies, binary responses, SSE streaming, upstream errors, and cancellation without contacting OpenAI.
+The package exports an app factory that accepts its RGAP store, OpenAI resource ID, upstream key, optional upstream origin, and fetch implementation. Its executable entry point reads `OPENAI_API_KEY`, `RGAP_DATABASE_URL`, `OPENAI_RESOURCE_ID`, and `PORT`. A bootstrap command creates the `llm/openai` resource, an employee grant with `invoke`, and a one-time RGAP token for local use. Tests use an in-memory SQLite store and a fake upstream fetch to cover the authorization wrapper and representative JSON, multipart, binary, SSE, error, and cancellation passthrough without contacting OpenAI.
 
 ## Testing
 
