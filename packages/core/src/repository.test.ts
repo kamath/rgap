@@ -1,11 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { grantId, resourceId, tokenId, tokenValue } from './domain';
 import { fixture, stubCommands } from './fixture';
-import { repositoryFrom } from './repository';
+import { pageLimit, paginateRecords, repositoryFrom } from './repository';
 
 const at = '2026-08-22T00:00:00.000Z';
 
 describe('repositoryFrom', () => {
+  it('bounds page sizes and advances stable cursors', () => {
+    const records = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+
+    expect(pageLimit()).toBe(50);
+    expect(pageLimit(Number.NaN)).toBe(50);
+    expect(pageLimit(0)).toBe(1);
+    expect(pageLimit(1000)).toBe(100);
+    expect(pageLimit(2.9)).toBe(2);
+    expect(paginateRecords(records, { limit: 2 })).toEqual([{ id: 'a' }, { id: 'b' }]);
+    expect(paginateRecords(records, { cursor: 'b', limit: 2 })).toEqual([{ id: 'c' }]);
+    expect(() => paginateRecords(records, { cursor: 'missing' })).toThrow('cursor is unknown');
+  });
+
   it('creates roots on the repository collections and children on the parent handle', async () => {
     const { commands, calls } = stubCommands(fixture(), at);
     const repository = repositoryFrom(commands);
@@ -47,12 +60,16 @@ describe('repositoryFrom', () => {
     await expect(repository.tokens.get(tokenId('ghost'))).rejects.toThrow('Token does not exist.');
   });
 
-  it('forwards reads, authorize, inspect, and reset', async () => {
+  it('forwards collection queries, authorize, inspect, and reset', async () => {
     const { commands, calls } = stubCommands(fixture(), at);
     const repository = repositoryFrom(commands);
     const token = tokenValue('b528aaf0496a7f1b670eaf73987ee9237eaddbbefa1ade4844e5d318d4d35bc3');
 
-    expect(Object.keys((await repository.readState()).grants)).toContain('coordinator');
+    expect((await repository.resources.list({ parentId: resourceId('acme') })).map(({ id }) => id))
+      .toEqual(['create-issue', 'drive', 'slack']);
+    expect((await repository.grants.list()).map(({ id }) => id)).toContain('coordinator');
+    expect((await repository.tokens.list({ grantId: grantId('coordinator') }))[0].id).toBe('demo');
+    expect(await repository.audit.list()).toEqual([]);
     expect((await repository.authorize(token, resourceId('search-files'), 'invoke')).allowed).toBe(true);
     expect((await repository.inspectToken(token)).grantId).toBe('coordinator');
     await repository.reset();

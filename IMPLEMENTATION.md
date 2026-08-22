@@ -18,6 +18,8 @@ Adapters implement an ID-based `RgapCommands` sink; `repositoryFrom` builds the 
 
 `store.as(token)` returns a repository whose commands authorize the required permission before delegating and reject with the decision's explanation otherwise. `store.admin()` returns an unrestricted repository for trusted bootstrap and operations code. Plane selection is explicit, and the store itself has no command methods that application code can call accidentally. Token enforcement applies to commands only; `inspectToken` is the read-side authority lens.
 
+Repository reads use focused collection queries for resources, grants, tokens, and audit events. List queries return ordered arrays of serializable records, support bounded page sizes and keyset cursors, and never require a caller to load the complete store. Handles remain the TypeScript command surface.
+
 The contract is asynchronous and JSON-compatible. An HTTP implementation can expose the same interface with ordinary request-response endpoints without changing the domain types.
 
 ## SQLite store

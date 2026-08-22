@@ -40,22 +40,7 @@ const search = await tools.create({ name: 'search' });
 const finance = await companyRoot.create({ name: 'finance' });
 const payroll = await finance.create({ name: 'payroll' });
 
-const { resources: companyResources } = await company.readState();
-
-function printPaths<Id extends string>(
-  nodes: Record<string, TreeNode<Id>>,
-  currentId: Id | null = null,
-  pathSoFar: string[] = []
-) {
-  const children = Object.values(nodes)
-    .filter(node => node.parentId === currentId)
-    .sort((a, b) => a.name.localeCompare(b.name));
-  for (const child of children) {
-    const newPath = [...pathSoFar, child.name];
-    console.log(newPath.join('/'));
-    printPaths(nodes, child.id, newPath);
-  }
-}
+const companyResources = await company.resources.list({ limit: 100 });
 
 console.log("RESOURCE TREE");
 printPaths(companyResources);
@@ -92,7 +77,8 @@ const subagentGrant = await agent.grants.create({
 });
 const subagentToken = await subagentGrant.tokens.create({ label: 'subagent' });
 
-const { resources, grants } = await company.readState();
+const resources = await company.resources.list({ limit: 100 });
+const grants = await company.grants.list({ limit: 100 });
 const path = (id: ResourceId) => resourcePath(resources, id);
 
 console.log("GRANT PATHS");
@@ -134,6 +120,20 @@ for (const [label, token] of tokens) {
   });
 }
 
-// console.log(await root.readState());
+// console.log(await root.resources.list({ limit: 100 }));
 
 store.close();
+
+function printPaths<Id extends string>(nodes: readonly TreeNode<Id>[]) {
+  const visit = (currentId: Id | null, pathSoFar: string[]) => {
+    const children = nodes
+      .filter((node) => node.parentId === currentId)
+      .sort((left, right) => left.name.localeCompare(right.name));
+    for (const child of children) {
+      const path = [...pathSoFar, child.name];
+      console.log(path.join('/'));
+      visit(child.id, path);
+    }
+  };
+  visit(null, []);
+}

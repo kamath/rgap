@@ -112,13 +112,20 @@ export class InvalidParentError extends RgapError {
 const copy = (state: State): State => structuredClone(state);
 /** A deleted resource is retained only as a tombstone; nothing but its ID and path history remains observable. */
 export const isLive = (resource: Resource | undefined): resource is Resource => Boolean(resource && !resource.deletedAt);
-export const liveResources = (resources: State['resources']) => Object.values(resources).filter(isLive);
+export type ResourceCollection = State['resources'] | readonly Resource[];
+const resourceRecords = (resources: ResourceCollection) =>
+  Array.isArray(resources) ? resources : Object.values(resources);
+const resourceRecord = (resources: ResourceCollection, id: ResourceId) =>
+  Array.isArray(resources)
+    ? resources.find((resource) => resource.id === id)
+    : (resources as State['resources'])[id];
+export const liveResources = (resources: ResourceCollection) => resourceRecords(resources).filter(isLive);
 const active = (item: { revokedAt: string | null; expiresAt: string | null }, now: string) =>
   !item.revokedAt && (!item.expiresAt || item.expiresAt > now);
 
-export function isWithin(resources: State['resources'], id: ResourceId, rootId: ResourceId) {
+export function isWithin(resources: ResourceCollection, id: ResourceId, rootId: ResourceId) {
   const seen = new Set<string>();
-  for (let current: ResourceId | null = id; current; current = resources[current]?.parentId ?? null) {
+  for (let current: ResourceId | null = id; current; current = resourceRecord(resources, current)?.parentId ?? null) {
     if (current === rootId) return true;
     if (seen.has(current)) throw new RgapError('resource_cycle', 'Resource tree contains a cycle.');
     seen.add(current);
@@ -126,12 +133,12 @@ export function isWithin(resources: State['resources'], id: ResourceId, rootId: 
   return false;
 }
 
-export function resourcePath(resources: State['resources'], id: ResourceId) {
+export function resourcePath(resources: ResourceCollection, id: ResourceId) {
   const names: string[] = [];
   const seen = new Set<string>();
-  for (let current: ResourceId | null = id; current; current = resources[current]?.parentId ?? null) {
+  for (let current: ResourceId | null = id; current; current = resourceRecord(resources, current)?.parentId ?? null) {
     if (seen.has(current)) throw new RgapError('resource_cycle', 'Resource tree contains a cycle.');
-    const resource = resources[current];
+    const resource = resourceRecord(resources, current);
     if (!resource) throw new RgapError('missing_resource', `Resource ${current} does not exist.`);
     names.unshift(resource.name);
     seen.add(current);
@@ -143,7 +150,7 @@ export function resourcePath(resources: State['resources'], id: ResourceId) {
  * The path of a resource whose record may be absent. A correct state retains every record so that
  * every referenced ID resolves, so this returns null only for a state that broke that rule.
  */
-export function tryResourcePath(resources: State['resources'], id: ResourceId) {
+export function tryResourcePath(resources: ResourceCollection, id: ResourceId) {
   try {
     return resourcePath(resources, id);
   } catch {
@@ -179,7 +186,7 @@ export function stateIntegrity(state: State) {
 }
 
 /** Resolves a path to a stable resource ID. The root is not a resource, so an empty path resolves to null. */
-export function resourceIdAtPath(resources: State['resources'], path: string) {
+export function resourceIdAtPath(resources: ResourceCollection, path: string) {
   let parentId: ResourceId | null = null;
   for (const name of pathParts(path)) {
     const match = liveResources(resources).find((item) => item.parentId === parentId && item.name === name);
@@ -190,7 +197,7 @@ export function resourceIdAtPath(resources: State['resources'], path: string) {
 }
 
 /** Resolves a path that must name an existing resource, such as the target of a move or delete. */
-export function requireResourceId(resources: State['resources'], path: string) {
+export function requireResourceId(resources: ResourceCollection, path: string) {
   const id = resourceIdAtPath(resources, path);
   if (!id) throw new RgapError('missing_resource', `No resource exists at ${normalizePath(path) || '/'}.`);
   return id;
