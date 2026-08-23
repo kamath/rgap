@@ -5,7 +5,6 @@ const store = new SqliteRgapStore({ url: ':memory:' });
 try {
   const admin = store.admin();
 
-  const acme = await admin.resources.create({ name: 'acme' });
   const design = await admin.resources.create({
     name: 'acme/platform/docs/design',
   });
@@ -19,14 +18,7 @@ try {
     expiresAt: null,
   });
 
-  const company = await admin.grants.get(agent.parentId!);
-  await company.resources.set([
-    {
-      id: acme.id,
-      permissions: ['read', 'write', 'invoke'],
-    },
-  ]);
-
+  const companyGrant = await admin.grants.get(agent.parentId!);
   const agentToken = await agent.tokens.create({
     label: 'research-run',
   });
@@ -50,7 +42,7 @@ try {
     write: write.allowed,
   });
 
-  await company.revoke();
+  await companyGrant.revoke();
 
   const afterRevocation = await agentPlane.authorize(
     agentToken.value,
