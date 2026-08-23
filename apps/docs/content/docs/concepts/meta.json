@@ -1,0 +1,5 @@
+{
+  "title": "Concepts",
+  "icon": "Network",
+  "pages": ["index", "resources", "delegation", "tokens"]
+}

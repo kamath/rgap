@@ -1,0 +1,90 @@
+---
+title: HTTP API
+description: Run the Hono server and use its generated OpenAPI contract.
+icon: Server
+---
+
+`@rgap/server` exposes the repository through a Hono HTTP API. Its route
+declarations are the single source for runtime validation, OpenAPI, Hono RPC
+types, and the generated fetch client.
+
+## Start the server
+
+```bash
+pnpm --filter @rgap/server dev
+```
+
+The server uses these environment variables:
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `RGAP_DATABASE_URL` | SQLite database path | Package default |
+| `RGAP_ADMIN_TOKEN` | Administrative bearer for trusted operations | `test` |
+
+## Open the generated reference
+
+<Cards>
+  <Card
+    title="Interactive API explorer"
+    description="Open Swagger UI against the running local server."
+    href="http://localhost:3000/ui"
+    icon="MousePointerClick"
+    external
+  />
+  <Card
+    title="OpenAPI 3.1 document"
+    description="Read the machine-generated API contract."
+    href="http://localhost:3000/openapi.json"
+    icon="Braces"
+    external
+  />
+</Cards>
+
+The generated reference is authoritative for endpoint paths, inputs, response
+schemas, and status codes. This guide focuses on how requests select an
+authorization plane.
+
+## Select a repository plane
+
+Every command request carries an authorization header:
+
+```http
+Authorization: Bearer <token>
+```
+
+- An RGAP bearer selects `store.as(token)`.
+- The configured administrative bearer selects `store.admin()`.
+
+The administrative plane is intended for trusted bootstrap and operational
+calls, including root creation and reset. Keep it behind an infrastructure
+authentication boundary.
+
+## Make an authorized request
+
+```bash
+curl http://localhost:3000/resources \
+  --request POST \
+  --header 'Authorization: Bearer test' \
+  --header 'Content-Type: application/json' \
+  --data '{"name":"acme","parentId":null}'
+```
+
+Successful requests return the JSON-compatible RGAP records and decisions
+described by the generated schema. Commands with no response value return
+`204`.
+
+## Generate the TypeScript client
+
+```bash
+pnpm --filter @rgap/server generate
+```
+
+The command derives `openapi.json` from Hono's route declarations, then runs
+HeyAPI to generate a fetch-based SDK and model types. Generated output is not
+committed.
+
+<Callout type="warn" title="Do not treat Swagger UI as an administrative boundary">
+  The OpenAPI document and interactive UI are public documentation routes. The
+  command routes still require a bearer and enforce the selected repository
+  plane.
+</Callout>

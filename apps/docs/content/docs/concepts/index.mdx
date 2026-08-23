@@ -1,0 +1,78 @@
+---
+title: Core concepts
+description: The resource tree, grant tree, and credentials that make up RGAP.
+icon: Shapes
+---
+
+RGAP models authority with two connected hierarchies and one credential type.
+The separation keeps mutable resource placement independent from immutable
+delegation provenance.
+
+## Resources describe where things live
+
+Resources form a tree, like folders and files. A resource can represent any
+object an application protects: an organization, MCP server, tool, prompt,
+document, or database row.
+
+```text
+acme/
+├── platform/
+│   ├── docs/
+│   └── tools/
+└── finance/
+    └── payroll
+```
+
+Every resource has a stable ID. Its path is only its current location. Moving
+or renaming a resource changes its position without changing its identity.
+
+## Grants describe where authority comes from
+
+A grant contains resource entries and may delegate authority to child grants.
+
+```text
+Company: acme, all permissions
+└── Platform: platform, read/write/invoke
+    └── Agent: docs, read
+        └── Sub-agent: design, read
+```
+
+Each edge in this tree is a proof of attenuation. The child grant cannot reach
+more resources, gain permissions, loosen constraints, or outlive its parent.
+
+## Tokens exercise authority
+
+A token is an opaque bearer credential that references a grant. The bearer is
+returned once; storage contains only its cryptographic hash.
+
+Multiple tokens may reference one grant. Revoking one token disables only that
+credential. Revoking the grant disables every token for it and every grant
+delegated beneath it.
+
+<Callout type="warn" title="Tokens are not grants">
+  A token carries no independent authority. It selects a grant, and the complete
+  live grant lineage determines the result of every decision.
+</Callout>
+
+## Current-state decisions
+
+Authorization evaluates the requested live resource against every grant in the
+selected grant's ancestry. Each ancestor must contain a matching resource entry.
+
+```ts
+allowed = lineage.every((grant) =>
+  grant.resources.some((entry) =>
+    authorizes(entry, resources, resourceId, permission),
+  ),
+);
+```
+
+That intersection makes moves and revocation immediate. Moving a target outside
+an ancestor's current scope removes effective authority without rewriting the
+grant. Revoking any ancestor disables the complete branch on the next check.
+
+<Cards>
+  <Card title="Resources and paths" href="/docs/concepts/resources" />
+  <Card title="Delegation and attenuation" href="/docs/concepts/delegation" />
+  <Card title="Tokens and revocation" href="/docs/concepts/tokens" />
+</Cards>

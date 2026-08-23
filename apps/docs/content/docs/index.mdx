@@ -1,0 +1,117 @@
+---
+title: Introduction
+description: Hierarchical capability access for resources, tools, and agent-accessible services.
+icon: House
+---
+
+RGAP is an authorization model for filesystem-like resources, tools, and
+agent-accessible services. It supports hierarchical delegation, strict
+downscoping, immediate revocation, and predictable access across resource
+moves and renames.
+
+<Callout type="info" title="The security invariant">
+  Authority may only stay the same or become narrower as it is delegated. It
+  can never expand.
+</Callout>
+
+<Cards>
+  <Card
+    title="Understand the model"
+    description="Learn how resources, grants, and tokens fit together."
+    href="/docs/concepts"
+    icon="Network"
+  />
+  <Card
+    title="Run the quickstart"
+    description="Create a resource tree and delegate a narrower grant."
+    href="/docs/quickstarts/typescript"
+    icon="Terminal"
+  />
+  <Card
+    title="Read the protocol"
+    description="See the normative records, algebra, and decision procedure."
+    href="/docs/reference/protocol"
+    icon="BookOpen"
+  />
+  <Card
+    title="Explore examples"
+    description="Apply RGAP to MCP servers, tools, agents, and sub-agents."
+    href="/docs/examples"
+    icon="Workflow"
+  />
+</Cards>
+
+## The model in one minute
+
+RGAP separates three concerns:
+
+| Concern | Purpose |
+| --- | --- |
+| **Resources** | Describe where objects live in a mutable hierarchy. |
+| **Grants** | Describe where authority comes from and how it delegates. |
+| **Tokens** | Provide opaque bearer credentials used to exercise a grant. |
+
+```text
+Resource tree                   Grant tree
+
+acme/                           Company
+├── platform/                   └── Platform team
+│   ├── docs/                       └── Agent
+│   └── tools/                          └── Sub-agent
+└── finance/
+```
+
+A resource keeps the same stable identity when it moves. A grant carries one
+or more resource entries over stable IDs or paths. A child grant can only
+narrow its parent's resources, permissions, constraints, and expiration.
+
+## Why RGAP
+
+Agent runtimes often hold broad user authority while one execution needs a
+small, auditable subset. Giving an agent the upstream OAuth token or API key
+makes that boundary impossible to enforce.
+
+RGAP lets a gateway retain provider credentials and issue an opaque token that
+represents only the selected tools and resources. A sub-agent receives a new,
+narrower token—not the parent token and never the provider credential.
+
+<Cards>
+  <Card
+    title="Stable identities"
+    description="ID entries follow resources through moves and renames."
+    href="/docs/concepts/resources"
+  />
+  <Card
+    title="Provable attenuation"
+    description="Every child resource entry is covered by a parent entry."
+    href="/docs/concepts/delegation"
+  />
+  <Card
+    title="Live revocation"
+    description="Revoking an ancestor disables every descendant on the next check."
+    href="/docs/concepts/tokens"
+  />
+</Cards>
+
+## Choose where to start
+
+<Steps>
+  <Step>
+    ### Learn the vocabulary
+
+    Start with [core concepts](/docs/concepts) to understand the resource and
+    grant trees.
+  </Step>
+  <Step>
+    ### Build a delegation
+
+    Follow the [quickstart](/docs/quickstarts/typescript) with the TypeScript
+    repository API.
+  </Step>
+  <Step>
+    ### Integrate an enforcement point
+
+    Use the [HTTP API guide](/docs/guides/http-api) or implement the
+    [normative protocol](/docs/reference/protocol).
+  </Step>
+</Steps>
