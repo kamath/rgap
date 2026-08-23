@@ -81,38 +81,16 @@ export default function HomePage() {
             </span>
           </div>
           <pre className="whitespace-pre-wrap break-words p-5 text-[13px] leading-7 text-fd-muted-foreground sm:p-7 sm:text-sm">
-            <code>{`import { createOpenAI } from '@ai-sdk/openai';
-import { generateText } from 'ai';
-
-const openai: InvokeRuntime = {
-  inputSchema: null,
-  outputSchema: null,
-  async invoke({ input, signal }) {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error('OPENAI_API_KEY is required.');
-
-    const provider = createOpenAI({ apiKey });
-    const { text } = await generateText({
-      model: provider(process.env.OPENAI_MODEL ?? 'gpt-5-mini'),
-      prompt: input.prompt,
-      abortSignal: signal,
-    });
-    return { text };
-  },
-};
-
-const model = await company.resources.create({
+            <code>{`const model = await company.resources.create({
   name: 'acme/models/openai',
+  executable: { runtime: 'openai' },
 });
-await model.executable.set({ runtime: 'openai' });
 
-for await (const event of model.invoke({
+const response = await model.invoke({
   input: {
     prompt: 'Summarize the design notes.',
   },
-})) {
-  console.log(event);
-}`}</code>
+});`}</code>
           </pre>
         </div>
       </section>
