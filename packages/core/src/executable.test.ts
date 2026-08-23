@@ -178,6 +178,15 @@ describe('runtime registry and invocation', () => {
       { type: 'data', value: 'two' },
       { type: 'done' },
     ]);
+    await expect(invoke(runtime({
+      outputSchema: parse('parsed-stream'),
+      async *invoke() {
+        yield 'raw-stream';
+      },
+    }))).resolves.toEqual([
+      { type: 'data', value: 'parsed-stream' },
+      { type: 'done' },
+    ]);
     await expect(invoke(runtime())).resolves.toEqual([{ type: 'done' }]);
   });
 

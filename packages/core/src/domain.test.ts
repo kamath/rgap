@@ -64,6 +64,10 @@ describe('RGAP domain', () => {
       resourceId: r('missing-definition-resource'),
       runtime: 'test',
     };
+    state.executables.drive = {
+      resourceId: r('drive'),
+      runtime: 'test',
+    };
 
     expect(stateIntegrity(state)).toEqual([
       'Grant researcher refers to missing parent coordinator.',
