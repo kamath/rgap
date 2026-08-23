@@ -2,40 +2,27 @@ import { z } from 'zod';
 import type { InvokeRuntime } from '@rgap/core';
 import { SqliteRgapStore } from '@rgap/sqlite';
 
-interface SecretStore {
-  get(reference: string): Promise<string | undefined>;
-}
-
-const SecretOutputSchema = z.object({ value: z.string() });
-
-function revealSecret(
-  secretStore: SecretStore,
-  reference: string,
-): InvokeRuntime<null, z.infer<typeof SecretOutputSchema>> {
-  return {
-    inputSchema: z.null(),
-    outputSchema: SecretOutputSchema,
-    async invoke() {
-      const value = await secretStore.get(reference);
-      if (value === undefined) throw new Error('Secret is unavailable.');
-      return { value };
-    },
-  };
-}
-
 // Replace this adapter with a client for the deployment's secret store.
 const values = new Map([['users/alice/github-token', 'example-user-secret']]);
-const secretStore: SecretStore = {
-  async get(reference) {
+const secretStore = {
+  async get(reference: string) {
     return values.get(reference);
+  },
+};
+
+const githubToken: InvokeRuntime<null, string> = {
+  inputSchema: z.null(),
+  outputSchema: z.string(),
+  async invoke() {
+    const value = await secretStore.get('users/alice/github-token');
+    if (value === undefined) throw new Error('Secret is unavailable.');
+    return value;
   },
 };
 
 const store = new SqliteRgapStore({
   url: ':memory:',
-  runtimes: {
-    revealGithubToken: revealSecret(secretStore, 'users/alice/github-token'),
-  },
+  runtimes: { githubToken },
 });
 
 try {
@@ -43,7 +30,7 @@ try {
   const secret = await admin.resources.create({
     name: 'users/alice/secrets/github-token',
   });
-  await secret.executable.set({ runtime: 'revealGithubToken' });
+  await secret.executable.set({ runtime: 'githubToken' });
 
   const grant = await admin.grants.create({
     name: 'users/alice/secret-reader',
@@ -56,7 +43,7 @@ try {
 
   let value: string | undefined;
   for await (const event of authorizedSecret.invoke({ input: null })) {
-    if (event.type === 'data') value = SecretOutputSchema.parse(event.value).value;
+    if (event.type === 'data') value = z.string().parse(event.value);
   }
 
   // Use the value without writing it to logs, model context, or telemetry.
