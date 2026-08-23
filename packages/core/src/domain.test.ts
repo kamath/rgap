@@ -1,9 +1,9 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import {
-  authorize, availableId, covers, createAtPath, createGrant, createGrantAtPath, createResource, deleteResource,
-  grantId, grantIdAtPath, inspectAuthority, InvalidParentError, isLive, isWithin, liveResources, moveResource,
-  normalizePath, permissions, recordToken, requireResourceId, resourceId, resourceIdAtPath, resourcePath,
-  revokeGrant, revokeToken, RgapError, setResources,
+  authorize, availableGrantId, availableId, covers, createAtPath, createGrant, createGrantAtPath, createResource,
+  deleteResource, grantId, grantIdAtPath, inspectAuthority, InvalidParentError, isLive, isWithin, liveResources,
+  moveResource, normalizePath, permissions, recordToken, requireResourceId, resourceId, resourceIdAtPath,
+  resourcePath, revokeGrant, revokeToken, RgapError, setResources,
   stateIntegrity, tryResourcePath, tokenHash, tokenId, type GrantResource, type GrantResourceConfig, type CreateGrantInput,
   type GrantId, type PathResource, type Resource, type IdResource, type ResourceId, type State, type Token,
 } from './domain';
@@ -580,6 +580,19 @@ describe('creating a grant at a path', () => {
       .toThrow('Grant name is required.');
     expect(() => createGrantAtPath(fixture(), write, g('ghost'), at))
       .toThrow('Parent grant does not exist.');
+    expect(grantIdAtPath(fixture().grants, ' / ', null, at)).toBeNull();
+    expect(grantIdAtPath(fixture().grants, 'missing', null, at)).toBeNull();
+  });
+
+  it('mints readable unused grant IDs without changing stored names', () => {
+    const state = fixture();
+    expect(availableGrantId(state, 'Writer Grant')).toBe(g('writer-grant'));
+    state.grants['writer-grant'] = {
+      id: g('writer-grant'), name: 'Writer Grant', parentId: null,
+      resources: [], expiresAt: null, revokedAt: null,
+    };
+    expect(availableGrantId(state, 'Writer Grant')).toBe(g('writer-grant-2'));
+    expect(availableGrantId(state, '---')).toBe(g('grant'));
   });
 });
 

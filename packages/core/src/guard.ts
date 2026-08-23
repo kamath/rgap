@@ -237,10 +237,7 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
 
   const actingGrantRoute = async () => {
     const route: { id: GrantId; name: string }[] = [];
-    const seen = new Set<GrantId>();
     for (let current: GrantId | null = await actingGrantId(); current;) {
-      if (seen.has(current)) throw new RgapError('grant_cycle', 'Grant lineage contains a cycle.');
-      seen.add(current);
       const grant = await repository.grants.get(current);
       route.unshift({ id: grant.id, name: grant.name });
       current = grant.parentId;
