@@ -64,17 +64,14 @@ const companyGrant = await root.grants.create({
 const companyToken = await companyGrant.tokens.create({ label: 'company' });
 const company = store.as(companyToken.value);
 
-const companyRoot = await company.resources.get(acme.id);
-const platform = await companyRoot.create({ name: 'platform' });
+const platform = await company.resources.create({ name: 'acme/platform' });
 const docs = await platform.create({ name: 'docs' });
 const design = await docs.create({ name: 'design' });
-const tools = await platform.create({ name: 'tools' });
-const search = await tools.create({ name: 'search' });
+const search = await platform.create({ name: 'tools/search' });
 await search.executable.set({
   runtime: 'echo',
 });
-const finance = await companyRoot.create({ name: 'finance' });
-const payroll = await finance.create({ name: 'payroll' });
+const payroll = await company.resources.create({ name: 'acme/finance/payroll' });
 
 const companyResources = await company.resources.list({ limit: 100 });
 

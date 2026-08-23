@@ -19,6 +19,41 @@ type Resource = {
 RGAP does not assign resource kinds. Applications decide whether a resource
 represents a server, folder, tool, prompt, or document.
 
+## Create at a path
+
+Create accepts a slash-separated location in `name`. The command walks that
+path from the create parent, creates any missing live prefixes, and returns
+the leaf.
+
+```ts
+const design = await admin.resources.create({
+  name: 'acme/platform/docs/design',
+});
+```
+
+`design.name` is `design`. `design.parentId` is the `docs` resource. The
+derived path of `design` is `acme/platform/docs/design`.
+
+The same command creates a relative path under an existing resource:
+
+```ts
+const platform = await admin.resources.create({ name: 'acme/platform' });
+const design = await platform.create({ name: 'docs/design' });
+```
+
+Each stored resource name is one segment. Missing prefixes become ordinary
+resources. Live prefixes are reused. The leaf must be absent: a second create
+at an occupied path fails with `duplicate_path`.
+
+Create is one state transition. Each newly created resource is audited as
+`resource.create` and receives a stable ID minted from its segment name.
+
+Creating a new root resource is administrative. Creating a child requires
+`write` on that child's parent. `store.as(token).resources.create` walks from
+the forest root: it refuses a path that would create a new root, and it
+requires `write` on the parent of every resource it creates. Existing prefixes
+need no additional permission.
+
 ## Identity and location
 
 A resource's ID and path answer different questions:
@@ -59,10 +94,10 @@ a container therefore includes children created later.
 Paths are canonicalized by splitting on `/`, trimming segments, and discarding
 empty segments. `Acme`, `Acme/`, and `/Acme//` identify the same location.
 
-Operational commands use stable resource IDs. A caller resolves a presentation
-path before issuing a command. Capability path targets are different: their
-normalized path is stored and resolved against the current resource tree for
-every authorization decision.
+Create accepts a presentation path and materializes it. Other operational
+commands use stable resource IDs. Grant path targets store a normalized
+location and resolve it against the current resource tree for every
+authorization decision.
 
 ## Moves
 
