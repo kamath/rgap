@@ -124,12 +124,23 @@ await check('subagent', subagentToken.value, design.id, 'read');
 await check('subagent', subagentToken.value, docs.id, 'read');
 await check('subagent', subagentToken.value, search.id, 'invoke');
 
+const invokerGrant = await company.grants.create({
+  name: 'company/invoker',
+  resources: [{ id: search.id, permissions: ['invoke'] }],
+  expiresAt: null,
+});
+const invokerToken = await invokerGrant.tokens.create({ label: 'invoker' });
+await check('invoker', invokerToken.value, search.id, 'invoke');
+await check('invoker', invokerToken.value, search.id, 'read');
+await check('invoker', invokerToken.value, search.id, 'write');
+
 const tokens = [
   ['company', companyToken.value],
   ['team', teamToken.value],
   ['employee', employeeToken.value],
   ['agent', agentToken.value],
   ['subagent', subagentToken.value],
+  ['invoker', invokerToken.value],
 ] as const;
 
 for (const [label, token] of tokens) {
