@@ -135,7 +135,21 @@ class HttpRgapCommands implements RgapCommands {
   }
 
   async createResource(input: Parameters<RgapCommands['createResource']>[0]) {
-    return asResource(unwrap(await createResource(this.options({ body: input }))));
+    const name = input.parentId === null
+      ? input.name
+      : `${await this.pathOf(input.parentId)}/${input.name}`;
+    return asResource(unwrap(await createResource(this.options({ body: { name } }))));
+  }
+
+  private async pathOf(id: ReturnType<typeof resourceId>) {
+    const names: string[] = [];
+    for (let current: ReturnType<typeof resourceId> | null = id; current; ) {
+      const resource = await this.getResource(current);
+      if (!resource) throw new RgapError('missing_resource', 'Resource does not exist.');
+      names.unshift(resource.name);
+      current = resource.parentId;
+    }
+    return names.join('/');
   }
 
   async moveResource(id: ReturnType<typeof resourceId>, parentId: ReturnType<typeof resourceId> | null) {

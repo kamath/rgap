@@ -277,10 +277,8 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
       return c.json(records, 200);
     })
     .openapi(createResourceRoute, async (c) => {
-      const { name, parentId } = c.req.valid('json');
-      const record = parentId === null
-        ? await repository(c).resources.create({ name })
-        : await repository(c).resources.get(resourceId(parentId)).then((parent) => parent.create({ name }));
+      const { name } = c.req.valid('json');
+      const record = await repository(c).resources.create({ name });
       return c.json(resourceRecord(record), 200);
     })
     .openapi(moveResourceRoute, async (c) => {

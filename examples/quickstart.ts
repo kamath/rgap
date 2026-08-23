@@ -6,9 +6,9 @@ try {
   const admin = store.admin();
 
   const acme = await admin.resources.create({ name: 'acme' });
-  const platform = await acme.create({ name: 'platform' });
-  const docs = await platform.create({ name: 'docs' });
-  const design = await docs.create({ name: 'design' });
+  const design = await admin.resources.create({
+    name: 'acme/platform/docs/design',
+  });
 
   const company = await admin.grants.create({
     name: 'Company',

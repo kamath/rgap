@@ -1,6 +1,7 @@
 import {
   RgapError,
   grantId,
+  pathParts,
   resourceId,
   tokenId,
   type AuditEvent,
@@ -20,6 +21,7 @@ import {
   type ListQuery,
   type Page,
   type ResourceHandle,
+  type ResourceWrite,
   type RgapRepository,
   type TokenHandle,
 } from './repository';
@@ -224,10 +226,36 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
     }
   };
 
+  const childNamed = async (parentId: ResourceId | null, name: string) => {
+    let cursor: string | undefined;
+    while (true) {
+      const page = await repository.resources.list({ parentId, cursor, limit: maximumPageLimit });
+      const match = page.find((resource) => resource.name === name);
+      if (match) return match;
+      if (page.length < maximumPageLimit) return undefined;
+      cursor = page.at(-1)!.id;
+    }
+  };
+
+  const authorizeCreateFrom = async (parentId: ResourceId | null, path: string) => {
+    let current = parentId;
+    for (const name of pathParts(path)) {
+      const existing = await childNamed(current, name);
+      if (existing) {
+        current = existing.id;
+        continue;
+      }
+      if (!current) administrative('Creating a root resource');
+      await permit(current, 'write');
+      return;
+    }
+  };
+
   return {
     resources: {
-      async create() {
-        administrative('Creating a root resource');
+      async create(input: ResourceWrite) {
+        await authorizeCreateFrom(null, input.name);
+        return wrapResource(await repository.resources.create(input));
       },
       async get(id) {
         if (!(await visibleResourceIds()).has(id)) throw new RgapError('unauthorized', 'That resource is outside this token\'s view.');

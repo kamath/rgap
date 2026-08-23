@@ -66,8 +66,12 @@ curl http://localhost:3000/resources \
   --request POST \
   --header 'Authorization: Bearer test' \
   --header 'Content-Type: application/json' \
-  --data '{"name":"acme","parentId":null}'
+  --data '{"name":"acme/platform/docs/design"}'
 ```
+
+`POST /resources` accepts a slash-separated location in `name` and returns the
+leaf. The path is the location; the body does not include `parentId`. Missing
+prefixes are created from the forest root.
 
 Successful requests return the JSON-compatible RGAP records and decisions
 described by the generated schema. Commands with no response value return

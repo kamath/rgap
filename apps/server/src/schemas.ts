@@ -143,7 +143,6 @@ export const TokenListQuerySchema = PageQuerySchema.extend({
 
 export const ResourceWriteSchema = z.object({
   name: z.string().min(1),
-  parentId: NullableIdSchema,
 }).strict();
 
 export const MoveResourceSchema = z.object({
