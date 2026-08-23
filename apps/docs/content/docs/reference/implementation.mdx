@@ -131,7 +131,7 @@ The working set and write plan are specific to each command:
 
 | Command | Records loaded | Rows written |
 | --- | --- | --- |
-| Create resource path | Starting parent, occupied path prefixes, and candidate IDs. | Insert each missing prefix and one audit event. |
+| Create resource path | Starting parent, occupied path prefixes, and candidate IDs. | Insert each missing prefix and one audit event per inserted resource. |
 | Move resource | Resource, destination parent, and destination ancestry. | Update one parent reference and insert one audit event. |
 | Delete resource | Resource and its descendant subtree. | Tombstone the subtree and insert one audit event. |
 | Create or amend grant | Relevant parent and child grants, their resource entries, and resources needed for containment. | Insert or replace the affected grant entries, revoke uncovered descendant branches, and insert one audit event. |
