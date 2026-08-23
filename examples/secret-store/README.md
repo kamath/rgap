@@ -1,10 +1,23 @@
 # Secret-store Hono app
 
-This app exposes a generic `reveal-secret` runtime through the RGAP Hono API.
-It keeps authorization state in `rgap.db` and secret values in `secrets.db`.
-`SecretStore` defines the storage interface, and `SqliteSecretStore` is the
-default implementation initialized by `index.ts`. The secret database indexes
-each value by its stable RGAP resource ID.
+This app demonstrates sealed resource bindings. An administrator creates a
+GitHub credential resource, stores its value in `secrets.db`, and binds it to a
+trusted `githubProfile` executable. A user receives `bind` on that safe
+function without receiving any permission on its credential. The user then
+creates a `profile-summary` executable resource that binds and invokes the
+safe function.
+
+Both bindings contain ordinary RGAP resource IDs:
+
+```text
+user-created profile-summary
+└── profile → admin-created github-profile
+              └── credential → github-token
+```
+
+Binding authority is non-transitive. The user can bind `github-profile` but
+cannot bind `github-token`, even if its resource ID is known. Invocation input
+cannot replace either sealed binding.
 
 Start the app:
 
@@ -12,23 +25,23 @@ Start the app:
 pnpm --filter @rgap/examples secret-store
 ```
 
-The app prints the reveal resource ID and secret binding ID. It writes a
-demo bearer to `secret-reader.token` with owner-only permissions. Invoke the
-reveal resource with those IDs:
+The app prints the user-created script resource ID and writes its bearer to
+`script-author.token` with owner-only permissions. Invoke that resource:
 
 ```sh
-TOKEN=$(<examples/secret-store/secret-reader.token)
+TOKEN=$(<examples/secret-store/script-author.token)
 
 curl --no-buffer \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  --data '{"input":null,"bindings":{"secret":"<secret-binding-id>"}}' \
-  http://localhost:3002/resources/<reveal-resource-id>/invoke
+  --data '{"input":null}' \
+  http://localhost:3002/resources/<script-resource-id>/invoke
 ```
 
-RGAP checks `invoke` on the reveal executable and on the bound secret resource
-before the runtime reads `secrets.db`. The response is an NDJSON stream whose
-data event contains the secret string.
+The response is an NDJSON stream whose data event contains
+`"GitHub user: alice"`. It never contains the credential. The nested
+`github-profile` invocation and the outer `profile-summary` invocation each
+produce an audit record without inputs, outputs, or secret values.
 
 Set `DEMO_SECRET` to choose the seeded value. Do not use the demo database,
 generated bearer file, or default admin token in a deployed service.

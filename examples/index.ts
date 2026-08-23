@@ -36,12 +36,12 @@ const echo: InvokeRuntime<
   inputSchema: EchoInputSchema,
   outputSchema: EchoOutputSchema,
   bindings: {
-    searchWithin: { kind: 'resource' },
+    searchWithin: {},
   },
   async invoke({ input, bindings }) {
     return {
       message: `result: ${input.query}`,
-      searchedWithin: bindings.searchWithin.resourceId,
+      searchedWithin: bindings.searchWithin,
     };
   },
 };
@@ -72,6 +72,7 @@ const design = await docs.create({ name: 'design' });
 const search = await platform.create({ name: 'tools/search' });
 await search.executable.set({
   runtime: 'echo',
+  bindings: { searchWithin: docs.id },
 });
 const payroll = await company.resources.create({ name: 'acme/finance/payroll' });
 
@@ -154,7 +155,6 @@ for (const [label, token] of tokens) {
 console.log('\nINVOKE');
 for await (const event of search.invoke({
   input: { query: 'design' },
-  bindings: { searchWithin: docs.id },
 })) {
   console.log(event);
 }
