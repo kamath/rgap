@@ -36,7 +36,7 @@ try {
 
   await agent.resources.set([
     {
-      path: 'acme/platform/docs',
+      id: design.id,
       permissions: ['read'],
     },
   ]);

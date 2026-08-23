@@ -57,15 +57,8 @@ need no additional permission.
 
 ## Identity and location
 
-A resource's ID and path answer different questions:
-
-| Target | Meaning |
-| --- | --- |
-| `id` | This exact object, wherever it moves. |
-| `path` | Whatever live object occupies this location. |
-
-An ID-targeted grant resource follows an object and its subtree when they move.
-A path-targeted grant resource stays attached to its normalized location.
+A resource's ID names the object wherever it moves. Its path describes its
+current location and is derived from its ancestry.
 
 ```text
 projects/alpha/secret
@@ -73,12 +66,10 @@ projects/alpha/secret
 projects/private/secret
 ```
 
-After this move:
-
-- An ID entry targeting `secret` follows it to `projects/private/secret`.
-- A path entry targeting `projects/alpha/secret` authorizes nothing while the
-  old path is empty.
-- The path entry applies again if another resource later occupies that path.
+A grant-resource entry targeting `secret` follows it to
+`projects/private/secret`. Grant-resource entries always use stable resource
+IDs, so an entry never transfers authority to a different object that later
+occupies the old location.
 
 ## Subtree semantics
 
@@ -95,10 +86,8 @@ a container therefore includes children created later.
 Paths are canonicalized by splitting on `/`, trimming segments, and discarding
 empty segments. `Acme`, `Acme/`, and `/Acme//` identify the same location.
 
-Create accepts a presentation path and materializes it. Other operational
-commands use stable resource IDs. Grant path targets store a normalized
-location and resolve it against the current resource tree for every
-authorization decision.
+Create accepts a presentation path and materializes it. Operational commands
+and grant-resource entries use stable resource IDs.
 
 ## Moves
 

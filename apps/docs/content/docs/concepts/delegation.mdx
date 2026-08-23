@@ -21,19 +21,10 @@ child that outlives Bob's grant.
 A grant aggregates one or more resource entries:
 
 ```ts
-type GrantResourceConfig = {
+type GrantResource = {
+  id: ResourceId;
   permissions: Permission[];
 };
-
-type IdResource = GrantResourceConfig & {
-  id: ResourceId;
-};
-
-type PathResource = GrantResourceConfig & {
-  path: string;
-};
-
-type GrantResource = IdResource | PathResource;
 ```
 
 Each entry names exactly one target. Multiple entries let a grant combine
@@ -47,14 +38,14 @@ location and every child permission appears in the parent's permission set.
 
 ```ts
 covers(parent, child, resources) =
-  locationContains(parent, child, resources) &&
+  isWithin(resources, child.id, parent.id) &&
   child.permissions.every((permission) =>
     parent.permissions.includes(permission),
   );
 ```
 
-Two path entries compare normalized locations lexically. Any comparison
-involving an ID resolves both targets against the current live resource tree.
+Both entries target live resources by stable ID. Coverage compares their
+current ancestry in the resource tree.
 
 <Callout type="info" title="Permissions are plain sets">
   No permission implies another. `write` does not imply `read`, and `read` is
