@@ -80,26 +80,43 @@ export default function HomePage() {
               delegate.ts
             </span>
           </div>
-          <pre className="overflow-x-auto p-5 text-[13px] leading-7 text-fd-muted-foreground sm:p-7 sm:text-sm">
-            <code>
-              <span className="text-fd-primary">const</span>{' '}
-              team = <span className="text-fd-foreground">await</span>{' '}
-              company.grants.create({'{\n'}
-              {'  '}name: <span className="rgap-code-string">&apos;Docs team&apos;</span>,
-              resources: [{'{\n'}
-              {'    '}path: <span className="rgap-code-string">&apos;acme/platform/docs&apos;</span>,
-              permissions: [<span className="rgap-code-string">&apos;read&apos;</span>,{' '}
-              <span className="rgap-code-string">&apos;write&apos;</span>],{'\n'}
-              {'  }'}],{'\n'}
-              {'}'});{'\n\n'}
-              <span className="text-fd-primary">const</span>{' '}
-              agent = <span className="text-fd-foreground">await</span>{' '}
-              team.grants.create({'{'} resources: readOnly {'}'});{'\n'}
-              <span className="text-fd-primary">const</span>{' '}
-              token = <span className="text-fd-foreground">await</span>{' '}
-              agent.tokens.create({'{'} label:{' '}
-              <span className="rgap-code-string">&apos;research-agent&apos;</span> {'}'});
-            </code>
+          <pre className="whitespace-pre-wrap break-words p-5 text-[13px] leading-7 text-fd-muted-foreground sm:p-7 sm:text-sm">
+            <code>{`const openai: InvokeRuntime = {
+  inputSchema: null,
+  outputSchema: null,
+  async invoke({ input, signal }) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error('OPENAI_API_KEY is required.');
+
+    const response = await fetch(
+      'https://api.openai.com/v1/responses',
+      {
+        method: 'POST',
+        headers: {
+          authorization: \`Bearer \${apiKey}\`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(input),
+        signal,
+      },
+    );
+    return response.json();
+  },
+};
+
+const model = await company.resources.create({
+  name: 'acme/models/openai',
+});
+await model.executable.set({ runtime: 'openai' });
+
+for await (const event of model.invoke({
+  input: {
+    model: 'gpt-5-mini',
+    input: 'Summarize the design notes.',
+  },
+})) {
+  console.log(event);
+}`}</code>
           </pre>
         </div>
       </section>
