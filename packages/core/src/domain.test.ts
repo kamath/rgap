@@ -485,7 +485,8 @@ describe('creating a grant', () => {
       resources: [pathCap('/acme//future /')],
     }, g('path-root'), at);
 
-    expect(created.grants['path-root'].resources[0]).toEqual({ path: 'acme/future', permissions: ['invoke'] });
+    expect(created.grants['path-root'].resources[0])
+      .toEqual({ path: 'acme/future', permissions: ['read', 'invoke'] });
     expect(() => createGrant(fixture(), {
       ...input, parentId: null, resources: [pathCap(' / ')],
     }, g('empty-path'), at)).toThrow('Grant resource path is required.');
@@ -607,7 +608,8 @@ describe('setting resources', () => {
     expect(() => setResources(deleted, g('coordinator'), [cap('post-message')], at))
       .toThrow('Grant resource does not exist.');
     expect(setResources(deleted, g('coordinator'), [pathCap('acme/slack/post-message')], at)
-      .grants.coordinator.resources[0]).toEqual({ path: 'acme/slack/post-message', permissions: ['invoke'] });
+      .grants.coordinator.resources[0])
+      .toEqual({ path: 'acme/slack/post-message', permissions: ['read', 'invoke'] });
   });
 
   it('requires a parent that is present and active', () => {
@@ -677,7 +679,10 @@ describe('inspecting the authority behind a token', () => {
     expect(view.valid).toBe(true);
     expect(view.detail).toBe('2 resources are visible through Coordinator.');
     expect(view.lineage).toEqual(['coordinator']);
-    expect(view.permissions).toEqual({ 'search-files': ['invoke'], 'create-issue': ['invoke'] });
+    expect(view.permissions).toEqual({
+      'search-files': ['read', 'invoke'],
+      'create-issue': ['read', 'invoke'],
+    });
   });
 
   it('reports no authority for a token it does not know or a chain that is broken', () => {

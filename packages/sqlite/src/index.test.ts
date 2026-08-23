@@ -120,7 +120,7 @@ describe('SqliteRgapStore', () => {
     expect(state.resources.drive.parentId).toBe('acme');
     expect(state.grants[grant.id].resources).toEqual([
       { id: resourceId('acme'), permissions: ['read', 'write'] },
-      { path: 'acme/future-tool', permissions: ['invoke'] },
+      { path: 'acme/future-tool', permissions: ['read', 'invoke'] },
     ]);
     expect(state.tokens[issued.id]).toEqual(tokenRecord(issued));
   });
@@ -215,7 +215,8 @@ describe('SqliteRgapStore', () => {
     const invoker = await admin.grants.create({
       name: 'Acme invoker', resources: [], expiresAt: null,
     });
-    await invoker.resources.set([{ id: resourceId('drive'), permissions: ['invoke'] }]);
+    const invoked = await invoker.resources.set([{ id: resourceId('drive'), permissions: ['invoke'] }]);
+    expect(invoked.resources[0].permissions).toEqual(['read', 'invoke']);
     const allowed = await invoker.tokens.create({ label: 'invoker' });
     expect(await collect(store.as(allowed.value).invoke(resourceId('drive'), { input: {} })))
       .toEqual([{ type: 'done' }]);
