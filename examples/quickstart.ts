@@ -18,7 +18,6 @@ try {
     expiresAt: null,
   });
 
-  const companyGrant = await admin.grants.get(agent.parentId!);
   const agentToken = await agent.tokens.create({
     label: 'research-run',
   });
@@ -42,7 +41,7 @@ try {
     write: write.allowed,
   });
 
-  await companyGrant.revoke();
+  await agent.revoke();
 
   const afterRevocation = await agentPlane.authorize(
     agentToken.value,

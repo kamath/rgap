@@ -36,7 +36,6 @@ try {
     expiresAt: null,
   });
 
-  const companyGrant = await admin.grants.get(agent.parentId!);
   const agentToken = await agent.tokens.create({
     label: 'research-run',
   });
@@ -60,7 +59,7 @@ try {
     write: write.allowed,
   });
 
-  await companyGrant.revoke();
+  await agent.revoke();
 
   const afterRevocation = await agentPlane.authorize(
     agentToken.value,
@@ -91,8 +90,7 @@ The first result reports the `design` resource with `read: true` and
 - Each grant created in that path receives `read` under `acme/platform/docs`
   from the create body.
 - The agent's repository plane can read `design` but cannot write it.
-- The generated company grant is retrieved administratively only to demonstrate
-  that revoking it disables the complete descendant branch.
+- Revoking the agent grant disables its token on the next authorization check.
 
 <Callout type="info">
   Continue with [Core concepts](/docs/concepts) for the model or
