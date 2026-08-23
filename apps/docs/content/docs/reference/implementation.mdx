@@ -69,6 +69,11 @@ Focused collection queries list resources, grants, tokens, and audit events.
 They return ordered arrays of serializable records with bounded page sizes and
 keyset cursors. A caller never needs to load the complete store.
 
+Storage adapters also load command-scoped records for mutations and
+authorization decisions. The core rule still receives every record needed to
+decide the command, while unrelated resources, grants, tokens, executables, and
+audit events remain outside the transaction's working set.
+
 Ordinary commands are asynchronous and JSON-compatible. Invocation returns
 `AsyncIterable<InvocationEvent>`, where events are `data` or `done`; runtime
 failures terminate the iterable.
@@ -116,14 +121,35 @@ an optional initial state, and a runtime registry.
 `src/schema.ts` declares normalized tables, and Drizzle Kit generates the DDL.
 The constructor applies that DDL when it opens a database.
 
-Each command runs in one `better-sqlite3` transaction:
+Each command runs in one `better-sqlite3` transaction. The adapter loads the
+command's working set, applies the relevant pure core rule, writes only the
+rows changed by that command, and appends its audit event. A rejected rule
+writes nothing. Records returned to the caller reflect the rows committed by
+the transaction.
 
-1. Read the current state.
-2. Apply the relevant pure core rule.
-3. Replace persisted rows with the returned state.
-4. Commit the state change and audit event together.
+The working set and write plan are specific to each command:
 
-Rows are written parents before children so foreign keys hold after every
+| Command | Records loaded | Rows written |
+| --- | --- | --- |
+| Create resource path | Starting parent, occupied path prefixes, and candidate IDs. | Insert each missing prefix and one audit event. |
+| Move resource | Resource, destination parent, and destination ancestry. | Update one parent reference and insert one audit event. |
+| Delete resource | Resource and its descendant subtree. | Tombstone the subtree and insert one audit event. |
+| Create or amend grant | Relevant parent and child grants, their resource entries, and resources needed for containment. | Insert or replace the affected grant entries, revoke uncovered descendant branches, and insert one audit event. |
+| Issue or revoke | The affected grant, token, or grant branch. | Insert or update affected rows and insert one audit event. |
+| Set or delete executable | Resource and its executable association. | Upsert or delete one association and insert one audit event. |
+| Authorize | Token selected by hash, grant lineage, requested resource ancestry, and path prefixes required by lineage entries. | Insert one audit event. |
+| Record invocation | No repository snapshot. | Insert one audit event. |
+
+Parent and child traversal uses ordinary key and parent/child lookups in
+bounded batches; the persistence contract does not require recursive SQL.
+Every multi-query load observes the transaction's consistent database state.
+
+`inspectToken` materializes the live resources needed by its complete
+authority view. `reset` and initial-state installation are explicit bulk
+operations and may replace all rows. Ordinary commands never use those bulk
+paths.
+
+Rows are inserted parents before children so foreign keys hold after every
 statement. Issued bearer values are returned once; token rows contain hashes.
 
 The normalized schema also stores one `executables` row per association, keyed

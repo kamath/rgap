@@ -6,7 +6,8 @@
  * selects that plane with `store.as`, and creates a narrower child grant.
  *
  * `pnpm scratch` runs this file against examples/scratch.db. Replace the store-construction line
- * with `new HttpRgapStore(...)` to run the same walkthrough against the Hono API.
+ * with `new HttpRgapStore(...)` to run the same walkthrough against the Hono API. The local SQLite
+ * store applies each command as one focused row-level transaction rather than replacing the store.
  */
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
