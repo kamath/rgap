@@ -21,9 +21,10 @@ represents a server, folder, tool, prompt, or document.
 
 ## Create at a path
 
-Create accepts a slash-separated location in `name`. The command walks that
-path from the create parent, creates any missing live prefixes, and returns
-the leaf.
+Create accepts a slash-separated location in `name`. The path is the location,
+so the write does not include a parent ID. Collection create walks from the
+forest root. Handle create walks from that resource. Missing live prefixes are
+created, and the command returns the leaf.
 
 ```ts
 const design = await admin.resources.create({

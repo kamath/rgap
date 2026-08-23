@@ -301,20 +301,21 @@ audit event.
 
 ### Create
 
-Create accepts a slash-separated location relative to a parent, or to the
-forest root when the parent is absent. The path is normalized by splitting on
-`/`, trimming segments, and discarding empty segments. After normalization the
-path must contain at least one segment.
+Create accepts a slash-separated location. The write is the path; it does not
+include a parent ID. Collection create walks from the forest root. Handle
+create walks from that resource. The path is normalized by splitting on `/`,
+trimming segments, and discarding empty segments. After normalization the path
+must contain at least one segment.
 
-The command walks the path from the parent in one state transition. Each stored
-resource name is one segment and contains no `/`. Live prefixes are reused.
-Missing prefixes are created as ordinary resources. The leaf must not already
-exist; an occupied path is `duplicate_path`.
+The command walks the path in one state transition. Each stored resource name
+is one segment and contains no `/`. Live prefixes are reused. Missing prefixes
+are created as ordinary resources. Each created record stores the parent ID
+derived from that walk. The leaf must not already exist; an occupied path is
+`duplicate_path`.
 
 Each newly created resource receives an unused ID minted from its segment name
-and is audited as `resource.create`. The parent of a created resource must be
-live when present. Creating a new root is administrative. Creating a child
-requires `write` on that child's parent.
+and is audited as `resource.create`. Creating a new root is administrative.
+Creating a child requires `write` on that child's parent.
 
 ### Move
 
