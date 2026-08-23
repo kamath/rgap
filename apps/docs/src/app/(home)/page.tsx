@@ -81,52 +81,38 @@ export default function HomePage() {
             </span>
           </div>
           <pre className="whitespace-pre-wrap break-words p-5 text-[13px] leading-7 text-fd-muted-foreground sm:p-7 sm:text-sm">
-            <code>{`const model = await request('/resources', {
-  method: 'POST',
-  bearer: adminToken,
-  json: { name: 'acme/models/openai' },
-});
-await request(\`/resources/\${model.id}/executable\`, {
-  method: 'PUT',
-  bearer: adminToken,
-  json: { runtime: 'openai' },
-});
+            <code>{`import { createOpenAI } from '@ai-sdk/openai';
+import { generateText } from 'ai';
 
-const grant = await request('/grants', {
-  method: 'POST',
-  bearer: adminToken,
-  json: {
-    name: 'company/openai-agent',
-    resources: [{ id: model.id, permissions: ['invoke'] }],
-    expiresAt: null,
+const openai: InvokeRuntime = {
+  inputSchema: null,
+  outputSchema: null,
+  async invoke({ input, signal }) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error('OPENAI_API_KEY is required.');
+
+    const provider = createOpenAI({ apiKey });
+    const { text } = await generateText({
+      model: provider(process.env.OPENAI_MODEL ?? 'gpt-5-mini'),
+      prompt: input.prompt,
+      abortSignal: signal,
+    });
+    return { text };
   },
-});
-const token = await request(\`/grants/\${grant.id}/tokens\`, {
-  method: 'POST',
-  bearer: adminToken,
-  json: { label: 'openai-agent' },
-});
+};
 
-const response = await fetch(
-  \`\${baseUrl}/resources/\${model.id}/invoke\`,
-  {
-    method: 'POST',
-    headers: {
-      authorization: \`Bearer \${token.value}\`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      input: { prompt: 'Summarize the design notes.' },
-    }),
+const model = await company.resources.create({
+  name: 'acme/models/openai',
+});
+await model.executable.set({ runtime: 'openai' });
+
+for await (const event of model.invoke({
+  input: {
+    prompt: 'Summarize the design notes.',
   },
-);
-const events = (await response.text())
-  .trim()
-  .split('\\n')
-  .filter(Boolean)
-  .map((line) => JSON.parse(line));
-
-console.log(events);`}</code>
+})) {
+  console.log(event);
+}`}</code>
           </pre>
         </div>
       </section>

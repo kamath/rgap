@@ -51,34 +51,3 @@ for await (const event of authorizedModel.invoke({
 
 See `examples/openai.ts` for the complete executable example and
 `apps/docs/content/docs` for the protocol and integration guides.
-
-## Invoke over HTTP
-
-An HTTP client creates the resource and grant, issues an RGAP token, and invokes
-the resource without defining the OpenAI runtime. The server owns that runtime
-and `OPENAI_API_KEY`.
-
-The invoke route returns NDJSON events. A caller that does not need incremental
-delivery reads the complete HTTP response and parses it once:
-
-```ts
-const response = await fetch(`${baseUrl}/resources/${model.id}/invoke`, {
-  method: 'POST',
-  headers: {
-    authorization: `Bearer ${agentToken}`,
-    'content-type': 'application/json',
-  },
-  body: JSON.stringify({
-    input: { prompt: 'Summarize the design notes.' },
-  }),
-});
-
-const events = (await response.text())
-  .trim()
-  .split('\n')
-  .filter(Boolean)
-  .map((line) => JSON.parse(line));
-```
-
-This is a regular HTTP request that waits for one complete response body. It
-does not use server-sent events.
