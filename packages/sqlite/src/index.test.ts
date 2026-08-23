@@ -160,7 +160,7 @@ describe('SqliteRgapStore', () => {
     const inputMarker = 'private-invocation-input';
     const outputMarker = 'private-runtime-output';
     const implementation = runtime({ source: { kind: 'document' } }, async (context) => {
-        expect(context.bindings.source).toEqual({ id: resourceId('acme'), kind: 'document' });
+        expect(context.bindings.source).toEqual({ resourceId: resourceId('acme'), kind: 'document' });
         return outputMarker;
     });
     const options: SqliteRgapStoreOptions = {
