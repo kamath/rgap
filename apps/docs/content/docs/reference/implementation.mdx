@@ -29,10 +29,11 @@ examples/
   resource, grant, and token handles.
 - `guard.ts` constructs the bearer-token command plane and enforces visibility
   and command authority.
-- `executable.ts` atomically sets and deletes associations with sealed
-  bindings, validates binding authority, and orchestrates nested invocation.
+- `executable.ts` atomically sets and deletes associations with sealed input
+  bindings, records and revalidates binding authority, and orchestrates nested
+  invocation.
 - `runtime.ts` defines structural runtime schemas, typed invocations and
-  results, invocation events, named resource bindings, and `RuntimeRegistry`.
+  results, invocation events, nested resource invocation, and `RuntimeRegistry`.
 
 A store exposes only `as(token)` and `admin()`. Either method returns a
 repository whose collections mint and look up handles.
@@ -103,10 +104,9 @@ new SqliteRgapStore({
 ```
 
 Each heterogeneous `InvokeRuntime<TInput, TOutput>` owns nullable structural
-input and output schemas, optional binding declarations, and its invocation
-implementation. The schemas expose `parse(value: unknown)`, so Zod schemas work
-directly without a core dependency on Zod. Runtime registration and behavior
-are not repository state.
+input and output schemas and its invocation implementation. The schemas expose
+`parse(value: unknown)`, so Zod schemas work directly without a core dependency
+on Zod. Runtime registration and behavior are not repository state.
 
 ## SQLite store
 
@@ -127,9 +127,10 @@ Rows are written parents before children so foreign keys hold after every
 statement. Issued bearer values are returned once; token rows contain hashes.
 
 The normalized schema stores one `executables` row per association, keyed by
-`resource_id`, and one ordered `executable_bindings` row per named direct
-dependency. `setExecutable` verifies that every resource is live, the runtime
-is registered, and the binding names match its declaration, then atomically
+`resource_id`, and one ordered `executable_bindings` row per sealed top-level
+input field. Each binding stores the target resource ID and the grant lineage
+that authorized `bind`, or administrative provenance. `setExecutable` verifies
+that every resource is live and the runtime is registered, then atomically
 replaces the association, bindings, and audit event. `deleteExecutable`
 removes the association and its bindings and records the deletion. There is no
 executable tombstone or revision table.
@@ -142,25 +143,27 @@ executable tombstone or revision table.
 | `grant_resource_permissions` | Normalized permission sets for grant-resource entries. |
 | `tokens` | Token metadata and bearer hashes. |
 | `executables` | One resource-to-runtime association per executable resource. |
-| `executable_bindings` | Named direct resource dependencies sealed into executables. |
+| `executable_bindings` | Resource IDs and authority lineages sealed into top-level input fields. |
 | `audit` | Ordered authorization, mutation, and invocation events. |
 
 ## Invocation lifecycle
 
-The token plane authorizes `invoke` on the executable resource. Bindings are
-already authorized and sealed when the executable association is set. The
+The token plane authorizes `invoke` on the executable resource. The
 orchestrator then:
 
 1. Resolves the executable association and registered runtime.
-2. Parses input when `inputSchema` is not null.
-3. Calls the runtime with typed input, an `AbortSignal`, direct named resource
-   IDs, and nested invocation methods restricted to those binding names.
-4. Resolves each nested call to its sealed direct resource and invokes it with
-   the binding edge's authority.
-5. Normalizes a single value, promise, async iterable, or `undefined`.
-6. Parses every output when `outputSchema` is not null, emits `data`, and emits
+2. Revalidates every bound target and its recorded `bind` lineage.
+3. Rejects caller values for sealed fields, inserts the bound resource ID
+   strings, and parses the complete input when `inputSchema` is not null.
+4. Calls the runtime with typed input, an `AbortSignal`, and nested invocation
+   methods that accept arbitrary resource IDs.
+5. Authorizes each nested ID through the initiating caller or a valid direct
+   edge on the current frame. A nested target begins a new frame with its own
+   independently revalidated edges.
+6. Normalizes a single value, promise, async iterable, or `undefined`.
+7. Parses every output when `outputSchema` is not null, emits `data`, and emits
    `done` automatically.
-7. Records redacted facts as `done`, `error`, or `cancelled` in a `finally`
+8. Records redacted facts as `done`, `error`, or `cancelled` in a `finally`
    block.
 
 The audit detail contains resource ID, runtime, grant-lineage IDs, parent
@@ -188,7 +191,7 @@ Executable operations map one-to-one:
 
 ```text
 GET    /resources/{id}/executable
-PUT    /resources/{id}/executable     { runtime, bindings? }
+PUT    /resources/{id}/executable     { runtime, bind? }
 DELETE /resources/{id}/executable
 POST   /resources/{id}/invoke         { input }
 ```
@@ -212,10 +215,10 @@ port 3001 so the HTTP API can run beside it on port 3000.
 
 `@rgap/examples` consumes `@rgap/sqlite` and `@rgap/core` like an external
 TypeScript application. The secret-store app configures one trusted runtime
-that consumes an externally stored credential and another runtime that
-invokes it through a sealed resource binding. It creates the outer executable
-through an ordinary delegated repository plane without granting that plane
-authority over the credential.
+whose sealed input contains an externally stored credential resource ID and
+another runtime that invokes it by resource ID. It creates the outer
+executable through an ordinary delegated repository plane without granting
+that plane authority over the credential.
 
 Change only store construction to run the same walkthrough against HTTP:
 

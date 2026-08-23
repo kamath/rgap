@@ -1,18 +1,17 @@
-import type { ResourceId } from '@rgap/core';
 import Database from 'better-sqlite3';
 
 type Awaitable<T> = T | Promise<T>;
 
 export interface SecretStore {
-  get(resourceId: ResourceId): Awaitable<string | undefined>;
-  set(resourceId: ResourceId, value: string): Awaitable<void>;
+  get(resourceId: string): Awaitable<string | undefined>;
+  set(resourceId: string, value: string): Awaitable<void>;
   close(): Awaitable<void>;
 }
 
 export class SqliteSecretStore implements SecretStore {
   readonly #database: Database.Database;
-  readonly #select: Database.Statement<[ResourceId], { value: string }>;
-  readonly #set: Database.Statement<[ResourceId, string]>;
+  readonly #select: Database.Statement<[string], { value: string }>;
+  readonly #set: Database.Statement<[string, string]>;
 
   constructor(url: string) {
     this.#database = new Database(url);
@@ -31,11 +30,11 @@ export class SqliteSecretStore implements SecretStore {
     `);
   }
 
-  get(resourceId: ResourceId) {
+  get(resourceId: string) {
     return this.#select.get(resourceId)?.value;
   }
 
-  set(resourceId: ResourceId, value: string) {
+  set(resourceId: string, value: string) {
     this.#set.run(resourceId, value);
   }
 

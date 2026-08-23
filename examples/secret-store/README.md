@@ -15,9 +15,12 @@ user-created profile-summary
               └── credential → github-token
 ```
 
-Binding authority is non-transitive. The user can bind `github-profile` but
-cannot bind `github-token`, even if its resource ID is known. Invocation input
-cannot replace either sealed binding.
+Each binding records and revalidates its authorizing grant lineage at runtime.
+Authority composes across the call chain: `profile-summary` can invoke
+`github-profile`, whose own frame can use `github-token`. Authority is not
+flattened into the outer frame, so the user cannot bind or read
+`github-token`, even if its resource ID is known. Invocation input cannot
+replace either sealed field.
 
 Start the app:
 
@@ -34,7 +37,7 @@ TOKEN=$(<examples/secret-store/script-author.token)
 curl --no-buffer \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  --data '{"input":null}' \
+  --data '{"input":{}}' \
   http://localhost:3002/resources/<script-resource-id>/invoke
 ```
 

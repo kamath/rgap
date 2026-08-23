@@ -57,14 +57,15 @@ type Token = {
   revokedAt: string | null;
 };
 
-type BindingSlot = {
-  required?: boolean;
+type ExecutableBinding = {
+  resourceId: string;
+  grantLineage: string[] | null;
 };
 
 type ExecutableDefinition = {
   resourceId: string;
   runtime: string;
-  bindings: Record<string, string>;
+  bind: Record<string, ExecutableBinding>;
 };
 
 type AuditEvent = {
@@ -379,22 +380,26 @@ ineffective. Path targets remain attached to their locations.
 ## Executables
 
 An executable definition attaches one registered runtime to one live resource,
-which remains the authorization target. It also contains named bindings to
-other live resources. Bindings are direct, sealed dependencies rather than
-caller-controlled invocation parameters.
+which remains the authorization target. It can also pre-bind top-level input
+fields to ordinary resource ID strings. Bound fields are sealed configuration
+rather than caller-controlled invocation values.
 
-`setExecutable(state, resourceId, { runtime, bindings }, at, runtimes)` trims
-and validates the runtime name, requires that runtime to be registered,
-validates exact binding names and required slots, and atomically creates or
-replaces the association together with its audit event. Setting requires
-`write` on the executable resource and `bind` on every directly bound resource.
-The administrative plane supplies this authority directly.
+`setExecutable(state, resourceId, { runtime, bind }, at, runtimes)` trims and
+validates the runtime name, requires that runtime to be registered, and
+atomically creates or replaces the association together with its audit event.
+Setting requires `write` on the executable resource and `bind` on every
+directly bound resource. Each binding records the complete grant lineage that
+authorized it. Administrative bindings record administrative provenance.
 
-A binding edge carries authority to use only its direct target through the
-configured runtime. It does not confer any permission on that target's own
-bindings. A caller who can invoke an executable therefore cannot replace or
-reuse its transitive dependencies. Knowing a transitive resource ID does not
-permit binding it without independent `bind` authority.
+Binding creation validates authority immediately, and every invocation
+revalidates that the bound resource is live and its recorded lineage remains
+active and still covers `bind`. Revoking or narrowing any grant in that
+lineage disables the edge.
+
+Authority composes through nested invocation frames. If A binds B and B binds
+C, invoking A can invoke B, whose own frame can then use C. Authority is not
+flattened: A's frame does not gain a direct edge to C. Every hop is revalidated
+when the call chain runs.
 
 Deleting an executable removes its association and records the deletion
 atomically. It leaves resource and audit records intact, and a later set may
@@ -424,10 +429,9 @@ type RuntimeSchema<T> = {
 
 type RuntimeInvocation<TInput> = {
   input: TInput;
-  bindings: Readonly<Record<string, string>>;
   invoke: {
-    stream(name: string, input: InvokeInput): AsyncIterable<InvocationEvent>;
-    one<T = unknown>(name: string, input: InvokeInput): Promise<T>;
+    stream(resourceId: string, input: InvokeInput): AsyncIterable<InvocationEvent>;
+    one<T = unknown>(resourceId: string, input: InvokeInput): Promise<T>;
   };
   signal: AbortSignal;
 };
@@ -435,7 +439,6 @@ type RuntimeInvocation<TInput> = {
 interface InvokeRuntime<TInput = unknown, TOutput = unknown> {
   inputSchema: RuntimeSchema<TInput> | null;
   outputSchema: RuntimeSchema<TOutput> | null;
-  bindings?: Readonly<Record<string, BindingSlot>>;
   invoke(
     context: RuntimeInvocation<TInput>,
   ): RuntimeResult<TOutput> | Promise<RuntimeResult<TOutput>>;
@@ -446,16 +449,19 @@ Invocation is one ordered decision and lifecycle:
 
 1. Resolve the executable definition and registered runtime.
 2. Authorize `invoke` on the executable resource through the complete lineage.
-3. Parse input when the runtime's `inputSchema` is not null.
-4. Invoke the runtime with typed input, an abort signal, its named direct
-   resource IDs, and an invocation interface restricted to those names.
-5. Resolve nested invocation names only from the executable's sealed bindings.
-   Nested calls use the binding edge's authority rather than the original
-   caller's authority.
-6. Normalize one value, a promise, an async iterable, or `undefined`.
-7. Parse each output when `outputSchema` is not null, emit a `data` event for
+3. Revalidate every sealed binding's live target and recorded `bind` lineage.
+4. Require object input when bindings exist and reject any caller-supplied
+   property whose name is sealed.
+5. Insert the bound resource ID strings, then parse the complete input when the
+   runtime's `inputSchema` is not null.
+6. Invoke the runtime with typed input, an abort signal, and nested invocation
+   methods that accept resource IDs.
+7. Authorize each nested target from either the initiating caller's direct
+   `invoke` authority or a valid direct binding edge on the current frame.
+8. Normalize one value, a promise, an async iterable, or `undefined`.
+9. Parse each output when `outputSchema` is not null, emit a `data` event for
    each defined value, and emit `done` automatically.
-8. Let runtime failures terminate the stream. Record normal exhaustion as
+10. Let runtime failures terminate the stream. Record normal exhaustion as
    `done`, runtime failure as `error`, and caller abort or early iterator return
    as `cancelled`.
 
@@ -500,15 +506,17 @@ An implementation conforms when:
 9. Deleted resources remain as unreadable tombstones.
 10. Commands are exposed only through explicit token or administrative planes.
 11. Setting an executable binding requires `bind` on its direct resource
-    through the complete lineage.
-12. An executable persists one resource-to-runtime association and its sealed
-    direct bindings; setting validates registration and bindings atomically,
-    and deletion removes the association.
-13. Runtime registration, schemas, binding declarations, and behavior are
-    deployment configuration that repository commands cannot mutate.
-14. Invocation resolves one runtime, conditionally parses nullable runtime
-    schemas, exposes only direct named bindings, confines nested invocation to
-    those bindings, normalizes results into `data` and automatic `done` events,
+    through the complete lineage and records that lineage with the edge.
+12. Invocation revalidates every binding lineage and live target before
+    inserting sealed resource ID strings into runtime input.
+13. An executable persists one resource-to-runtime association and its sealed
+    direct bindings; deletion removes the association and bindings.
+14. Runtime registration, schemas, and behavior are deployment configuration
+    that repository commands cannot mutate.
+15. Invocation resolves one runtime, parses input after inserting bound fields,
+    authorizes arbitrary nested resource IDs against caller authority or the
+    current frame's direct edges, follows valid edges transitively across
+    frames, normalizes results into `data` and automatic `done` events,
     propagates cancellation, and records each call in the chain.
-15. Audit records, errors, and logs exclude inputs and outputs while retaining
+16. Audit records, errors, and logs exclude inputs and outputs while retaining
     the IDs, runtime, timing, and result needed for accountability.

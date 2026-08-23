@@ -83,24 +83,24 @@ const githubProfile = await admin.resources.create({
 });
 await githubProfile.executable.set({
   runtime: 'githubProfile',
-  bindings: { credential: githubToken.id },
+  bind: { credential: githubToken.id },
 });
 ```
 
-Bindings belong to the executable definition rather than invocation input.
-Setting a binding requires `bind` on its resource. The binding is sealed after
-configuration: an invoker cannot replace it or supply another resource ID.
+The `bind` map partially applies top-level input fields with ordinary resource
+ID strings. Setting a binding requires `bind` on its resource and records the
+authorizing grant lineage. Invocation revalidates that lineage and rejects
+caller input that attempts to replace a sealed field.
 
 The trusted runtime reads the credential from the deployment-owned store and
 returns only the operation result:
 
 ```ts
 const githubProfileRuntime = {
-  bindings: { credential: {} },
-  inputSchema: z.null(),
+  inputSchema: z.object({ credential: z.string() }),
   outputSchema: z.object({ login: z.string() }),
-  async invoke({ bindings }) {
-    const token = await secretStore.get(bindings.credential);
+  async invoke({ input }) {
+    const token = await secretStore.get(input.credential);
     if (token === undefined) throw new Error('Credential is unavailable.');
     return fetchGithubProfile(token);
   },
@@ -134,7 +134,7 @@ const script = await (await alice.resources.get(scripts.id)).create({
 });
 await script.executable.set({
   runtime: 'profileSummary',
-  bindings: { profile: githubProfile.id },
+  bind: { profile: githubProfile.id },
 });
 ```
 
@@ -143,20 +143,23 @@ result and never receives the transitive credential binding:
 
 ```ts
 const profileSummaryRuntime = {
-  bindings: { profile: {} },
-  inputSchema: z.null(),
+  inputSchema: z.object({ profile: z.string() }),
   outputSchema: z.string(),
-  async invoke({ invoke }) {
-    const profile = await invoke.one('profile', { input: null });
+  async invoke({ input, invoke }) {
+    const profile = await invoke.one<{ login: string }>(
+      input.profile,
+      { input: {} },
+    );
     return `GitHub user: ${profile.login}`;
   },
 } satisfies InvokeRuntime<null, string>;
 ```
 
-Creating the `profile` edge requires `bind` on `githubProfile`. Authority is
-non-transitive, so that permission does not provide `bind`, `read`, or
-`invoke` on `githubToken`. Supplying the credential ID directly while setting
-another executable fails authorization.
+Creating the `profile` edge requires `bind` on `githubProfile`. When the script
+runs, RGAP revalidates that edge and invokes the arbitrary resource ID in
+`input.profile`. The profile's frame then revalidates its own credential edge.
+This transitive call chain never grants the script's frame direct authority to
+bind or read `githubToken`.
 
 The complete Hono app lives in `examples/secret-store`. It uses one SQLite
 database for RGAP state and initializes `SqliteSecretStore` with another

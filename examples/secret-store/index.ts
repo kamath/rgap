@@ -15,27 +15,21 @@ const secretStore: SecretStore = new SqliteSecretStore(`${directory}/secrets.db`
 
 type GithubProfile = { login: string };
 
-const githubProfile: InvokeRuntime<null, GithubProfile> = {
-  inputSchema: z.null(),
+const githubProfile: InvokeRuntime<{ credential: string }, GithubProfile> = {
+  inputSchema: z.object({ credential: z.string() }),
   outputSchema: z.object({ login: z.string() }),
-  bindings: {
-    credential: {},
-  },
-  async invoke({ bindings }) {
-    const token = await secretStore.get(bindings.credential);
+  async invoke({ input }) {
+    const token = await secretStore.get(input.credential);
     if (token === undefined) throw new Error('Credential is unavailable.');
     return mockGithubProfile(token);
   },
 };
 
-const profileSummary: InvokeRuntime<null, string> = {
-  inputSchema: z.null(),
+const profileSummary: InvokeRuntime<{ profile: string }, string> = {
+  inputSchema: z.object({ profile: z.string() }),
   outputSchema: z.string(),
-  bindings: {
-    profile: {},
-  },
-  async invoke({ invoke }) {
-    const profile = await invoke.one<GithubProfile>('profile', { input: null });
+  async invoke({ input, invoke }) {
+    const profile = await invoke.one<GithubProfile>(input.profile, { input: {} });
     return `GitHub user: ${profile.login}`;
   },
 };
@@ -59,7 +53,7 @@ const profile = await admin.resources.create({
 });
 await profile.executable.set({
   runtime: 'githubProfile',
-  bindings: { credential: githubToken.id },
+  bind: { credential: githubToken.id },
 });
 
 const scripts = await admin.resources.create({
@@ -83,7 +77,7 @@ const script = await (await alice.resources.get(scripts.id)).create({
 });
 await script.executable.set({
   runtime: 'profileSummary',
-  bindings: { profile: profile.id },
+  bind: { profile: profile.id },
 });
 
 const app = createApp({
