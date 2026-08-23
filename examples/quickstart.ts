@@ -6,10 +6,10 @@ try {
   const admin = store.admin();
 
   const acme = await admin.resources.create({ name: 'acme' });
-  const docs = await admin.resources.create({
-    name: 'acme/platform/docs',
+  const design = await admin.resources.create({
+    name: 'acme/platform/docs/design',
   });
-  const design = await docs.create({ name: 'design' });
+  const docs = await admin.resources.get(design.parentId!);
 
   const company = await admin.grants.create({
     name: 'Company',
