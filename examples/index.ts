@@ -39,11 +39,12 @@ const validator: JsonSchemaValidator = {
 const EchoProgramSchema = z.object({ prefix: z.string() });
 const EchoInputSchema = z.object({ query: z.string() });
 const EchoOutputSchema = z.object({ message: z.string(), scope: z.string() });
-type EchoProgram = z.infer<typeof EchoProgramSchema>;
-type EchoInput = z.infer<typeof EchoInputSchema>;
-type EchoOutput = z.infer<typeof EchoOutputSchema>;
-const echo: InvokeRuntime<EchoProgram, EchoInput, EchoOutput> = {
-  validate(program): asserts program is EchoProgram {
+const echo: InvokeRuntime<
+  z.infer<typeof EchoProgramSchema>,
+  z.infer<typeof EchoInputSchema>,
+  z.infer<typeof EchoOutputSchema>
+> = {
+  validate(program): asserts program is z.infer<typeof EchoProgramSchema> {
     EchoProgramSchema.parse(program);
   },
   async invoke({ revision, input, bindings }) {
