@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { createOpenAI } from '@ai-sdk/openai';
+import { generateText } from 'ai';
 import type { InvokeRuntime } from '@rgap/core';
 import { SqliteRgapStore } from '@rgap/sqlite';
 
@@ -7,14 +9,6 @@ const OpenAIInputSchema = z.object({
 });
 const OpenAIOutputSchema = z.object({
   text: z.string(),
-});
-const OpenAIResponseSchema = z.object({
-  output: z.array(z.object({
-    content: z.array(z.object({
-      type: z.string(),
-      text: z.string().optional(),
-    })),
-  })),
 });
 
 type OpenAIInput = z.infer<typeof OpenAIInputSchema>;
@@ -27,26 +21,12 @@ const openai: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error('OPENAI_API_KEY is required.');
 
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${apiKey}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: process.env.OPENAI_MODEL ?? 'gpt-5-mini',
-        input: input.prompt,
-      }),
-      signal,
+    const provider = createOpenAI({ apiKey });
+    const { text } = await generateText({
+      model: provider(process.env.OPENAI_MODEL ?? 'gpt-5-mini'),
+      prompt: input.prompt,
+      abortSignal: signal,
     });
-    if (!response.ok) throw new Error(`OpenAI returned ${response.status}.`);
-
-    const result = OpenAIResponseSchema.parse(await response.json());
-    const text = result.output
-      .flatMap((item) => item.content)
-      .find((item) => item.type === 'output_text')
-      ?.text;
-    if (!text) throw new Error('OpenAI returned no output text.');
     return { text };
   },
 };

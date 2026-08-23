@@ -11,9 +11,13 @@ Executable resources resolve to deployment-owned runtimes. A runtime keeps
 provider credentials inside trusted application code while an agent receives
 only an RGAP token.
 
-An OpenAI runtime reads `OPENAI_API_KEY` when it invokes the Responses API:
+An OpenAI runtime reads `OPENAI_API_KEY` and uses AI SDK `generateText` with
+the OpenAI provider:
 
 ```ts
+import { createOpenAI } from '@ai-sdk/openai';
+import { generateText } from 'ai';
+
 const openai: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
   inputSchema: OpenAIInputSchema,
   outputSchema: OpenAIOutputSchema,
@@ -21,20 +25,13 @@ const openai: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error('OPENAI_API_KEY is required.');
 
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${apiKey}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: process.env.OPENAI_MODEL ?? 'gpt-5-mini',
-        input: input.prompt,
-      }),
-      signal,
+    const provider = createOpenAI({ apiKey });
+    const { text } = await generateText({
+      model: provider(process.env.OPENAI_MODEL ?? 'gpt-5-mini'),
+      prompt: input.prompt,
+      abortSignal: signal,
     });
-
-    // Parse and return the provider response.
+    return { text };
   },
 };
 ```
