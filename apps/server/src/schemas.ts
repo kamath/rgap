@@ -14,6 +14,34 @@ export const ResourceSchema = z.object({
   deletedAt: NullableTimestampSchema,
 }).openapi('Resource');
 
+export const ExecutableDefinitionSchema = z.object({
+  resourceId: IdSchema,
+  runtime: z.string(),
+}).openapi('ExecutableDefinition');
+
+export const JsonValueSchema = z.union([
+  z.null(),
+  z.boolean(),
+  z.number(),
+  z.string(),
+  z.array(z.unknown()),
+  z.record(z.string(), z.unknown()),
+]);
+
+export const SetExecutableSchema = z.object({
+  runtime: z.string().min(1),
+}).strict();
+
+export const InvokeSchema = z.object({
+  input: JsonValueSchema,
+  bindings: z.record(z.string(), IdSchema).optional(),
+}).strict();
+
+export const InvocationEventSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('data'), value: JsonValueSchema }).strict(),
+  z.object({ type: z.literal('done') }).strict(),
+]).openapi('InvocationEvent');
+
 const CapabilityConfigSchema = {
   permissions: z.array(PermissionSchema),
 };

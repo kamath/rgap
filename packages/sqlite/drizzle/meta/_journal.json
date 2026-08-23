@@ -8,6 +8,13 @@
       "when": 1787356809067,
       "tag": "0000_conscious_stephen_strange",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787466346980,
+      "tag": "0001_daily_leopardon",
+      "breakpoints": true
     }
   ]
 }

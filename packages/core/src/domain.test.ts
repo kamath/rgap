@@ -60,11 +60,20 @@ describe('RGAP domain', () => {
     const state = fixture();
     delete state.resources['search-files'];
     delete state.grants.coordinator;
+    state.executables['missing-definition-resource'] = {
+      resourceId: r('missing-definition-resource'),
+      runtime: 'test',
+    };
+    state.executables.drive = {
+      resourceId: r('drive'),
+      runtime: 'test',
+    };
 
     expect(stateIntegrity(state)).toEqual([
       'Grant researcher refers to missing parent coordinator.',
       'Grant researcher refers to missing resource search-files.',
       'Token demo refers to missing grant coordinator.',
+      'Executable missing-definition-resource refers to a missing resource.',
     ]);
   });
 
@@ -586,7 +595,7 @@ describe('inspecting the authority behind a token', () => {
   });
 
   it('lists every permission the contract understands', () => {
-    expect(permissions).toEqual(['read', 'write', 'delete', 'move', 'invoke']);
+    expect(permissions).toEqual(['read', 'write', 'invoke', 'move', 'delete']);
   });
 });
 

@@ -9,6 +9,7 @@ import {
   tokenValue,
   type Capability,
   type GrantHandle,
+  type InvocationEvent,
   type ResourceHandle,
   type RgapRepository,
   type RgapStore,
@@ -19,6 +20,9 @@ import {
   AuthorityViewSchema,
   AuthorizationHeaderSchema,
   AuthorizeSchema,
+  ExecutableDefinitionSchema,
+  InvocationEventSchema,
+  InvokeSchema,
   DecisionSchema,
   ErrorSchema,
   GrantListQuerySchema,
@@ -29,6 +33,7 @@ import {
   IssuedTokenSchema,
   MoveResourceSchema,
   PageQuerySchema,
+  SetExecutableSchema,
   ResourceListQuerySchema,
   ResourceSchema,
   ResourceWriteSchema,
@@ -94,6 +99,37 @@ const deleteResourceRoute = commandRoute({
   operationId: 'deleteResource',
   request: { params: IdParamsSchema },
   responses: { 204: { description: 'Resource deleted' }, ...errors },
+});
+const getExecutableRoute = commandRoute({
+  method: 'get',
+  path: '/resources/{id}/executable',
+  operationId: 'getExecutable',
+  request: { params: IdParamsSchema },
+  responses: { 200: jsonResponse(ExecutableDefinitionSchema, 'Executable definition'), ...errors },
+});
+const setExecutableRoute = commandRoute({
+  method: 'put',
+  path: '/resources/{id}/executable',
+  operationId: 'setExecutable',
+  request: { params: IdParamsSchema, body: jsonBody(SetExecutableSchema) },
+  responses: { 200: jsonResponse(ExecutableDefinitionSchema, 'Executable definition'), ...errors },
+});
+const deleteExecutableRoute = commandRoute({
+  method: 'delete',
+  path: '/resources/{id}/executable',
+  operationId: 'deleteExecutable',
+  request: { params: IdParamsSchema },
+  responses: { 204: { description: 'Executable deleted' }, ...errors },
+});
+const invokeRoute = commandRoute({
+  method: 'post',
+  path: '/resources/{id}/invoke',
+  operationId: 'invoke',
+  request: { params: IdParamsSchema, body: jsonBody(InvokeSchema) },
+  responses: {
+    200: ndjsonResponse(InvocationEventSchema, 'Invocation event stream'),
+    ...errors,
+  },
 });
 const getGrantRoute = commandRoute({
   method: 'get',
@@ -222,7 +258,7 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
         : error.code.startsWith('missing_') ? 404 : 409;
       return apiError(c, status, error.code, error.message);
     }
-    console.error(error);
+    console.error('Unhandled RGAP server error.');
     return apiError(c, 500, 'internal_error', 'Internal server error.');
   });
 
@@ -258,6 +294,33 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
       const { id } = c.req.valid('param');
       await repository(c).resources.get(resourceId(id)).then((record) => record.delete());
       return c.body(null, 204);
+    })
+    .openapi(getExecutableRoute, async (c) => {
+      const { id } = c.req.valid('param');
+      const definition = await repository(c).executables.get(resourceId(id));
+      return c.json(requireRecord(definition, 'missing_executable', 'Executable does not exist.'), 200);
+    })
+    .openapi(setExecutableRoute, async (c) => {
+      const { id } = c.req.valid('param');
+      return c.json(await repository(c).executables.set(resourceId(id), c.req.valid('json')), 200);
+    })
+    .openapi(deleteExecutableRoute, async (c) => {
+      const { id } = c.req.valid('param');
+      await repository(c).executables.delete(resourceId(id));
+      return c.body(null, 204);
+    })
+    .openapi(invokeRoute, async (c) => {
+      const { id } = c.req.valid('param');
+      const { input, bindings } = c.req.valid('json');
+      // @hono/zod-openapi does not express a typed streaming body, although the route schema
+      // documents each NDJSON event. Runtime validation and integration tests cover the stream.
+      return invocationResponse(c.req.raw.signal, (signal) => repository(c).invoke(resourceId(id), {
+        input,
+        bindings: bindings
+          ? Object.fromEntries(Object.entries(bindings).map(([name, boundId]) => [name, resourceId(boundId)]))
+          : undefined,
+        signal,
+      })) as never;
     })
     .openapi(getGrantRoute, async (c) => {
       const { id } = c.req.valid('param');
@@ -386,8 +449,87 @@ function jsonResponse<T extends z.ZodType>(schema: T, description: string) {
   };
 }
 
+function ndjsonResponse<T extends z.ZodType>(schema: T, description: string) {
+  return {
+    description,
+    content: {
+      'application/x-ndjson': { schema },
+    },
+  };
+}
+
 function repository(c: { get(name: 'repository'): RgapRepository }) {
   return c.get('repository');
+}
+
+async function invocationResponse(
+  requestSignal: AbortSignal,
+  invoke: (signal: AbortSignal) => AsyncIterable<InvocationEvent>,
+) {
+  const controller = new AbortController();
+  const cancel = () => controller.abort(requestSignal.reason);
+  if (requestSignal.aborted) cancel();
+  else requestSignal.addEventListener('abort', cancel, { once: true });
+
+  const iterator = invoke(controller.signal)[Symbol.asyncIterator]();
+  let next: IteratorResult<InvocationEvent>;
+  try {
+    next = await iterator.next();
+  } catch (error) {
+    requestSignal.removeEventListener('abort', cancel);
+    controller.abort(error);
+    throw error;
+  }
+
+  const encoder = new TextEncoder();
+  let first: IteratorResult<InvocationEvent> | undefined = next;
+  const close = () => {
+    requestSignal.removeEventListener('abort', cancel);
+    controller.abort();
+  };
+  const body = new ReadableStream<Uint8Array>({
+    async pull(stream) {
+      try {
+        const result = first ?? await iterator.next();
+        first = undefined;
+        if (result.done) {
+          stream.close();
+          close();
+          return;
+        }
+        if (result.value.type === 'data' && result.value.value === undefined) {
+          throw new RgapError('invalid_runtime_event', 'Runtime data events require a JSON-compatible value.');
+        }
+        const encoded = JSON.stringify(result.value);
+        if (encoded === undefined) {
+          throw new RgapError('invalid_runtime_event', 'Runtime events must be JSON-compatible.');
+        }
+        stream.enqueue(encoder.encode(`${encoded}\n`));
+      } catch (error) {
+        try {
+          await iterator.return?.();
+        } catch {
+          // Preserve the stream failure that required iterator cleanup.
+        }
+        stream.error(error);
+        close();
+      }
+    },
+    async cancel(reason) {
+      controller.abort(reason);
+      requestSignal.removeEventListener('abort', cancel);
+      await iterator.return?.();
+    },
+  });
+  return new Response(body, {
+    status: 200,
+    headers: { 'content-type': 'application/x-ndjson' },
+  });
+}
+
+function requireRecord<T>(record: T | undefined, code: string, message: string): T {
+  if (record === undefined) throw new RgapError(code, message);
+  return record;
 }
 
 function resourceRecord(record: ResourceHandle) {

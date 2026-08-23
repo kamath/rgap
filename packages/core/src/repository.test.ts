@@ -4,6 +4,11 @@ import { fixture, stubCommands } from './fixture';
 import { pageLimit, paginateRecords, repositoryFrom } from './repository';
 
 const at = '2026-08-22T00:00:00.000Z';
+const collect = async <T>(values: AsyncIterable<T>) => {
+  const result: T[] = [];
+  for await (const value of values) result.push(value);
+  return result;
+};
 
 describe('repositoryFrom', () => {
   it('bounds page sizes and advances stable cursors', () => {
@@ -74,5 +79,28 @@ describe('repositoryFrom', () => {
     expect((await repository.inspectToken(token)).grantId).toBe('coordinator');
     await repository.reset();
     expect(calls).toEqual([{ method: 'reset', args: [] }]);
+  });
+
+  it('exposes executable and invocation commands on both surfaces', async () => {
+    const state = fixture();
+    state.executables['search-files'] = {
+      resourceId: resourceId('search-files'), runtime: 'test',
+    };
+    const { commands, calls } = stubCommands(state, at);
+    const repository = repositoryFrom(commands);
+    const resource = await repository.resources.get(resourceId('search-files'));
+
+    expect((await resource.executable.get())?.runtime).toBe('test');
+    expect((await repository.executables.get(resource.id))?.resourceId).toBe(resource.id);
+    await resource.executable.set({ runtime: 'test' });
+    await repository.executables.set(resource.id, { runtime: 'test' });
+    await resource.executable.delete();
+    await repository.executables.delete(resource.id);
+    expect(await collect(resource.invoke({ input: null }))).toEqual([{ type: 'done' }]);
+    expect(await collect(repository.invoke(resource.id, { input: null }))).toEqual([{ type: 'done' }]);
+    expect(calls.map(({ method }) => method)).toEqual([
+      'setExecutable', 'setExecutable', 'deleteExecutable', 'deleteExecutable',
+      'invoke', 'invoke',
+    ]);
   });
 });

@@ -1,5 +1,5 @@
 /** Permissions understood by the reference RGAP contract. */
-export const permissions = ['read', 'write', 'delete', 'move', 'invoke'] as const;
+export const permissions = ['read', 'write', 'invoke', 'move', 'delete'] as const;
 export type Permission = (typeof permissions)[number];
 
 declare const identityBrand: unique symbol;
@@ -23,6 +23,15 @@ export const grantId = (id: string): GrantId => id as GrantId;
 export const tokenId = (id: string): TokenId => id as TokenId;
 export const tokenValue = (id: string): TokenValue => id as TokenValue;
 export const tokenHash = (id: string): TokenHash => id as TokenHash;
+export type BindingSlot = {
+  kind: string;
+  required?: boolean;
+};
+
+export type ExecutableDefinition = {
+  resourceId: ResourceId;
+  runtime: string;
+};
 
 export type Resource = {
   id: ResourceId;
@@ -75,6 +84,7 @@ export type State = {
   resources: Record<string, Resource>;
   grants: Record<string, Grant>;
   tokens: Record<string, Token>;
+  executables: Record<string, ExecutableDefinition>;
   audit: AuditEvent[];
 };
 
@@ -181,6 +191,11 @@ export function stateIntegrity(state: State) {
   });
   Object.values(state.tokens).forEach((token) => {
     if (!state.grants[token.grantId]) problems.push(`Token ${token.id} refers to missing grant ${token.grantId}.`);
+  });
+  Object.values(state.executables).forEach((definition) => {
+    if (!state.resources[definition.resourceId]) {
+      problems.push(`Executable ${definition.resourceId} refers to a missing resource.`);
+    }
   });
   return problems;
 }

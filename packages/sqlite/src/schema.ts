@@ -63,6 +63,11 @@ export const tokens = sqliteTable('tokens', {
   revokedAt: text('revoked_at'),
 });
 
+export const executables = sqliteTable('executables', {
+  resourceId: text('resource_id').primaryKey().references(() => resources.id),
+  runtime: text('runtime').notNull(),
+});
+
 /** The log's order is stored rather than inferred, so a read returns the events in the order they were recorded. */
 export const audit = sqliteTable('audit', {
   seq: integer('seq').primaryKey(),

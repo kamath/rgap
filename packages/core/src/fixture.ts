@@ -31,6 +31,7 @@ export function fixture(): State {
         expiresAt: '2027-08-21T23:00:00.000Z', revokedAt: null,
       },
     },
+    executables: {},
     audit: [],
   };
 }
@@ -91,6 +92,17 @@ export function stubCommands(state: State, at: string) {
     createResource: (input) => record('createResource', [input], { ...input, id: resourceId('created'), deletedAt: null }),
     moveResource: (id, parentId) => record('moveResource', [id, parentId], resourceStub(id, parentId)),
     deleteResource: (id) => record('deleteResource', [id], undefined),
+    getExecutable: (id) => Promise.resolve(state.executables[id]),
+    setExecutable: (id, input) => record('setExecutable', [id, input], {
+      resourceId: id, runtime: input.runtime,
+    }),
+    deleteExecutable: (id) => record('deleteExecutable', [id], undefined),
+    invoke: (id, input) => {
+      calls.push({ method: 'invoke', args: [id, input] });
+      return (async function* () {
+        yield { type: 'done' as const };
+      })();
+    },
     createGrant: (input) => record('createGrant', [input], { ...input, id: grantId('created'), revokedAt: null }),
     setCapabilities: (id, capabilities) =>
       record('setCapabilities', [id, capabilities], { ...state.grants[id], capabilities }),

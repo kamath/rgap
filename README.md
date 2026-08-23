@@ -21,7 +21,7 @@ Additional documents:
 
 Resources form a tree, like folders and files. Every resource has a stable ID; its path is only its current location.
 
-A resource record contains only its stable ID, parent resource ID, name, and deletion marker. RGAP does not assign resource kinds such as organization, collection, server, folder, tool, or document. Applications may understand the objects referenced by resources, but that classification is not part of the resource hierarchy.
+A resource record contains only its stable ID, parent resource ID, name, and deletion marker. Executable definitions refer to resources by stable ID without adding kinds to the resource hierarchy. Applications may attach other objects to resource IDs in the same way.
 
 ```text
 projects/
@@ -115,6 +115,45 @@ No permission implies another. `write` does not imply `read`, and `read` is not 
 
 [PROTOCOL.md](PROTOCOL.md) states the authority each operation requires, so that independent implementations agree. Two rulings there are worth repeating here. A move requires `move` on the resource **and** `write` on the destination parent, because relocation changes who reaches the resource: without authority at the destination, a move would place a resource inside a scope the mover does not hold. Creating a root resource, creating a root grant, and moving a resource to a root are administrative operations; no token authorizes them.
 
+## Generic invocation
+
+An executable definition attaches one deployment-configured runtime to an ordinary resource ID:
+
+```ts
+type ExecutableDefinition = {
+  resourceId: ResourceId;
+  runtime: string;
+};
+
+type RuntimeResult<T> = T | AsyncIterable<T>;
+type RuntimeSchema<T> = {
+  parse(value: unknown): T;
+};
+
+interface InvokeRuntime<
+  TInput = unknown,
+  TOutput = unknown,
+> {
+  inputSchema: RuntimeSchema<TInput> | null;
+  outputSchema: RuntimeSchema<TOutput> | null;
+  bindings?: Record<string, {
+    kind: string;
+    required?: boolean;
+  }>;
+  invoke(
+    context: RuntimeInvocation<TInput>,
+  ): RuntimeResult<TOutput> | Promise<RuntimeResult<TOutput>>;
+}
+```
+
+The deployment configures each runtime once, including trusted fetch destinations, protocol behavior, input/output schemas, and binding declarations. RGAP persists only the resource-to-runtime association. Changing runtime behavior or schemas is a host configuration change rather than executable data CRUD. The core package defines no runtime implementations.
+
+`resource.invoke({ input, bindings })` authorizes `invoke` on the executable resource and every bound resource through the complete grant lineage. A binding is another resource exercised by the invocation; it need not be a tree child of the executable. Core validates exact binding names and required bindings against the runtime configuration.
+
+Core parses input when the runtime's `inputSchema` is non-null and passes the typed result, cancellation signal, and opaque `{ resourceId, kind }` bindings to the runtime. A single value or promise becomes one `data` event; an async iterable becomes one `data` event per yielded value. Core parses each value when `outputSchema` is non-null, emits `done` automatically, and returns the normalized `AsyncIterable<InvocationEvent>`. Runtime exceptions terminate the stream and are recorded as invocation errors.
+
+`RuntimeSchema` is structurally compatible with Zod, so runtimes may assign Zod schemas directly without adding Zod to core. Binding kinds remain runtime-defined strings, leaving room for a later `secret` binding extension.
+
 ## Enforcement boundary
 
 RGAP stores expose no unrestricted command methods directly. A caller explicitly selects one of two command planes:
@@ -178,7 +217,7 @@ The repository contains four workspace packages:
 - `@rgap/server` exposes the repository as a Hono HTTP API.
 - `@rgap/examples` is an executable scratchpad for exploring the model.
 
-`@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, and asynchronous `RgapStore` and `RgapRepository` contracts. Identities in that TypeScript surface are branded (`ResourceId`, `GrantId`, `TokenId`, `TokenValue`, `TokenHash`); they serialize as ordinary strings. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. `as` takes a `TokenValue`. Neither contract exposes a subscription or requires a streaming transport. The package has no dependency on a storage implementation or transport.
+`@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, runtime contracts, and asynchronous `RgapStore` and `RgapRepository` contracts. Identities in that TypeScript surface are branded (`ResourceId`, `GrantId`, `TokenId`, `TokenValue`, `TokenHash`); they serialize as ordinary strings. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. Ordinary commands are request-response operations; invoke returns an async event iterable. The package has no dependency on a storage implementation or transport.
 
 A repository is the request-response interface returned by `as` or `admin`. It exposes collections, looks up existing records, reads current state, and answers decision queries. Creating a grant or a resource is one command; the parent is an argument. TypeScript fills that argument from the receiver so the caller does not pass it.
 
@@ -263,6 +302,10 @@ The OpenAPI `operationId` in the right column is the generated HeyAPI function n
 | `POST /resources` | `{ name, parentId }` | `Resource` | `createResource` |
 | `POST /resources/{id}/move` | path `id`, body `{ parentId }` | `Resource` | `moveResource` |
 | `DELETE /resources/{id}` | path `id` | no body | `deleteResource` |
+| `GET /resources/{id}/executable` | path `id` | `ExecutableDefinition` | `getExecutable` |
+| `PUT /resources/{id}/executable` | path `id`, `{ runtime }` | `ExecutableDefinition` | `setExecutable` |
+| `DELETE /resources/{id}/executable` | path `id` | no body | `deleteExecutable` |
+| `POST /resources/{id}/invoke` | path `id`, `{ input, bindings }` | NDJSON `InvocationEvent` stream | `invoke` |
 | `GET /grants/{id}` | path `id` | `Grant` | `getGrant` |
 | `GET /grants` | query `parentId`, `cursor`, `limit` | `Grant[]` | `listGrants` |
 | `POST /grants` | `{ name, parentId, capabilities, expiresAt }` | `Grant` | `createGrant` |
@@ -277,7 +320,7 @@ The OpenAPI `operationId` in the right column is the generated HeyAPI function n
 | `POST /tokens/inspect` | `{ token }` | `AuthorityView` | `inspectToken` |
 | `POST /reset` | no body | no body | `reset` |
 
-`authorize` and `inspectToken` evaluate the bearer supplied in their JSON body while the authorization header selects the repository plane. Successful responses are the JSON-compatible `@rgap/core` records, arrays, decisions, and authority views shown in the table. Commands that return no value respond with status `204`. Input validation failures use status `400`, an invalid or missing authorization bearer uses status `401`, an operation outside the selected plane uses status `403`, a missing record uses status `404`, and other domain conflicts use status `409`.
+`authorize` and `inspectToken` evaluate the bearer supplied in their JSON body while the authorization header selects the repository plane. Invoke responds as `application/x-ndjson`; every line is one event, and cancellation propagates to the runtime. Other successful responses are JSON-compatible records, arrays, decisions, and authority views. Commands that return no value respond with status `204`. Input validation failures use status `400`, an invalid or missing authorization bearer uses status `401`, an operation outside the selected plane uses status `403`, a missing record uses status `404`, and other domain conflicts use status `409`.
 
 Each route is declared once with `@hono/zod-openapi`. Its Zod schemas validate path parameters, query parameters, headers, and JSON bodies at runtime and describe every success and error response. Hono derives the RPC `AppType` from the same chained route definitions, and the application publishes the generated OpenAPI document at `/openapi.json`. The public `/ui` route serves Swagger UI configured to load that document. Documentation routes are not command operations and do not add functions to either typed client.
 
@@ -292,7 +335,10 @@ The package exports the Hono application, `AppType`, generated HeyAPI client, an
 ```ts
 import { SqliteRgapStore } from '@rgap/sqlite';
 
-const store = new SqliteRgapStore({ url: 'rgap.db' });
+const store = new SqliteRgapStore({
+  url: 'rgap.db',
+  runtimes: deploymentRuntimes,
+});
 const admin = store.admin();
 
 const acme = await admin.resources.create({ name: 'acme' });
@@ -312,7 +358,7 @@ const decision = await repository.authorize(value, child.id, 'read');
 store.close();
 ```
 
-The constructor takes an optional `url`, a file path or `:memory:`, and an optional `initialState`, which is what an empty database is initialized with and what `reset()` restores. A database that already holds records is opened as it stands. `close()` releases the connection. Bearer values are returned once and never stored; the `tokens` table holds only hashes.
+The constructor takes an optional `url`, a file path or `:memory:`, an optional `initialState`, and a runtime registry. A database that already holds records is opened as it stands. `close()` releases the connection. Bearer values are returned once and never stored; the `tokens` table holds only hashes.
 
 `admin()` and `as(token)` return the same `RgapRepository` interface, so callers cannot accidentally switch planes by changing command code. Only the explicit store selection differs.
 
@@ -327,6 +373,7 @@ The store is normalized. Every record the protocol defines is a table, and every
 | `capabilities` | One row per capability entry, keyed by its grant and its position in that grant's set. |
 | `capability_permissions` | One row per permission an entry carries, so a permission set is a relation SQL can query rather than an encoded value. |
 | `tokens` | One row per issued token: stable ID, grant ID, label, hash, expiration, revocation. |
+| `executables` | One resource-to-runtime association per executable resource. |
 | `audit` | One row per recorded event, ordered by an explicit sequence number so the log's order is stored rather than inferred. |
 
 Because an entry's permissions are a set, reading returns them in the protocol's canonical permission order rather than the order they were written in.
@@ -338,6 +385,8 @@ The schema is declared once as Drizzle tables, and `drizzle-kit` generates the D
 A command is one SQLite transaction. It reads the complete state, applies the relevant pure `@rgap/core` rule, and replaces the stored rows with the state that rule returns. Nothing observes a partially updated authorization state, and a refused command writes nothing at all, because the rule rejects before the write begins.
 
 Rows are written parents before children, so the foreign keys hold at every statement rather than only at the end of the transaction.
+
+Invocation authorizes and validates before runtime execution, runs outside the SQLite write transaction, propagates cancellation, and records IDs, runtime, timing, and result without recording input or output values.
 
 ### Scratchpad
 
@@ -351,6 +400,21 @@ const store = new HttpRgapStore({
 ```
 
 Both implementations present the same `RgapStore` and `RgapRepository` interfaces and provide `close()`, which is a no-op for the HTTP store. The remote administrative bearer must match the running server because the walkthrough resets the store and creates root records. The example is a workspace package that consumes the packages the way any TypeScript caller does, and it is meant to be edited rather than preserved.
+
+The local scratchpad configures a typed `echo` runtime with Zod input/output schemas, associates it with the existing `search` resource, declares one opaque resource binding in runtime configuration, and invokes it through the company token:
+
+```ts
+const events = search.invoke({
+  input: { query: 'design' },
+  bindings: { searchWithin: docs.id },
+});
+
+for await (const event of events) {
+  console.log(event);
+}
+```
+
+The company grant carries `invoke` on both `search` and `docs` through its existing `acme` subtree capability. The runtime receives validated input and `{ resourceId, kind }` for `searchWithin`, emits a `data` event, and finishes with `done`. It never resolves or reads the bound resource, leaving secret resolution as a later binding-kind extension.
 
 The file currently walks a five-step delegation. Resources are the company's workspace. Grants are who holds authority over it. Each step issues a token for the current grant, selects that token's plane with `store.as`, and creates a narrower child grant:
 

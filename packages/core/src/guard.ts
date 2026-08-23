@@ -23,6 +23,7 @@ import {
   type RgapRepository,
   type TokenHandle,
 } from './repository';
+import { withAuthorizedLineage } from './executable';
 
 /**
  * Wraps a repository so each command authorizes the token before it runs.
@@ -41,6 +42,7 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
   const permit = async (id: ResourceId, permission: Permission) => {
     const decision = await repository.authorize(token, id, permission);
     if (!decision.allowed) throw new RgapError('unauthorized', decision.detail);
+    return decision;
   };
 
   /** Tokens reach their own grant and everything delegated from it, and nothing above or beside it. */
@@ -74,7 +76,36 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
       await permit(resource.id, 'delete');
       return resource.delete();
     },
+    executable: {
+      async get() {
+        await permit(resource.id, 'read');
+        return resource.executable.get();
+      },
+      async set(input) {
+        await permit(resource.id, 'write');
+        return resource.executable.set(input);
+      },
+      async delete() {
+        await permit(resource.id, 'write');
+        return resource.executable.delete();
+      },
+    },
+    invoke: (input) => guardedInvoke(resource.id, input),
   });
+
+  const authorizeInvocation = async (id: ResourceId, input: Parameters<RgapRepository['invoke']>[1]) => {
+    const invocation = await permit(id, 'invoke');
+    for (const boundId of Object.values(input.bindings ?? {})) await permit(boundId, 'invoke');
+    return invocation.lineage;
+  };
+
+  async function* guardedInvoke(
+    id: ResourceId,
+    input: Parameters<RgapRepository['invoke']>[1],
+  ) {
+    const lineage = await authorizeInvocation(id, input);
+    yield* repository.invoke(id, withAuthorizedLineage(input, lineage));
+  }
 
   const wrapGrant = (grant: GrantHandle): GrantHandle => {
     const capabilities = Object.assign([...grant.capabilities], {
@@ -161,7 +192,12 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
   };
 
   const auditIsVisible = async (event: AuditEvent, view: AuthorityView, resources: Set<string>) => {
-    if (event.action === 'authorize' || event.action.startsWith('resource.')) {
+    if (
+      event.action === 'authorize' ||
+      event.action.startsWith('resource.') ||
+      event.action.startsWith('executable.') ||
+      event.action.startsWith('invoke.')
+    ) {
       return resources.has(event.target);
     }
     if (event.action.startsWith('grant.')) return grantIsVisible(grantId(event.target), view);
@@ -202,6 +238,21 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
         return filtered(query, (page) => repository.resources.list(page), async (resource) => visible.has(resource.id));
       },
     },
+    executables: {
+      async get(resourceId) {
+        await permit(resourceId, 'read');
+        return repository.executables.get(resourceId);
+      },
+      async set(resourceId, input) {
+        await permit(resourceId, 'write');
+        return repository.executables.set(resourceId, input);
+      },
+      async delete(resourceId) {
+        await permit(resourceId, 'write');
+        return repository.executables.delete(resourceId);
+      },
+    },
+    invoke: guardedInvoke,
     grants: {
       async create(input) {
         const parent = wrapGrant(await repository.grants.get(await actingGrantId()));

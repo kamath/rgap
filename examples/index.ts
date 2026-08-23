@@ -9,7 +9,15 @@
  * with `new HttpRgapStore(...)` to run the same walkthrough against the Hono API.
  */
 import { fileURLToPath } from 'node:url';
-import { resourceId, resourcePath, type Permission, type ResourceId, type TokenValue } from '@rgap/core';
+import { z } from 'zod';
+import {
+  resourceId,
+  resourcePath,
+  type InvokeRuntime,
+  type Permission,
+  type ResourceId,
+  type TokenValue,
+} from '@rgap/core';
 import { HttpRgapStore } from '@rgap/server';
 import { SqliteRgapStore } from '@rgap/sqlite';
 
@@ -17,7 +25,28 @@ type TreeNode<Id extends string> = { id: Id; parentId: Id | null; name: string }
 
 // To use Hono, replace the next line with:
 // const store = new HttpRgapStore({ baseUrl: 'http://localhost:3000', adminToken: process.env.RGAP_ADMIN_TOKEN ?? 'test' });
-const store = new SqliteRgapStore({ url: fileURLToPath(new URL('scratch.db', import.meta.url)) });
+const EchoInputSchema = z.object({ query: z.string() });
+const EchoOutputSchema = z.object({ message: z.string(), searchedWithin: z.string() });
+const echo: InvokeRuntime<
+  z.infer<typeof EchoInputSchema>,
+  z.infer<typeof EchoOutputSchema>
+> = {
+  inputSchema: EchoInputSchema,
+  outputSchema: EchoOutputSchema,
+  bindings: {
+    searchWithin: { kind: 'resource' },
+  },
+  async invoke({ input, bindings }) {
+    return {
+      message: `result: ${input.query}`,
+      searchedWithin: bindings.searchWithin.resourceId,
+    };
+  },
+};
+const store = new SqliteRgapStore({
+  url: fileURLToPath(new URL('scratch.db', import.meta.url)),
+  runtimes: { echo },
+});
 const root = store.admin();
 
 // Every run starts from an empty store. Remove this to keep what the last run wrote.
@@ -41,6 +70,9 @@ const docs = await platform.create({ name: 'docs' });
 const design = await docs.create({ name: 'design' });
 const tools = await platform.create({ name: 'tools' });
 const search = await tools.create({ name: 'search' });
+await search.executable.set({
+  runtime: 'echo',
+});
 const finance = await companyRoot.create({ name: 'finance' });
 const payroll = await finance.create({ name: 'payroll' });
 
@@ -122,6 +154,14 @@ for (const [label, token] of tokens) {
   Object.entries(authority.permissions).forEach(([id, held]) => {
     console.log(`  ${path(resourceId(id)).padEnd(26)} ${held.join(' ')}`);
   });
+}
+
+console.log('\nINVOKE');
+for await (const event of search.invoke({
+  input: { query: 'design' },
+  bindings: { searchWithin: docs.id },
+})) {
+  console.log(event);
 }
 
 // console.log(await root.resources.list({ limit: 100 }));

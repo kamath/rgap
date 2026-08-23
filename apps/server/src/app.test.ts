@@ -1,6 +1,9 @@
 import { hc } from 'hono/client';
 import { afterEach, describe, expect, it } from 'vitest';
-import { resourceId } from '@rgap/core';
+import {
+  resourceId,
+  type InvokeRuntime,
+} from '@rgap/core';
 import { SqliteRgapStore } from '@rgap/sqlite';
 import { createApp, type AppType } from './app';
 import { createClient } from './client/generated/client';
@@ -16,6 +19,10 @@ const expectedOperations = [
   'createResource',
   'moveResource',
   'deleteResource',
+  'getExecutable',
+  'setExecutable',
+  'deleteExecutable',
+  'invoke',
   'getGrant',
   'listGrants',
   'createGrant',
@@ -43,12 +50,38 @@ function testApp() {
   return createApp({ store, adminToken });
 }
 
+function executableTestApp() {
+  const runtime: InvokeRuntime = {
+    inputSchema: null,
+    outputSchema: null,
+    bindings: { source: { kind: 'document' } },
+    async invoke(context) {
+      return context.input;
+    },
+  };
+  const voidRuntime: InvokeRuntime = {
+    inputSchema: null,
+    outputSchema: null,
+    bindings: { source: { kind: 'document' } },
+    async invoke() {},
+  };
+  store = new SqliteRgapStore({
+    runtimes: { test: runtime, void: voidRuntime },
+  });
+  return createApp({ store, adminToken });
+}
+
 describe('RGAP Hono API', () => {
   it('publishes one OpenAPI and HeyAPI operation for every RgapCommands method', async () => {
     const app = testApp();
     const response = await app.request('/openapi.json');
     const document = await response.json() as {
       paths: Record<string, Record<string, { operationId?: string }>>;
+      components: {
+        schemas: {
+          InvocationEvent: { oneOf: Array<{ properties: { type: { enum: string[] } } }> };
+        };
+      };
     };
     const operationIds = Object.values(document.paths)
       .flatMap((path) => Object.values(path))
@@ -57,6 +90,8 @@ describe('RGAP Hono API', () => {
     expect(response.status).toBe(200);
     expect(operationIds.sort()).toEqual([...expectedOperations].sort());
     expect(expectedOperations.every((operation) => typeof sdk[operation] === 'function')).toBe(true);
+    expect(document.components.schemas.InvocationEvent.oneOf.map((event) => event.properties.type.enum[0]))
+      .toEqual(['data', 'done']);
 
     const ui = await app.request('/ui');
     expect(ui.status).toBe(200);
@@ -133,6 +168,83 @@ describe('RGAP Hono API', () => {
       capabilities: [],
       expiresAt: null,
     }, issued.value)).status).toBe(403);
+  });
+
+  it('serves executable commands and NDJSON invocation', async () => {
+    const app = executableTestApp();
+    const request = (path: string, method: string, body?: unknown, bearer = adminToken) => app.request(path, {
+      method,
+      headers: {
+        authorization: `Bearer ${bearer}`,
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const executable = await (await request('/resources', 'POST', {
+      name: 'echo',
+      parentId: null,
+    })).json() as { id: string };
+    const source = await (await request('/resources', 'POST', {
+      name: 'source',
+      parentId: null,
+    })).json() as { id: string };
+    const set = await request(
+      `/resources/${executable.id}/executable`,
+      'PUT',
+      { runtime: 'test' },
+    );
+    expect(set.status).toBe(200);
+    expect(await (await request(`/resources/${executable.id}/executable`, 'GET')).json())
+      .toEqual({ resourceId: executable.id, runtime: 'test' });
+
+    expect((await request(`/resources/${executable.id}/invoke`, 'POST', {
+      input: {},
+      bindings: { source: source.id },
+      signal: {},
+    })).status).toBe(400);
+    const invoked = await request(`/resources/${executable.id}/invoke`, 'POST', {
+      input: { message: 'hello' },
+      bindings: { source: source.id },
+    });
+    expect(invoked.status).toBe(200);
+    expect(invoked.headers.get('content-type')).toContain('application/x-ndjson');
+    expect((await invoked.text()).trim().split('\n').map((line) => JSON.parse(line))).toEqual([
+      { type: 'data', value: { message: 'hello' } },
+      { type: 'done' },
+    ]);
+    await request(`/resources/${executable.id}/executable`, 'PUT', { runtime: 'void' });
+    const voidInvocation = await request(`/resources/${executable.id}/invoke`, 'POST', {
+      input: null,
+      bindings: { source: source.id },
+    });
+    expect((await voidInvocation.text()).trim().split('\n').map((line) => JSON.parse(line)))
+      .toEqual([{ type: 'done' }]);
+    const readerGrant = await (await request('/grants', 'POST', {
+      name: 'reader',
+      parentId: null,
+      capabilities: [{ resourceId: executable.id, permissions: ['read'] }],
+      expiresAt: null,
+    })).json() as { id: string };
+    const reader = await (await request(`/grants/${readerGrant.id}/tokens`, 'POST', {
+      label: 'reader',
+    })).json() as { value: string };
+    expect((await request(`/resources/${executable.id}/executable`, 'GET', undefined, reader.value)).status)
+      .toBe(200);
+    expect((await request(
+      `/resources/${executable.id}/executable`,
+      'PUT',
+      { runtime: 'test' },
+      reader.value,
+    )).status).toBe(403);
+    expect((await request(
+      `/resources/${executable.id}/invoke`,
+      'POST',
+      { input: {}, bindings: { source: source.id } },
+      reader.value,
+    )).status).toBe(403);
+
+    expect((await request(`/resources/${executable.id}/executable`, 'DELETE')).status).toBe(204);
+    expect((await request(`/resources/${executable.id}/executable`, 'GET')).status).toBe(404);
   });
 
   it('exposes the same route contract through Hono RPC', async () => {
@@ -243,6 +355,32 @@ describe('RGAP Hono API', () => {
     expect((await sdk.deleteResource({ client, headers, path: { id: childId } })).response?.status)
       .toBe(204);
     expect((await sdk.reset({ client, headers })).response?.status).toBe(204);
+  });
+
+  it('iterates NDJSON invocation events through HttpRgapStore', async () => {
+    const app = executableTestApp();
+    const remote = new HttpRgapStore({
+      baseUrl: 'http://rgap.test',
+      adminToken,
+      fetch: async (input, init) => app.fetch(new Request(input, init)),
+    });
+    const admin = remote.admin();
+    const executable = await admin.resources.create({ name: 'remote-echo' });
+    const source = await admin.resources.create({ name: 'remote-source' });
+    await executable.executable.set({ runtime: 'test' });
+    expect((await executable.executable.get())?.runtime).toBe('test');
+    const events = [];
+    for await (const event of executable.invoke({
+      input: { remote: true },
+      bindings: { source: source.id },
+    })) {
+      events.push(event);
+    }
+    expect(events).toEqual([
+      { type: 'data', value: { remote: true } },
+      { type: 'done' },
+    ]);
+    await executable.executable.delete();
   });
 
   it('presents the HTTP API through the RgapStore interface', async () => {

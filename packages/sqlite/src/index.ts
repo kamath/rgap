@@ -10,18 +10,23 @@ import {
   availableId,
   createGrant as addGrant,
   createResource as addResource,
+  deleteExecutable as removeExecutable,
   deleteResource as removeResource,
   grantId,
+  getAuthorizedLineage,
   guardCommands,
   inspectAuthority,
+  invokeExecutable,
   isPathCapability,
   moveResource as move,
   pageLimit,
   permissions as canonicalPermissions,
+  setExecutable as associateExecutable,
   recordToken,
   resourceId,
   revokeGrant as revokeGrantBranch,
   revokeToken as revokeTokenRecord,
+  RuntimeRegistry,
   setCapabilities as amendCapabilities,
   tokenHash,
   tokenId,
@@ -32,7 +37,11 @@ import {
   type CreateGrantInput,
   type CreateResourceInput,
   type GrantId,
+  type InvocationRecord,
+  type InvokeInput,
+  type RuntimeRegistrations,
   type Permission,
+  type SetExecutableInput,
   type AuditListQuery,
   type RecordId,
   type ResourceId,
@@ -56,6 +65,8 @@ export type SqliteRgapStoreOptions = {
   url?: string;
   /** What an empty database is initialized with, and what `reset` restores. */
   initialState?: State;
+  /** Deployment-owned runtime implementations. They are configuration, not repository state. */
+  runtimes?: RuntimeRegistry | RuntimeRegistrations;
 };
 
 export class SqliteRgapStore implements RgapStore {
@@ -83,9 +94,13 @@ class SqliteBackingRepository implements RgapCommands {
   private connection: Database.Database;
   private db: BetterSQLite3Database;
   private initialState: State;
+  private readonly runtimes: RuntimeRegistry;
 
   constructor(options: SqliteRgapStoreOptions = {}) {
-    this.initialState = structuredClone(options.initialState ?? emptyState());
+    this.initialState = completeState(options.initialState);
+    this.runtimes = options.runtimes instanceof RuntimeRegistry
+      ? options.runtimes
+      : new RuntimeRegistry(options.runtimes);
     this.connection = new Database(options.url ?? ':memory:');
     this.connection.pragma('foreign_keys = ON');
     this.db = drizzle(this.connection);
@@ -177,6 +192,41 @@ class SqliteBackingRepository implements RgapCommands {
     this.commit((state) => ({ state: removeResource(state, id, now()), pick: () => undefined }));
   }
 
+  async getExecutable(id: ResourceId) {
+    const row = this.db.select().from(schema.executables).where(eq(schema.executables.resourceId, id)).get();
+    return row ? {
+      resourceId: resourceId(row.resourceId),
+      runtime: row.runtime,
+    } : undefined;
+  }
+
+  async setExecutable(id: ResourceId, input: SetExecutableInput) {
+    return this.commit((state) => ({
+      state: associateExecutable(state, id, input, now(), this.runtimes),
+      pick: (committed) => committed.executables[id],
+    }));
+  }
+
+  async deleteExecutable(id: ResourceId) {
+    this.commit((state) => ({ state: removeExecutable(state, id, now()), pick: () => undefined }));
+  }
+
+  invoke(id: ResourceId, input: InvokeInput) {
+    const repository = this;
+    return (async function* () {
+      yield* invokeExecutable({
+        getDefinition: (resource) => repository.getExecutable(resource),
+        // The selected repository plane already authorized invocation. The admin plane is unrestricted.
+        authorize: async (resource) => {
+          repository.requireLiveResource(resource);
+          return { lineage: getAuthorizedLineage(input) };
+        },
+        runtimes: repository.runtimes,
+        recordInvocation: (record) => repository.recordInvocation(record),
+      }, id, input);
+    })();
+  }
+
   async createGrant(input: CreateGrantInput) {
     const id = grantId(randomUUID());
     return this.commit((state) => ({
@@ -245,6 +295,33 @@ class SqliteBackingRepository implements RgapCommands {
   /** Releases the connection. A `:memory:` database ceases to exist with it. */
   close() {
     this.connection.close();
+  }
+
+  private requireLiveResource(id: ResourceId) {
+    const resource = this.read().resources[id];
+    if (!resource || resource.deletedAt) throw new RgapError('missing_resource', 'Resource does not exist.');
+  }
+
+  private async recordInvocation(record: InvocationRecord) {
+    this.commit((state) => {
+      const next = structuredClone(state);
+      next.audit.unshift({
+        id: randomUUID(),
+        at: record.finishedAt,
+        action: 'executable.invoke',
+        target: record.resourceId,
+        result: 'recorded',
+        detail: JSON.stringify({
+          runtime: record.runtime,
+          grantLineageIds: record.grantLineage,
+          bindingResourceIds: Object.values(record.bindings),
+          startedAt: record.startedAt,
+          finishedAt: record.finishedAt,
+          result: record.result,
+        }),
+      });
+      return { state: next, pick: () => undefined };
+    });
   }
 
   private grantRecord(row: typeof schema.grants.$inferSelect) {
@@ -345,6 +422,13 @@ class SqliteBackingRepository implements RgapCommands {
       };
     });
 
+    this.db.select().from(schema.executables).orderBy(asc(schema.executables.resourceId)).all().forEach((row) => {
+      state.executables[row.resourceId] = {
+        resourceId: resourceId(row.resourceId),
+        runtime: row.runtime,
+      };
+    });
+
     this.db.select().from(schema.audit).orderBy(asc(schema.audit.seq)).all().forEach((row) => {
       state.audit.push({
         id: row.id,
@@ -364,6 +448,7 @@ class SqliteBackingRepository implements RgapCommands {
     this.db.delete(schema.capabilityPermissions).run();
     this.db.delete(schema.capabilities).run();
     this.db.delete(schema.tokens).run();
+    this.db.delete(schema.executables).run();
     this.db.delete(schema.audit).run();
     this.db.delete(schema.grants).run();
     this.db.delete(schema.resources).run();
@@ -396,17 +481,31 @@ class SqliteBackingRepository implements RgapCommands {
     insert(this.db, schema.capabilityPermissions, carried);
 
     insert(this.db, schema.tokens, Object.values(state.tokens));
+    insert(this.db, schema.executables, Object.values(state.executables));
     insert(this.db, schema.audit, state.audit.map((event, seq) => ({ ...event, seq })));
   }
 
   private isEmpty() {
-    return [schema.resources, schema.grants, schema.tokens, schema.audit].every(
+    return [
+      schema.resources, schema.grants, schema.tokens, schema.executables,
+      schema.audit,
+    ].every(
       (table) => this.db.select().from(table).limit(1).all().length === 0,
     );
   }
 }
 
-const emptyState = (): State => ({ resources: {}, grants: {}, tokens: {}, audit: [] });
+const emptyState = (): State => ({
+  resources: {},
+  grants: {},
+  tokens: {},
+  executables: {},
+  audit: [],
+});
+const completeState = (state?: State): State => ({
+  ...emptyState(),
+  ...structuredClone(state ?? {}),
+});
 const now = () => new Date().toISOString();
 const entryKey = (grantId: string, position: number) => `${grantId}:${position}`;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -433,7 +532,6 @@ const auditRecord = (row: typeof schema.audit.$inferSelect) => ({
   result: row.result,
   detail: row.detail,
 });
-
 /**
  * Records ordered so that every parent precedes its children, which is what lets the foreign keys
  * hold statement by statement. A cycle has no such order, so it is reported rather than written.

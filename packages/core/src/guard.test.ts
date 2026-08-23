@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { grantId, resourceId, tokenHash, tokenId, tokenValue, type Capability, type State } from './domain';
+import {
+  grantId, resourceId, tokenHash, tokenId, tokenValue, type Capability, type State,
+} from './domain';
 import { fixture, stubCommands } from './fixture';
 import { guardCommands } from './guard';
 import { repositoryFrom } from './repository';
@@ -206,5 +208,65 @@ describe('command guard', () => {
     expect(calls.map((call) => call.args[0])).toEqual([g('coordinator'), g('researcher')]);
 
     await expect(guard.grants.get(g('ghost'))).rejects.toThrow('outside this token');
+  });
+
+  it('guards executable metadata, setting, and binding invocation', async () => {
+    const initial = state();
+    initial.executables['search-files'] = {
+      resourceId: r('search-files'), runtime: 'test',
+    };
+    const { commands, calls } = stubCommands(initial, at);
+    const guard = guardCommands(repositoryFrom(commands), bearer);
+    const search = await guard.resources.get(r('search-files'));
+
+    expect((await guard.executables.get(r('search-files')))?.runtime).toBe('test');
+    expect((await search.executable.get())?.resourceId).toBe('search-files');
+    await guard.executables.set(r('search-files'), { runtime: 'test' });
+    await search.executable.set({ runtime: 'test' });
+    await guard.executables.delete(r('search-files'));
+    await search.executable.delete();
+    for await (const event of guard.invoke(r('search-files'), {
+      input: {}, bindings: { target: r('drive') },
+    })) expect(event.type).toBe('done');
+    for await (const event of search.invoke({ input: {}, bindings: { target: r('drive') } })) {
+      expect(event.type).toBe('done');
+    }
+    expect(calls.map(({ method }) => method)).toEqual([
+      'setExecutable', 'setExecutable', 'deleteExecutable', 'deleteExecutable',
+      'invoke', 'invoke',
+    ]);
+  });
+
+  it('invokes with or without opaque bindings', async () => {
+    const initial = state();
+    initial.executables['search-files'] = {
+      resourceId: r('search-files'),
+      runtime: 'test',
+    };
+    const { commands, calls } = stubCommands(initial, at);
+    const guard = guardCommands(repositoryFrom(commands), bearer);
+
+    for await (const event of guard.invoke(r('drive'), { input: {} })) {
+      expect(event.type).toBe('done');
+    }
+    for await (const event of guard.invoke(r('drive'), {
+      input: {},
+      bindings: { readonly: r('read-file') },
+    })) {
+      expect(event.type).toBe('done');
+    }
+    for await (const event of guard.invoke(r('search-files'), {
+      input: {},
+      bindings: { readonly: r('read-file'), undeclared: r('drive') },
+    })) {
+      expect(event.type).toBe('done');
+    }
+    for await (const event of guard.invoke(r('search-files'), {
+      input: {},
+    })) {
+      expect(event.type).toBe('done');
+    }
+
+    expect(calls.map(({ method }) => method)).toEqual(['invoke', 'invoke', 'invoke', 'invoke']);
   });
 });
