@@ -155,6 +155,8 @@ The deployment configures a runtime registry once. Grants and executable program
 
 Core validates input when `inputSchema` is non-null, invokes the runtime, and normalizes its result. A single value or promise becomes one `data` event; an async iterable becomes one `data` event per yielded value. Core validates each value when `outputSchema` is non-null, emits `done` automatically, and returns the normalized `AsyncIterable<InvocationEvent>`. Runtime exceptions terminate the stream and are recorded as invocation errors.
 
+Executable revisions persist JSON Schema rather than library-specific schema objects. Callers may author schemas with Zod and publish `z.toJSONSchema(schema)`. A typed runtime may use the same Zod definitions for TypeScript inference and implement `validate(program)` with `ProgramSchema.parse(program)`. This keeps Zod at the application boundary while persisted executable records remain portable JSON.
+
 Binding kinds are runtime-defined strings. RGAP treats every supplied binding as an opaque resource reference.
 
 ## Enforcement boundary
@@ -408,7 +410,7 @@ const store = new HttpRgapStore({
 
 Both implementations present the same `RgapStore` and `RgapRepository` interfaces and provide `close()`, which is a no-op for the HTTP store. The remote administrative bearer must match the running server because the walkthrough resets the store and creates root records. The example is a workspace package that consumes the packages the way any TypeScript caller does, and it is meant to be edited rather than preserved.
 
-The local scratchpad configures Ajv as its JSON Schema validator and registers a small `echo` runtime. It publishes an executable revision on the existing `search` resource, declares one opaque resource binding, and invokes it through the company token:
+The local scratchpad defines its echo program, input, and output with Zod, converts input/output schemas with `z.toJSONSchema`, configures Ajv as the persisted JSON Schema validator, and uses `ProgramSchema.parse` for runtime program validation. It publishes an executable revision on the existing `search` resource, declares one opaque resource binding, and invokes it through the company token:
 
 ```ts
 const events = search.invoke({
