@@ -24,9 +24,10 @@ try {
   const admin = store.admin();
 
   const acme = await admin.resources.create({ name: 'acme' });
-  const design = await admin.resources.create({
-    name: 'acme/platform/docs/design',
+  const docs = await admin.resources.create({
+    name: 'acme/platform/docs',
   });
+  const design = await docs.create({ name: 'design' });
 
   const company = await admin.grants.create({
     name: 'Company',
@@ -54,7 +55,7 @@ try {
 
   await agent.resources.set([
     {
-      path: 'acme/platform/docs',
+      id: docs.id,
       permissions: ['read'],
     },
   ]);
@@ -110,8 +111,7 @@ The first result reports the `design` resource with `read: true` and
 
 - Resources form a mutable hierarchy with stable identities.
 - The company grant reaches the complete `acme` subtree.
-- The agent grant narrows that authority to `read` under
-  `acme/platform/docs`.
+- The agent grant narrows that authority to `read` on the `docs` subtree.
 - The agent's repository plane can read `design` but cannot write it.
 - Revoking the company grant disables the complete descendant branch.
 

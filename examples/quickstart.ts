@@ -6,9 +6,10 @@ try {
   const admin = store.admin();
 
   const acme = await admin.resources.create({ name: 'acme' });
-  const design = await admin.resources.create({
-    name: 'acme/platform/docs/design',
+  const docs = await admin.resources.create({
+    name: 'acme/platform/docs',
   });
+  const design = await docs.create({ name: 'design' });
 
   const company = await admin.grants.create({
     name: 'Company',
@@ -36,7 +37,7 @@ try {
 
   await agent.resources.set([
     {
-      path: 'acme/platform/docs',
+      id: docs.id,
       permissions: ['read'],
     },
   ]);
