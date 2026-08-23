@@ -4,18 +4,21 @@ description: Normative records, permission algebra, delegation rules, and decisi
 icon: ScrollText
 ---
 
-This page is the normative definition of RGAP. An implementation conforms when,
-given the same state and request, it reaches the same decision.
+This page is the normative definition of RGAP. Authorization and metadata
+transitions are expressed over one immutable state value. An implementation
+conforms when, given the same state and request, it reaches the same decision.
+Invocation additionally depends on the same deployment-owned runtime registry.
 
 ## Records
 
-State is four normalized collections.
+State is four normalized collections plus an ordered audit log.
 
 ```ts
 type State = {
   resources: Record<string, Resource>;
   grants: Record<string, Grant>;
   tokens: Record<string, Token>;
+  executables: Record<string, ExecutableDefinition>;
   audit: AuditEvent[];
 };
 ```
@@ -28,19 +31,19 @@ type Resource = {
   deletedAt: string | null;
 };
 
-type CapabilityConfig = {
+type GrantResourceConfig = {
   permissions: Permission[];
 };
 
-type ResourceCapability = CapabilityConfig & { resourceId: string };
-type PathCapability = CapabilityConfig & { path: string };
-type Capability = ResourceCapability | PathCapability;
+type IdResource = GrantResourceConfig & { id: string };
+type PathResource = GrantResourceConfig & { path: string };
+type GrantResource = IdResource | PathResource;
 
 type Grant = {
   id: string;
   name: string;
   parentId: string | null;
-  capabilities: Capability[];
+  resources: GrantResource[];
   expiresAt: string | null;
   revokedAt: string | null;
 };
@@ -54,6 +57,16 @@ type Token = {
   revokedAt: string | null;
 };
 
+type BindingSlot = {
+  kind: string;
+  required?: boolean;
+};
+
+type ExecutableDefinition = {
+  resourceId: string;
+  runtime: string;
+};
+
 type AuditEvent = {
   id: string;
   at: string;
@@ -65,8 +78,9 @@ type AuditEvent = {
 ```
 
 `Permission` is `'read' | 'write' | 'delete' | 'move' | 'invoke'`. Every
-record is JSON-compatible. Timestamps are RFC 3339 strings in UTC with a fixed
-number of fractional digits so lexical comparison preserves time order.
+persisted record is JSON-compatible. Timestamps are RFC 3339 strings in UTC
+with a fixed number of fractional digits so lexical comparison preserves time
+order.
 
 ## Identity and location
 
@@ -101,7 +115,7 @@ the tree and raise `resource_cycle`.
 ### Tombstones
 
 Deletion marks a resource and its live descendants with `deletedAt`. Tombstones
-are not live and are excluded from path resolution, listings, capability
+are not live and are excluded from path resolution, listings, grant-resource
 validation, authorization, and authority views.
 
 Records remain so stable IDs are never reused. Sibling-name uniqueness considers
@@ -123,39 +137,42 @@ No permission implies another. Permissions form a plain set compared by subset.
 | --- | --- |
 | Read a resource or list children | `read` on the resource |
 | Invoke a resource | `invoke` on the resource |
+| Bind a resource to an invocation | `invoke` on the bound resource |
+| Read an executable association | `read` on the resource |
+| Set or delete an executable | `write` on the resource |
 | Create a child | `write` on the intended parent |
 | Move a resource | `move` on the resource and `write` on the destination |
 | Delete a subtree | `delete` on its root |
 | Delegate a grant | The child downscopes the acting grant |
-| Set capabilities | The new set downscopes the grant's parent |
+| Set a grant's resources | The new set downscopes the grant's parent |
 | Issue or revoke a token | The grant is acting or delegated from acting |
 | Revoke a grant | The grant is acting or delegated from acting |
 
 Creating a root resource, moving a resource to a root, creating a root grant,
-and setting a root grant's capabilities are administrative operations.
+and setting a root grant's resources are administrative operations.
 
-## Capability algebra
+## Grant-resource algebra
 
-Two relations define the model: what one entry authorizes and when one entry
-contains another.
+Two relations define the model: what one grant-resource entry authorizes and
+when one entry contains another.
 
 ### Authorization by one entry
 
 ```ts
-targetResourceId(capability, resources) =
-  'path' in capability
-    ? resourceIdAtPath(resources, capability.path)
-    : isLive(resources[capability.resourceId])
-      ? capability.resourceId
+targetResourceId(entry, resources) =
+  'path' in entry
+    ? resourceIdAtPath(resources, entry.path)
+    : isLive(resources[entry.id])
+      ? entry.id
       : null;
 
-authorizes(capability, resources, resourceId, permission) =
-  capability.permissions.includes(permission) &&
-  targetResourceId(capability, resources) !== null &&
+authorizes(entry, resources, resourceId, permission) =
+  entry.permissions.includes(permission) &&
+  targetResourceId(entry, resources) !== null &&
   isWithin(
     resources,
     resourceId,
-    targetResourceId(capability, resources),
+    targetResourceId(entry, resources),
   );
 ```
 
@@ -183,18 +200,18 @@ current live tree and the child target must be within the parent target.
 A grant is created only when:
 
 1. Its name is non-empty.
-2. Every capability has at least one permission and exactly one target.
+2. Every resource entry has at least one permission and exactly one target.
 3. Resource targets are live; path targets are non-empty after normalization
    and may currently be unresolved.
 4. Its parent exists and is active.
 5. It does not outlive its parent.
-6. Every child capability is covered by a parent capability.
+6. Every child resource entry is covered by a parent resource entry.
 
-The capability set may be empty and authorize nothing.
+The resource set may be empty and authorize nothing.
 
-### Setting capabilities
+### Setting resources
 
-Setting capabilities atomically replaces the whole set.
+Setting a grant's resources atomically replaces the whole set.
 
 1. The grant exists and is active.
 2. Every replacement entry is structurally valid.
@@ -249,7 +266,7 @@ The procedure:
 
 ```ts
 allowed = chain.every((grant) =>
-  grant.capabilities.some((entry) =>
+  grant.resources.some((entry) =>
     authorizes(entry, resources, resourceId, permission),
   ),
 );
@@ -297,6 +314,89 @@ Deletion finds the live subtree, marks every member with `deletedAt`, and
 commits atomically. ID targets naming deleted resources become permanently
 ineffective. Path targets remain attached to their locations.
 
+## Executables
+
+An executable definition attaches one registered runtime to one live resource,
+which remains the authorization target.
+
+`setExecutable(state, resourceId, { runtime }, at, runtimes)` trims and
+validates the runtime name, requires that runtime to be registered, and
+atomically creates or replaces `{ resourceId, runtime }` together with its
+audit event. Setting requires `write`.
+
+Deleting an executable removes its association and records the deletion
+atomically. It leaves resource and audit records intact, and a later set may
+create another association. Reading requires `read`; deletion requires
+`write`.
+
+The runtime registry is immutable deployment configuration from the
+repository's perspective. Repository commands cannot register, replace, or
+configure runtime code. RGAP defines no built-in runtime implementation.
+
+## Generic invocation
+
+```ts
+type InvokeInput = {
+  input: unknown;
+  bindings?: Record<string, string>;
+};
+
+type InvocationEvent =
+  | { type: 'data'; value: unknown }
+  | { type: 'done' };
+
+type RuntimeResult<T> = T | AsyncIterable<T>;
+
+type RuntimeSchema<T> = {
+  parse(value: unknown): T;
+};
+
+type RuntimeInvocation<TInput> = {
+  input: TInput;
+  bindings: Readonly<
+    Record<string, { resourceId: string; kind: string }>
+  >;
+  signal: AbortSignal;
+};
+
+interface InvokeRuntime<TInput = unknown, TOutput = unknown> {
+  inputSchema: RuntimeSchema<TInput> | null;
+  outputSchema: RuntimeSchema<TOutput> | null;
+  bindings?: Readonly<Record<string, BindingSlot>>;
+  invoke(
+    context: RuntimeInvocation<TInput>,
+  ): RuntimeResult<TOutput> | Promise<RuntimeResult<TOutput>>;
+}
+```
+
+Invocation is one ordered decision and lifecycle:
+
+1. Resolve the executable definition and registered runtime.
+2. Authorize `invoke` on the executable resource through the complete lineage.
+3. Parse input when the runtime's `inputSchema` is not null.
+4. Reject undeclared bindings and missing required slots.
+5. Authorize `invoke` on every supplied live binding resource.
+6. Invoke the runtime with typed input, an abort signal, and opaque
+   `{ resourceId, kind }` bindings.
+7. Normalize one value, a promise, an async iterable, or `undefined`.
+8. Parse each output when `outputSchema` is not null, emit a `data` event for
+   each defined value, and emit `done` automatically.
+9. Let runtime failures terminate the stream. Record normal exhaustion as
+   `done`, runtime failure as `error`, and caller abort or early iterator return
+   as `cancelled`.
+
+Runtimes return raw values and never construct protocol events. The registry
+accepts heterogeneous generic runtimes; type erasure is confined to registry
+lookup. Binding kinds are runtime-defined strings. Cancellation propagates to
+the runtime through `AbortSignal`.
+
+## Invocation auditing and redaction
+
+An invocation record contains the executable resource ID, runtime name,
+grant-lineage IDs, binding resource IDs, start and finish times, and result
+(`done`, `error`, or `cancelled`). It does not contain invocation input or
+output data. Implementations apply the same rule to logs and errors.
+
 ## Enforcement boundary
 
 Stores expose no unrestricted command methods directly:
@@ -322,3 +422,15 @@ An implementation conforms when:
 8. Resource operations and grant amendments commit atomically with audit.
 9. Deleted resources remain as unreadable tombstones.
 10. Commands are exposed only through explicit token or administrative planes.
+11. Every invocation binding requires `invoke` on its bound resource through
+    the complete lineage.
+12. An executable persists only one resource-to-runtime association; setting
+    validates registration atomically and deletion removes the association.
+13. Runtime registration, schemas, binding declarations, and behavior are
+    deployment configuration that repository commands cannot mutate.
+14. Invocation resolves one runtime, conditionally parses nullable runtime
+    schemas, validates bindings, authorizes the executable and every binding,
+    passes only opaque resource bindings, normalizes results into `data` and
+    automatic `done` events, propagates cancellation, and records its result.
+15. Audit records, errors, and logs exclude inputs and outputs while retaining
+    the IDs, runtime, timing, and result needed for accountability.

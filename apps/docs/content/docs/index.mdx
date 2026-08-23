@@ -62,9 +62,8 @@ acme/                           Company
 ```
 
 A resource keeps the same stable identity when it moves. A grant carries one
-or more capability entries over resource identities or paths. A child grant
-can only narrow its parent's resources, permissions, constraints, and
-expiration.
+or more resource entries over stable IDs or paths. A child grant can only
+narrow its parent's resources, permissions, constraints, and expiration.
 
 ## Why RGAP
 
@@ -79,12 +78,12 @@ narrower token—not the parent token and never the provider credential.
 <Cards>
   <Card
     title="Stable identities"
-    description="ID capabilities follow resources through moves and renames."
+    description="ID entries follow resources through moves and renames."
     href="/docs/concepts/resources"
   />
   <Card
     title="Provable attenuation"
-    description="Every child capability is covered by a parent capability."
+    description="Every child resource entry is covered by a parent entry."
     href="/docs/concepts/delegation"
   />
   <Card

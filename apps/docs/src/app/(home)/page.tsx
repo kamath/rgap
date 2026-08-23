@@ -86,7 +86,7 @@ export default function HomePage() {
               team = <span className="text-fd-foreground">await</span>{' '}
               company.grants.create({'{\n'}
               {'  '}name: <span className="rgap-code-string">&apos;Docs team&apos;</span>,
-              capabilities: [{'{\n'}
+              resources: [{'{\n'}
               {'    '}path: <span className="rgap-code-string">&apos;acme/platform/docs&apos;</span>,
               permissions: [<span className="rgap-code-string">&apos;read&apos;</span>,{' '}
               <span className="rgap-code-string">&apos;write&apos;</span>],{'\n'}
@@ -94,7 +94,7 @@ export default function HomePage() {
               {'}'});{'\n\n'}
               <span className="text-fd-primary">const</span>{' '}
               agent = <span className="text-fd-foreground">await</span>{' '}
-              team.grants.create({'{'} capabilities: readOnly {'}'});{'\n'}
+              team.grants.create({'{'} resources: readOnly {'}'});{'\n'}
               <span className="text-fd-primary">const</span>{' '}
               token = <span className="text-fd-foreground">await</span>{' '}
               agent.tokens.create({'{'} label:{' '}

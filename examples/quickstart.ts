@@ -12,13 +12,13 @@ try {
 
   const company = await admin.grants.create({
     name: 'Company',
-    capabilities: [],
+    resources: [],
     expiresAt: null,
   });
 
-  await company.capabilities.set([
+  await company.resources.set([
     {
-      resourceId: acme.id,
+      id: acme.id,
       permissions: ['read', 'write', 'invoke'],
     },
   ]);
@@ -30,11 +30,11 @@ try {
 
   const agent = await companyPlane.grants.create({
     name: 'Documentation agent',
-    capabilities: [],
+    resources: [],
     expiresAt: null,
   });
 
-  await agent.capabilities.set([
+  await agent.resources.set([
     {
       path: 'acme/platform/docs',
       permissions: ['read'],

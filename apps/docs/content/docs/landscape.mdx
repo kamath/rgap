@@ -13,7 +13,7 @@ relationship-based authorization.
 
 ```text
 resource hierarchy
-+ capability sets
++ grant-resource sets
 + delegation lineage
 + enforced attenuation
 + opaque agent credentials
@@ -111,7 +111,7 @@ RFC 8693 intentionally leaves token semantics to deployments. An RGAP profile
 adds:
 
 - A required parent-child grant link.
-- Strict capability-set attenuation.
+- Strict grant-resource attenuation.
 - Child lifetime bounded by the parent.
 - Cascading ancestor revocation.
 - Stable resource IDs and subtree semantics.

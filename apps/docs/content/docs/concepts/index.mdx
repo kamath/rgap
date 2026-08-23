@@ -28,8 +28,7 @@ or renaming a resource changes its position without changing its identity.
 
 ## Grants describe where authority comes from
 
-A grant contains capability entries and may delegate authority to child
-grants.
+A grant contains resource entries and may delegate authority to child grants.
 
 ```text
 Company: acme, all permissions
@@ -58,12 +57,11 @@ delegated beneath it.
 ## Current-state decisions
 
 Authorization evaluates the requested live resource against every grant in the
-selected grant's ancestry. Each ancestor must contain a matching capability
-entry.
+selected grant's ancestry. Each ancestor must contain a matching resource entry.
 
 ```ts
 allowed = lineage.every((grant) =>
-  grant.capabilities.some((entry) =>
+  grant.resources.some((entry) =>
     authorizes(entry, resources, resourceId, permission),
   ),
 );

@@ -25,11 +25,11 @@ A resource's ID and path answer different questions:
 
 | Target | Meaning |
 | --- | --- |
-| `resourceId` | This exact object, wherever it moves. |
+| `id` | This exact object, wherever it moves. |
 | `path` | Whatever live object occupies this location. |
 
-An ID-targeted capability follows a resource and its subtree when they move. A
-path-targeted capability stays attached to its normalized location.
+An ID-targeted grant resource follows an object and its subtree when they move.
+A path-targeted grant resource stays attached to its normalized location.
 
 ```text
 projects/alpha/secret
@@ -46,12 +46,12 @@ After this move:
 
 ## Subtree semantics
 
-Every capability reaches its target and all current descendants. A grant on a
-container therefore includes children created later.
+Every grant resource reaches its target and all current descendants. A grant on
+a container therefore includes children created later.
 
 <Callout type="info">
   Grant leaves instead of a container when future children must not inherit the
-  capability.
+  entry's authority.
 </Callout>
 
 ## Path normalization
@@ -86,5 +86,5 @@ tombstones so IDs are never reused.
 - A deleted name may be reused under the same parent by a new resource with a
   new ID.
 
-This preserves the meaning of old capability entries and audit events without
+This preserves the meaning of old grant-resource entries and audit events without
 reserving names forever.

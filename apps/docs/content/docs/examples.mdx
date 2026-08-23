@@ -4,7 +4,7 @@ description: Govern MCP servers, aggregate tools, and downscope authority for su
 icon: Workflow
 ---
 
-RGAP treats MCP servers and their exposed capabilities as resources. A
+RGAP treats MCP servers and their exposed operations as resources. A
 deployment registers each trusted server beneath an administrative resource
 and assigns stable IDs to servers, tools, prompts, and MCP resources.
 
@@ -29,7 +29,7 @@ acme/
 
 The server resource is the high-level governance boundary. Granting `invoke`
 on one tool does not expose its siblings. Granting `invoke` on a server reaches
-its current and future tools because a capability covers the complete subtree.
+its current and future tools because a resource entry covers the complete subtree.
 
 <Callout type="info">
   Registering or discovering a tool does not grant access. A grant must contain
@@ -42,12 +42,12 @@ One coordinator grant can combine selected tools from several servers:
 
 ```yaml
 name: Project coordinator
-capabilities:
-  - resourceId: tool_drive_search_files
+resources:
+  - id: tool_drive_search_files
     permissions: [invoke]
   - path: acme/mcp/slack/tools/search_messages
     permissions: [invoke]
-  - resourceId: tool_github_create_issue
+  - id: tool_github_create_issue
     permissions: [invoke]
 expiresAt: 2026-08-20T23:00:00.000Z
 ```
@@ -62,8 +62,8 @@ The coordinator delegates only search tools:
 ```yaml
 name: Research sub-agent
 parentId: grant_project_coordinator
-capabilities:
-  - resourceId: tool_drive_search_files
+resources:
+  - id: tool_drive_search_files
     permissions: [invoke]
   - path: acme/mcp/slack/tools/search_messages
     permissions: [invoke]
@@ -81,7 +81,7 @@ the applicable leaves. RGAP's core permission algebra remains a plain set.
 
 <Steps>
   <Step>
-    ### Register trusted capabilities
+    ### Register trusted resources
 
     Synchronize MCP servers and tools into the resource tree with stable IDs.
   </Step>
@@ -121,17 +121,17 @@ the applicable leaves. RGAP's core permission algebra remains a plain set.
 ```ts
 const coordinator = await companyPlane.grants.create({
   name: 'Project coordinator',
-  capabilities: [],
+  resources: [],
   expiresAt: '2026-08-20T23:00:00.000Z',
 });
 
-await coordinator.capabilities.set([
-  { resourceId: driveSearch.id, permissions: ['invoke'] },
+await coordinator.resources.set([
+  { id: driveSearch.id, permissions: ['invoke'] },
   {
     path: 'acme/mcp/slack/tools/search_messages',
     permissions: ['invoke'],
   },
-  { resourceId: githubCreateIssue.id, permissions: ['invoke'] },
+  { id: githubCreateIssue.id, permissions: ['invoke'] },
 ]);
 
 const coordinatorToken = await coordinator.tokens.create({
@@ -141,12 +141,12 @@ const coordinatorPlane = store.as(coordinatorToken.value);
 
 const researcher = await coordinatorPlane.grants.create({
   name: 'Research sub-agent',
-  capabilities: [],
+  resources: [],
   expiresAt: '2026-08-20T22:00:00.000Z',
 });
 
-await researcher.capabilities.set([
-  { resourceId: driveSearch.id, permissions: ['invoke'] },
+await researcher.resources.set([
+  { id: driveSearch.id, permissions: ['invoke'] },
   {
     path: 'acme/mcp/slack/tools/search_messages',
     permissions: ['invoke'],

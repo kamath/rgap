@@ -4,8 +4,8 @@ description: How child grants prove they never expand their parent's authority.
 icon: GitBranch
 ---
 
-Delegation creates a child grant beneath the acting grant. Every child
-capability must be covered by a parent capability.
+Delegation creates a child grant beneath the acting grant. Every child resource
+entry must be covered by a parent resource entry.
 
 ```text
 Alice: read/write/delete projects/alpha
@@ -16,24 +16,24 @@ Alice: read/write/delete projects/alpha
 Bob cannot grant write access, reach outside `projects/alpha/docs`, or create a
 child that outlives Bob's grant.
 
-## Capability entries
+## Resource entries
 
-A grant aggregates one or more capability entries:
+A grant aggregates one or more resource entries:
 
 ```ts
-type CapabilityConfig = {
+type GrantResourceConfig = {
   permissions: Permission[];
 };
 
-type ResourceCapability = CapabilityConfig & {
-  resourceId: ResourceId;
+type IdResource = GrantResourceConfig & {
+  id: ResourceId;
 };
 
-type PathCapability = CapabilityConfig & {
+type PathResource = GrantResourceConfig & {
   path: string;
 };
 
-type Capability = ResourceCapability | PathCapability;
+type GrantResource = IdResource | PathResource;
 ```
 
 Each entry names exactly one target. Multiple entries let a grant combine
@@ -74,7 +74,7 @@ the complete lineage covers the resource again.
 
 ## Amending a grant
 
-A grant's identity, parent, and expiration are fixed at creation. Its capability
+A grant's identity, parent, and expiration are fixed at creation. Its resource
 set may be replaced atomically.
 
 The replacement set must satisfy the same containment proof as a newly created
@@ -91,6 +91,6 @@ Team: docs + tools             Team: docs
 
 ## Empty grants
 
-A grant may start with an empty capability set and authorize nothing. This lets
+A grant may start with an empty resource set and authorize nothing. This lets
 an application record a delegation before deciding what authority it reaches.
-Setting capabilities later still requires the parent coverage proof.
+Setting resources later still requires the parent coverage proof.
