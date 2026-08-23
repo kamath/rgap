@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import {
-  authorize, availableId, covers, createGrant, createResource, deleteResource, grantId, inspectAuthority,
+  authorize, availableId, covers, createAtPath, createGrant, createResource, deleteResource, grantId, inspectAuthority,
   InvalidParentError, isLive, isWithin, liveResources, moveResource, normalizePath, permissions, recordToken,
   requireResourceId, resourceId, resourceIdAtPath, resourcePath, revokeGrant, revokeToken, RgapError, setResources,
   stateIntegrity, tryResourcePath, tokenHash, tokenId, type GrantResource, type GrantResourceConfig, type CreateGrantInput,
@@ -367,6 +367,41 @@ describe('creating a resource', () => {
     const created = createResource(fixture(), { ...input, name: 'other', parentId: null }, r('other'), at);
 
     expect(resourceIdAtPath(created.resources, 'other')).toBe('other');
+  });
+});
+
+describe('creating a resource at a path', () => {
+  it('materializes missing prefixes and returns a state whose leaf occupies the path', () => {
+    const created = createAtPath(fixture(), 'acme/platform/docs/design', null, at);
+
+    expect(resourceIdAtPath(created.resources, 'acme/platform/docs/design')).toBe('design');
+    expect(created.resources.platform.parentId).toBe('acme');
+    expect(created.resources.docs.parentId).toBe('platform');
+    expect(created.resources.design.parentId).toBe('docs');
+    expect(created.resources.design.name).toBe('design');
+    expect(created.audit.filter((event) => event.action === 'resource.create').map((event) => event.target))
+      .toEqual(['design', 'docs', 'platform']);
+  });
+
+  it('reuses live prefixes and refuses an occupied leaf', () => {
+    const created = createAtPath(fixture(), 'acme/drive/notes', null, at);
+
+    expect(resourceIdAtPath(created.resources, 'acme/drive/notes')).toBe('notes');
+    expect(created.resources.notes.parentId).toBe('drive');
+    expect(() => createAtPath(created, 'acme/drive/notes', null, at))
+      .toThrow('A resource already exists at that path.');
+  });
+
+  it('walks a relative path from a live parent', () => {
+    const created = createAtPath(fixture(), 'docs/design', r('drive'), at);
+
+    expect(resourceIdAtPath(created.resources, 'docs/design', r('drive'))).toBe('design');
+    expect(resourceIdAtPath(created.resources, 'acme/drive/docs/design')).toBe('design');
+  });
+
+  it('requires a non-empty path and a live parent when one is supplied', () => {
+    expect(() => createAtPath(fixture(), '  //  ', null, at)).toThrow('Resource name is required.');
+    expect(() => createAtPath(fixture(), 'notes', r('ghost'), at)).toThrow('Parent resource does not exist.');
   });
 });
 

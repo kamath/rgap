@@ -112,6 +112,8 @@ describe('command guard', () => {
 
     await expect(guard.resources.create({ name: 'root' }))
       .rejects.toThrow('Creating a root resource is an administrative operation');
+    await expect(guard.resources.create({ name: 'acme/notes' }))
+      .rejects.toThrow('No write resource survives the complete grant chain.');
     await expect(drive.move(null)).rejects.toThrow('Moving a resource to a root is an administrative');
     await expect((await guard.grants.get(g('coordinator'))).resources.set([]))
       .rejects.toThrow("Setting a root grant's resources is an administrative");
@@ -124,9 +126,28 @@ describe('command guard', () => {
     const drive = await guard.resources.get(r('drive'));
 
     expect((await drive.create({ name: 'notes' })).id).toBe('created');
-    expect(calls).toEqual([{ method: 'createResource', args: [{ name: 'notes', parentId: r('drive') }] }]);
+    expect((await guard.resources.create({ name: 'acme/drive/notes' })).id).toBe('created');
+    expect(calls).toEqual([
+      { method: 'createResource', args: [{ name: 'notes', parentId: r('drive') }] },
+      { method: 'createResource', args: [{ name: 'acme/drive/notes', parentId: null }] },
+    ]);
 
     await expect(guard.resources.get(r('slack'))).rejects.toThrow('outside this token');
+  });
+
+  it('pages through siblings when resolving a create path', async () => {
+    const initial = state();
+    for (let index = 0; index < 100; index += 1) {
+      const id = r(`sib-${String(index).padStart(3, '0')}`);
+      initial.resources[id] = { id, parentId: r('drive'), name: `sib-${index}`, deletedAt: null };
+    }
+    const { commands, calls } = stubCommands(initial, at);
+    const guard = guardCommands(repositoryFrom(commands), bearer);
+
+    expect((await guard.resources.create({ name: 'acme/drive/notes' })).id).toBe('created');
+    expect(calls).toEqual([
+      { method: 'createResource', args: [{ name: 'acme/drive/notes', parentId: null }] },
+    ]);
   });
 
   it('moves a resource only with move on the resource and write on the destination', async () => {

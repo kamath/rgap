@@ -109,7 +109,7 @@ describe('RGAP Hono API', () => {
     const invalid = await app.request('/resources', {
       method: 'POST',
       headers: { authorization, 'content-type': 'application/json' },
-      body: JSON.stringify({ name: '', parentId: null }),
+      body: JSON.stringify({ name: '' }),
     });
     expect(invalid.status).toBe(400);
     expect(await invalid.json()).toMatchObject({ error: { code: 'validation_error' } });
@@ -143,7 +143,7 @@ describe('RGAP Hono API', () => {
       body: JSON.stringify(body),
     });
 
-    const root = await (await request('/resources', { name: 'acme', parentId: null })).json() as { id: string };
+    const root = await (await request('/resources', { name: 'acme' })).json() as { id: string };
     const grant = await (await request('/grants', {
       name: 'writer',
       parentId: null,
@@ -154,8 +154,8 @@ describe('RGAP Hono API', () => {
       value: string;
     };
 
-    expect((await request('/resources', { name: 'docs', parentId: root.id }, issued.value)).status).toBe(200);
-    expect((await request('/resources', { name: 'other', parentId: null }, issued.value)).status).toBe(403);
+    expect((await request('/resources', { name: 'acme/docs' }, issued.value)).status).toBe(200);
+    expect((await request('/resources', { name: 'other' }, issued.value)).status).toBe(403);
     expect((await request('/grants', {
       name: 'child',
       parentId: grant.id,
@@ -182,11 +182,9 @@ describe('RGAP Hono API', () => {
     });
     const executable = await (await request('/resources', 'POST', {
       name: 'echo',
-      parentId: null,
     })).json() as { id: string };
     const source = await (await request('/resources', 'POST', {
       name: 'source',
-      parentId: null,
     })).json() as { id: string };
     const set = await request(
       `/resources/${executable.id}/executable`,
@@ -256,7 +254,7 @@ describe('RGAP Hono API', () => {
     });
 
     const created = await client.resources.$post({
-      json: { name: 'acme', parentId: null },
+      json: { name: 'acme' },
     });
     expect(created.status).toBe(200);
     const createdBody = await created.json();
@@ -281,7 +279,7 @@ describe('RGAP Hono API', () => {
     const root = await sdk.createResource({
       client,
       headers,
-      body: { name: 'acme', parentId: null },
+      body: { name: 'acme' },
     });
     expect(root.error).toBeUndefined();
     expect(root.data?.name).toBe('acme');
@@ -289,7 +287,7 @@ describe('RGAP Hono API', () => {
     const child = await sdk.createResource({
       client,
       headers,
-      body: { name: 'docs', parentId: root.data!.id },
+      body: { name: 'acme/docs' },
     });
     const childId = child.data!.id;
     expect((await sdk.getResource({ client, headers, path: { id: childId } })).data?.parentId)

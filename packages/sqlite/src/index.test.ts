@@ -362,8 +362,11 @@ describe('SqliteRgapStore', () => {
     const { value } = await grant.tokens.create({ label: 'cli' });
     const guarded = store.as(value);
 
-    const created = await (await guarded.resources.get(resourceId('acme'))).create({ name: 'mcp' });
-    expect(created.parentId).toBe('acme');
+    const created = await guarded.resources.create({ name: 'acme/platform/docs/design' });
+    expect(created.name).toBe('design');
+    expect(created.parentId).not.toBeNull();
+    const handleChild = await (await guarded.resources.get(resourceId('acme'))).create({ name: 'mcp' });
+    expect(handleChild.parentId).toBe('acme');
     const child = await guarded.grants.create({ name: 'Drive write', resources: [], expiresAt: null });
     expect(child.parentId).toBe(grant.id);
     await child.resources.set([{ id: resourceId('acme'), permissions: ['write'] }]);

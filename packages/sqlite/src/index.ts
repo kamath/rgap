@@ -7,9 +7,8 @@ import type { SQLiteTable } from 'drizzle-orm/sqlite-core';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import {
   authorize as decide,
-  availableId,
+  createAtPath,
   createGrant as addGrant,
-  createResource as addResource,
   deleteExecutable as removeExecutable,
   deleteResource as removeResource,
   grantId,
@@ -24,6 +23,7 @@ import {
   setExecutable as associateExecutable,
   recordToken,
   resourceId,
+  resourceIdAtPath,
   revokeGrant as revokeGrantBranch,
   revokeToken as revokeTokenRecord,
   RuntimeRegistry,
@@ -176,8 +176,10 @@ class SqliteBackingRepository implements RgapCommands {
 
   async createResource(input: CreateResourceInput) {
     return this.commit((state) => {
-      const id = availableId(state, input.name);
-      return { state: addResource(state, input, id, now()), pick: (committed) => committed.resources[id] };
+      const next = createAtPath(state, input.name, input.parentId, now());
+      const id = resourceIdAtPath(next.resources, input.name, input.parentId);
+      if (!id) throw new RgapError('invalid_name', 'Resource name is required.');
+      return { state: next, pick: (committed) => committed.resources[id] };
     });
   }
 

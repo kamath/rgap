@@ -201,14 +201,20 @@ export function stateIntegrity(state: State) {
 }
 
 /** Resolves a path to a stable resource ID. The root is not a resource, so an empty path resolves to null. */
-export function resourceIdAtPath(resources: ResourceCollection, path: string) {
-  let parentId: ResourceId | null = null;
-  for (const name of pathParts(path)) {
-    const match = liveResources(resources).find((item) => item.parentId === parentId && item.name === name);
+export function resourceIdAtPath(
+  resources: ResourceCollection,
+  path: string,
+  parentId: ResourceId | null = null,
+) {
+  const parts = pathParts(path);
+  if (!parts.length) return null;
+  let current = parentId;
+  for (const name of parts) {
+    const match = liveResources(resources).find((item) => item.parentId === current && item.name === name);
     if (!match) return null;
-    parentId = match.id;
+    current = match.id;
   }
-  return parentId;
+  return current;
 }
 
 /** Resolves a path that must name an existing resource, such as the target of a move or delete. */
@@ -329,6 +335,37 @@ export function createResource(
   const next = copy(state);
   next.resources[id] = { ...input, id, name: input.name.trim(), deletedAt: null };
   audit(next, { at, action: 'resource.create', target: id, result: 'recorded', detail: `Created ${input.name}.` });
+  return next;
+}
+
+/**
+ * Walks a slash-separated location from `parentId`, creates missing live prefixes, and returns the
+ * state that contains the leaf. Collection create passes a null parent; handle create passes that
+ * resource. The leaf must not already exist.
+ */
+export function createAtPath(state: State, path: string, parentId: ResourceId | null, at: string) {
+  const parts = pathParts(path);
+  if (!parts.length) throw new RgapError('invalid_name', 'Resource name is required.');
+  if (parentId && !isLive(state.resources[parentId])) {
+    throw new RgapError('missing_parent', 'Parent resource does not exist.');
+  }
+  let currentParent = parentId;
+  let next = state;
+  parts.forEach((name, index) => {
+    const existing = liveResources(next.resources).find(
+      (item) => item.parentId === currentParent && item.name === name,
+    );
+    if (existing) {
+      if (index === parts.length - 1) {
+        throw new RgapError('duplicate_path', 'A resource already exists at that path.');
+      }
+      currentParent = existing.id;
+      return;
+    }
+    const id = availableId(next, name);
+    next = createResource(next, { name, parentId: currentParent }, id, at);
+    currentParent = id;
+  });
   return next;
 }
 
@@ -481,7 +518,7 @@ export function inspectAuthority(state: State, hash: TokenHash, at: string): Aut
   };
 }
 
-const pathParts = (path: string) => path.split('/').map((part) => part.trim()).filter(Boolean);
+export const pathParts = (path: string) => path.split('/').map((part) => part.trim()).filter(Boolean);
 
 /** Mints a readable, unused stable ID from a resource name. */
 export function availableId(state: State, name: string) {
