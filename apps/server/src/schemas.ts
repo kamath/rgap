@@ -16,8 +16,7 @@ export const ResourceSchema = z.object({
 
 export const ExecutableDefinitionSchema = z.object({
   resourceId: IdSchema,
-  activeRevisionId: NullableIdSchema,
-  deletedAt: NullableTimestampSchema,
+  runtime: z.string(),
 }).openapi('ExecutableDefinition');
 
 export const JsonValueSchema = z.union([
@@ -29,49 +28,13 @@ export const JsonValueSchema = z.union([
   z.record(z.string(), z.unknown()),
 ]);
 
-const NullableJsonSchemaSchema = z.union([
-  z.boolean(),
-  z.record(z.string(), z.unknown()),
-  z.null(),
-]);
-
-export const BindingSlotSchema = z.object({
-  kind: z.string().min(1),
-  required: z.boolean().optional(),
-}).strict().openapi('BindingSlot');
-
-export const ExecutionLimitsSchema = z.object({
-  timeoutMs: z.number().int().positive().optional(),
-  memoryBytes: z.number().int().positive().optional(),
-  outputBytes: z.number().int().positive().optional(),
-  concurrency: z.number().int().positive().optional(),
-  network: z.object({
-    allowedOrigins: z.array(z.string()),
-  }).strict().optional(),
-}).strict().openapi('ExecutionLimits');
-
-export const ExecutableRevisionSchema = z.object({
-  id: IdSchema,
-  resourceId: IdSchema,
-  runtime: z.string(),
-  program: JsonValueSchema,
-  inputSchema: NullableJsonSchemaSchema,
-  outputSchema: NullableJsonSchemaSchema,
-  bindingSchema: z.record(z.string(), BindingSlotSchema),
-  limits: ExecutionLimitsSchema,
-  createdAt: TimestampSchema,
-}).openapi('ExecutableRevision');
-
-export const PublishExecutableSchema = ExecutableRevisionSchema.omit({
-  id: true,
-  resourceId: true,
-  createdAt: true,
+export const SetExecutableSchema = z.object({
+  runtime: z.string().min(1),
 }).strict();
 
 export const InvokeSchema = z.object({
   input: JsonValueSchema,
   bindings: z.record(z.string(), IdSchema).optional(),
-  revisionId: IdSchema.optional(),
 }).strict();
 
 export const InvocationEventSchema = z.discriminatedUnion('type', [

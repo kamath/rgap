@@ -9,7 +9,6 @@ import {
   resourceId,
   tokenValue,
   type InvokeRuntime,
-  type JsonSchemaValidator,
   type RgapRepository,
   type State,
 } from '@rgap/core';
@@ -43,7 +42,6 @@ const acme = (): State => ({
   grants: {},
   tokens: {},
   executables: {},
-  executableRevisions: {},
   audit: [],
 });
 
@@ -79,27 +77,21 @@ async function queriedState(repository: RgapRepository): Promise<State> {
     grants: Object.fromEntries(grants.map((record) => [record.id, record])),
     tokens: Object.fromEntries(tokens.map((record) => [record.id, record])),
     executables: {},
-    executableRevisions: {},
     audit,
   };
 }
 
-const validator: JsonSchemaValidator = {
-  validate: (schema) => schema === false
-    ? { valid: false, errors: ['false schema'] }
-    : { valid: true },
-};
-
-const publication = (bindingSchema: Record<string, {
+const runtime = (
+  bindings: Record<string, {
   kind: string;
   required?: boolean;
-}> = {}) => ({
-  runtime: 'test',
-  program: { operation: 'echo' },
-  inputSchema: true,
-  outputSchema: true,
-  bindingSchema,
-  limits: { timeoutMs: 50 },
+  }> = {},
+  invoke: InvokeRuntime['invoke'] = () => undefined,
+): InvokeRuntime => ({
+  inputSchema: null,
+  outputSchema: null,
+  bindings,
+  invoke,
 });
 
 const collect = async <T>(iterable: AsyncIterable<T>) => {
@@ -133,79 +125,51 @@ describe('SqliteRgapStore', () => {
     expect(state.tokens[issued.id]).toEqual(tokenRecord(issued));
   });
 
-  it('persists executable definitions and immutable revisions across restart', async () => {
+  it('persists and replaces executable associations across restart', async () => {
     const url = file();
-    const runtime: InvokeRuntime = { validate() {}, invoke() {} };
+    const implementation = runtime();
     const options = {
       url,
       initialState: acme(),
-      runtimes: new RuntimeRegistry({ test: runtime }),
-      validator,
+      runtimes: new RuntimeRegistry({ test: implementation, other: implementation }),
     };
     const firstStore = open(options);
     const first = firstStore.admin();
     const drive = await first.resources.get(resourceId('drive'));
-    const revisionOne = await drive.executable.publish(publication());
-    const revisionTwo = await drive.executable.publish({
-      ...publication(), program: { operation: 'echo-again' }, inputSchema: null, outputSchema: null,
-    });
-    expect((await drive.executable.get())?.activeRevisionId).toBe(revisionTwo.id);
-    expect((await drive.executable.revisions()).map(({ id }) => id).sort())
-      .toEqual([revisionOne.id, revisionTwo.id].sort());
+    await drive.executable.set({ runtime: 'test' });
+    await drive.executable.set({ runtime: 'other' });
+    expect((await drive.executable.get())?.runtime).toBe('other');
     firstStore.close();
 
     const second = open({ ...options, initialState: undefined }).admin();
-    expect(await second.executables.getRevision(revisionOne.id)).toEqual(revisionOne);
-    expect(await second.executables.getRevision(revisionTwo.id)).toMatchObject({
-      inputSchema: null,
-      outputSchema: null,
+    expect(await second.executables.get(resourceId('drive'))).toEqual({
+      resourceId: resourceId('drive'), runtime: 'other',
     });
-    expect((await second.executables.get(resourceId('drive')))?.activeRevisionId).toBe(revisionTwo.id);
     await second.executables.delete(resourceId('drive'));
-    expect((await second.executables.get(resourceId('drive')))?.deletedAt).not.toBeNull();
-    expect(await second.executables.revisions(resourceId('drive'))).toHaveLength(2);
+    expect(await second.executables.get(resourceId('drive'))).toBeUndefined();
   });
 
-  it('fails clearly when executable publication names an unknown runtime', async () => {
+  it('fails clearly when executable setting names an unknown runtime', async () => {
     const repository = open({ initialState: acme() }).admin();
-    await expect(repository.executables.publish(resourceId('drive'), publication()))
+    await expect(repository.executables.set(resourceId('drive'), { runtime: 'test' }))
       .rejects.toMatchObject({ code: 'unknown_runtime' });
-  });
-
-  it('refuses executable values that JSON persistence would change', async () => {
-    const runtime: InvokeRuntime = { validate() {}, invoke() {} };
-    const repository = open({ initialState: acme(), runtimes: { test: runtime } }).admin();
-
-    await expect(repository.executables.publish(resourceId('drive'), {
-      ...publication(),
-      program: { operation: 'echo', lossy: Number.NaN },
-    })).rejects.toMatchObject({ code: 'invalid_json' });
-    expect(await repository.executables.get(resourceId('drive'))).toBeUndefined();
   });
 
   it('records audit-safe invoke facts without exposing input, output, or binding kinds', async () => {
     const url = file();
     const inputMarker = 'private-invocation-input';
     const outputMarker = 'private-runtime-output';
-    const runtime: InvokeRuntime = {
-      validate() {},
-      async invoke(context) {
-        expect(context.limits.timeoutMs).toBe(50);
+    const implementation = runtime({ source: { kind: 'document' } }, async (context) => {
         expect(context.bindings.source).toEqual({ resourceId: resourceId('acme'), kind: 'document' });
         return outputMarker;
-      },
-    };
+    });
     const options: SqliteRgapStoreOptions = {
       url,
       initialState: acme(),
-      runtimes: { test: runtime },
-      validator,
-      runtimeLimits: { test: { timeoutMs: 100 } },
+      runtimes: { test: implementation },
     };
     const first = open(options).admin();
-    await first.executables.publish(resourceId('drive'), publication({
-      source: { kind: 'document' },
-    }));
+    await first.executables.set(resourceId('drive'), { runtime: 'test' });
     expect(await collect(first.invoke(resourceId('drive'), {
       input: inputMarker,
       bindings: { source: resourceId('acme') },
@@ -219,10 +183,10 @@ describe('SqliteRgapStore', () => {
   });
 
   it('authorizes invocation through the guarded plane while admin remains unrestricted', async () => {
-    const runtime: InvokeRuntime = { validate() {}, invoke() {} };
-    const store = open({ initialState: acme(), runtimes: { test: runtime }, validator });
+    const implementation = runtime();
+    const store = open({ initialState: acme(), runtimes: { test: implementation } });
     const admin = store.admin();
-    await admin.executables.publish(resourceId('drive'), publication());
+    await admin.executables.set(resourceId('drive'), { runtime: 'test' });
     expect(await collect(admin.invoke(resourceId('drive'), { input: {} }))).toEqual([{ type: 'done' }]);
 
     const grant = await rootGrant(admin);
@@ -282,7 +246,7 @@ describe('SqliteRgapStore', () => {
     const second = open({
       url,
       initialState: {
-        resources: {}, grants: {}, tokens: {}, executables: {}, executableRevisions: {},
+        resources: {}, grants: {}, tokens: {}, executables: {},
         audit: [],
       },
     }).admin();
@@ -303,7 +267,7 @@ describe('SqliteRgapStore', () => {
   it('opens an empty store with no initial state at all', async () => {
     const repository = open().admin();
     expect(await queriedState(repository)).toEqual({
-      resources: {}, grants: {}, tokens: {}, executables: {}, executableRevisions: {},
+      resources: {}, grants: {}, tokens: {}, executables: {},
       audit: [],
     });
   });
@@ -408,7 +372,7 @@ describe('SqliteRgapStore', () => {
 
   it('writes a state larger than one insert statement', async () => {
     const initialState: State = {
-      resources: {}, grants: {}, tokens: {}, executables: {}, executableRevisions: {},
+      resources: {}, grants: {}, tokens: {}, executables: {},
       audit: [],
     };
     for (let index = 0; index < 250; index += 1) {
@@ -430,7 +394,7 @@ describe('SqliteRgapStore', () => {
         a: { id: resourceId('a'), parentId: resourceId('b'), name: 'a', deletedAt: null },
         b: { id: resourceId('b'), parentId: resourceId('a'), name: 'b', deletedAt: null },
       },
-      grants: {}, tokens: {}, executables: {}, executableRevisions: {},
+      grants: {}, tokens: {}, executables: {},
       audit: [],
     };
     expect(() => open({ initialState })).toThrow(RgapError);

@@ -1,5 +1,4 @@
 import {
-  executableRevisionId,
   grantId,
   repositoryFrom,
   resourceId,
@@ -10,7 +9,6 @@ import {
   type AuditEvent,
   type Capability,
   type ExecutableDefinition,
-  type ExecutableRevision,
   type InvocationEvent,
   type Grant,
   type Permission,
@@ -29,7 +27,6 @@ import {
   deleteExecutable,
   deleteResource,
   getExecutable,
-  getExecutableRevision,
   getGrant,
   getResource,
   getToken,
@@ -40,12 +37,11 @@ import {
   listResources,
   listTokens,
   moveResource,
-  publishExecutable,
+  setExecutable,
   reset,
   revokeGrant,
   revokeToken,
   setCapabilities,
-  listExecutableRevisions,
 } from './client/generated/sdk.gen';
 import { createClient, type Client } from './client/generated/client';
 import type {
@@ -53,7 +49,6 @@ import type {
   AuditEvent as HttpAuditEvent,
   Capability as HttpCapability,
   ExecutableDefinition as HttpExecutableDefinition,
-  ExecutableRevision as HttpExecutableRevision,
   Grant as HttpGrant,
   Resource as HttpResource,
   Token as HttpToken,
@@ -159,28 +154,13 @@ class HttpRgapCommands implements RgapCommands {
     return result.response?.status === 404 ? undefined : asExecutableDefinition(unwrap(result));
   }
 
-  async getExecutableRevision(id: ReturnType<typeof executableRevisionId>) {
-    const result = await getExecutableRevision(this.options({ path: { id } }));
-    return result.response?.status === 404 ? undefined : asExecutableRevision(unwrap(result));
-  }
-
-  async listExecutableRevisions(id: ReturnType<typeof resourceId>) {
-    const result = await listExecutableRevisions(this.options({ path: { id } }));
-    return unwrap(result).map(asExecutableRevision);
-  }
-
-  async publishExecutable(
+  async setExecutable(
     id: ReturnType<typeof resourceId>,
-    input: Parameters<RgapCommands['publishExecutable']>[1],
+    input: Parameters<RgapCommands['setExecutable']>[1],
   ) {
-    return asExecutableRevision(unwrap(await publishExecutable(this.options({
+    return asExecutableDefinition(unwrap(await setExecutable(this.options({
       path: { id },
-      body: {
-        ...input,
-        program: input.program as HttpExecutableRevision['program'],
-        inputSchema: input.inputSchema as HttpExecutableRevision['inputSchema'],
-        outputSchema: input.outputSchema as HttpExecutableRevision['outputSchema'],
-      },
+      body: input,
     }))));
   }
 
@@ -205,7 +185,6 @@ class HttpRgapCommands implements RgapCommands {
           body: JSON.stringify({
             input: input.input,
             bindings: input.bindings,
-            revisionId: input.revisionId,
           }),
           signal: input.signal,
         },
@@ -359,17 +338,6 @@ function asResource(record: HttpResource): Resource {
 function asExecutableDefinition(record: HttpExecutableDefinition): ExecutableDefinition {
   return {
     ...record,
-    resourceId: resourceId(record.resourceId),
-    activeRevisionId: record.activeRevisionId === null
-      ? null
-      : executableRevisionId(record.activeRevisionId),
-  };
-}
-
-function asExecutableRevision(record: HttpExecutableRevision): ExecutableRevision {
-  return {
-    ...record,
-    id: executableRevisionId(record.id),
     resourceId: resourceId(record.resourceId),
   };
 }

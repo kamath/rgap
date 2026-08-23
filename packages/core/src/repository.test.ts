@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { executableRevisionId, grantId, resourceId, tokenId, tokenValue } from './domain';
+import { grantId, resourceId, tokenId, tokenValue } from './domain';
 import { fixture, stubCommands } from './fixture';
 import { pageLimit, paginateRecords, repositoryFrom } from './repository';
 
@@ -83,35 +83,23 @@ describe('repositoryFrom', () => {
 
   it('exposes executable and invocation commands on both surfaces', async () => {
     const state = fixture();
-    const revision = {
-      id: executableRevisionId('existing'), resourceId: resourceId('search-files'), runtime: 'test',
-      program: {}, inputSchema: true, outputSchema: null, bindingSchema: {}, limits: {},
-      createdAt: at,
-    };
     state.executables['search-files'] = {
-      resourceId: resourceId('search-files'), activeRevisionId: revision.id, deletedAt: null,
+      resourceId: resourceId('search-files'), runtime: 'test',
     };
-    state.executableRevisions.existing = revision;
     const { commands, calls } = stubCommands(state, at);
     const repository = repositoryFrom(commands);
     const resource = await repository.resources.get(resourceId('search-files'));
-    const publish = {
-      runtime: 'test', program: {}, inputSchema: true, outputSchema: null, bindingSchema: {}, limits: {},
-    };
 
-    expect((await resource.executable.get())?.activeRevisionId).toBe('existing');
-    expect(await resource.executable.revisions()).toEqual([revision]);
-    expect((await repository.executables.getRevision(revision.id))?.runtime).toBe('test');
+    expect((await resource.executable.get())?.runtime).toBe('test');
     expect((await repository.executables.get(resource.id))?.resourceId).toBe(resource.id);
-    expect(await repository.executables.revisions(resource.id)).toEqual([revision]);
-    await resource.executable.publish(publish);
-    await repository.executables.publish(resource.id, publish);
+    await resource.executable.set({ runtime: 'test' });
+    await repository.executables.set(resource.id, { runtime: 'test' });
     await resource.executable.delete();
     await repository.executables.delete(resource.id);
     expect(await collect(resource.invoke({ input: null }))).toEqual([{ type: 'done' }]);
     expect(await collect(repository.invoke(resource.id, { input: null }))).toEqual([{ type: 'done' }]);
     expect(calls.map(({ method }) => method)).toEqual([
-      'publishExecutable', 'publishExecutable', 'deleteExecutable', 'deleteExecutable',
+      'setExecutable', 'setExecutable', 'deleteExecutable', 'deleteExecutable',
       'invoke', 'invoke',
     ]);
   });

@@ -3,28 +3,22 @@ import {
   isLive,
   type BindingSlot,
   type ExecutableDefinition,
-  type ExecutableRevision,
-  type ExecutableRevisionId,
-  type ExecutionLimits,
   type GrantId,
-  type JsonSchema,
   type Permission,
   type ResourceId,
   type State,
 } from './domain';
 import {
   RuntimeRegistry,
-  type InvokeRuntime,
   type InvocationEvent,
-  type JsonSchemaValidator,
+  type InvokeRuntime,
   type RuntimeBinding,
 } from './runtime';
 
-export type PublishExecutableInput = Omit<ExecutableRevision, 'id' | 'resourceId' | 'createdAt'>;
+export type SetExecutableInput = { runtime: string };
 export type InvokeInput = {
   input: unknown;
   bindings?: Record<string, ResourceId>;
-  revisionId?: ExecutableRevisionId;
   signal?: AbortSignal;
 };
 
@@ -45,85 +39,40 @@ export function getAuthorizedLineage(input: InvokeInput) {
 
 const cloned = <T>(value: T): T => structuredClone(value);
 
-export const validateRuntimeProgram = (runtimes: RuntimeRegistry, runtime: string, program: unknown) => {
-  const implementation: InvokeRuntime = runtimes.get(runtime);
-  implementation.validate(program);
-};
-
-function requirePositiveInteger(value: number | undefined, name: string) {
-  if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0)) {
-    throw new RgapError('invalid_limits', `${name} must be a positive integer.`);
-  }
-}
-
-/** Validates a revision's host-independent shape. Runtime program validation remains host-owned. */
-export function validateExecutableRevision(input: PublishExecutableInput) {
-  if (!input.runtime.trim()) throw new RgapError('invalid_runtime', 'Runtime name is required.');
-  requirePositiveInteger(input.limits.timeoutMs, 'timeoutMs');
-  requirePositiveInteger(input.limits.memoryBytes, 'memoryBytes');
-  requirePositiveInteger(input.limits.outputBytes, 'outputBytes');
-  requirePositiveInteger(input.limits.concurrency, 'concurrency');
-  if (input.limits.network && !Array.isArray(input.limits.network.allowedOrigins)) {
-    throw new RgapError('invalid_limits', 'network.allowedOrigins must be an array.');
-  }
-  for (const [name, slot] of Object.entries(input.bindingSchema)) {
-    if (!name.trim()) throw new RgapError('invalid_binding_schema', 'Binding names are required.');
-    if (!slot || typeof slot.kind !== 'string' || !slot.kind.trim()) {
-      throw new RgapError('invalid_binding_schema', `Binding ${name} requires a kind.`);
-    }
-    if (Object.keys(slot).some((key) => key !== 'kind' && key !== 'required')) {
-      throw new RgapError('invalid_binding_schema', `Binding ${name} contains an unknown property.`);
-    }
-    if (slot.required !== undefined && typeof slot.required !== 'boolean') {
-      throw new RgapError('invalid_binding_schema', `Binding ${name} has an invalid required flag.`);
-    }
-  }
-}
-
-/** Publishes one immutable revision and selects it as active. */
-export function publishExecutable(
+/** Atomically creates or replaces a resource-to-runtime association. */
+export function setExecutable(
   state: State,
   resourceId: ResourceId,
-  input: PublishExecutableInput,
-  id: ExecutableRevisionId,
+  input: SetExecutableInput,
   at: string,
-  validateProgram: (runtime: string, program: unknown) => void,
+  runtimes: RuntimeRegistry,
 ) {
-  if (!isLive(state.resources[resourceId])) throw new RgapError('missing_resource', 'Resource does not exist.');
-  if (state.executableRevisions[id]) throw new RgapError('duplicate_id', `Executable revision ${id} already exists.`);
-  if (state.executables[resourceId]?.deletedAt) {
-    throw new RgapError('deleted_executable', 'A deleted executable cannot publish another revision.');
+  if (!isLive(state.resources[resourceId])) {
+    throw new RgapError('missing_resource', 'Resource does not exist.');
   }
-  validateExecutableRevision(input);
-  validateProgram(input.runtime, input.program);
-  const revision: ExecutableRevision = {
-    ...cloned(input),
-    runtime: input.runtime.trim(),
-    id,
-    resourceId,
-    createdAt: at,
-  };
+  const runtime = input.runtime.trim();
+  if (!runtime) throw new RgapError('invalid_runtime', 'Runtime name is required.');
+  runtimes.get(runtime);
   const next = cloned(state);
-  next.executableRevisions[id] = revision;
-  next.executables[resourceId] = { resourceId, activeRevisionId: id, deletedAt: null };
+  next.executables[resourceId] = { resourceId, runtime };
   next.audit.unshift({
-    id: `${at}:executable.publish:${next.audit.length}`,
+    id: `${at}:executable.set:${next.audit.length}`,
     at,
-    action: 'executable.publish',
+    action: 'executable.set',
     target: resourceId,
     result: 'recorded',
-    detail: `Published revision ${id} for runtime ${revision.runtime}.`,
+    detail: `Associated runtime ${runtime}.`,
   });
   return next;
 }
 
-/** Soft-deletes a definition while retaining all immutable revisions. */
+/** Deletes the association; setting it again later creates a new current association. */
 export function deleteExecutable(state: State, resourceId: ResourceId, at: string) {
-  const definition = state.executables[resourceId];
-  if (!definition || definition.deletedAt) throw new RgapError('missing_executable', 'Executable does not exist.');
+  if (!state.executables[resourceId]) {
+    throw new RgapError('missing_executable', 'Executable does not exist.');
+  }
   const next = cloned(state);
-  next.executables[resourceId].deletedAt = at;
-  next.executables[resourceId].activeRevisionId = null;
+  delete next.executables[resourceId];
   next.audit.unshift({
     id: `${at}:executable.delete:${next.audit.length}`,
     at,
@@ -135,67 +84,31 @@ export function deleteExecutable(state: State, resourceId: ResourceId, at: strin
   return next;
 }
 
-export function assertJsonSchema(
-  validator: JsonSchemaValidator,
-  schema: JsonSchema,
-  value: unknown,
-  subject: string,
-) {
-  const result = validator.validate(schema, value);
-  if (!result.valid) throw new RgapError('schema_validation', `${subject}: ${result.errors.join('; ')}`);
-}
-
 /** Validates exact slot names and required slots. */
 export function validateBindings(
-  schema: Readonly<Record<string, BindingSlot>>,
+  declarations: Readonly<Record<string, BindingSlot>>,
   supplied: Readonly<Record<string, ResourceId>>,
 ) {
   for (const name of Object.keys(supplied)) {
-    if (!schema[name]) throw new RgapError('invalid_bindings', `Binding ${name} is not declared.`);
+    if (!declarations[name]) throw new RgapError('invalid_bindings', `Binding ${name} is not declared.`);
   }
-  for (const [name, slot] of Object.entries(schema)) {
+  for (const [name, slot] of Object.entries(declarations)) {
     if (slot.required !== false && !supplied[name]) {
       throw new RgapError('invalid_bindings', `Binding ${name} is required.`);
     }
   }
 }
 
-/** Applies a revision's narrower limits to immutable host ceilings. */
-export function effectiveExecutionLimits(ceiling: ExecutionLimits, requested: ExecutionLimits) {
-  const result: ExecutionLimits = {};
-  for (const key of ['timeoutMs', 'memoryBytes', 'outputBytes', 'concurrency'] as const) {
-    const host = ceiling[key];
-    const revision = requested[key];
-    if (host !== undefined && revision !== undefined && revision > host) {
-      throw new RgapError('limit_expands', `${key} exceeds the runtime ceiling.`);
-    }
-    result[key] = revision ?? host;
-  }
-  const hostOrigins = ceiling.network?.allowedOrigins;
-  const requestedOrigins = requested.network?.allowedOrigins;
-  if (hostOrigins && requestedOrigins?.some((origin) => !hostOrigins.includes(origin))) {
-    throw new RgapError('limit_expands', 'Network origins exceed the runtime ceiling.');
-  }
-  if (requestedOrigins || hostOrigins) {
-    result.network = { allowedOrigins: [...(requestedOrigins ?? hostOrigins!)] };
-  }
-  return result;
-}
-
 export type InvocationServices = {
   getDefinition(resourceId: ResourceId): Promise<ExecutableDefinition | undefined>;
-  getRevision(id: ExecutableRevisionId): Promise<ExecutableRevision | undefined>;
   authorize(resourceId: ResourceId, permission: Permission): Promise<{ lineage: GrantId[] }>;
   runtimes: RuntimeRegistry;
-  validator: JsonSchemaValidator;
-  runtimeLimits(runtime: string): ExecutionLimits;
   recordInvocation(record: InvocationRecord): Promise<void>;
 };
 
 /** Audit-safe invocation facts. Inputs, outputs, and runtime values are absent. */
 export type InvocationRecord = {
   resourceId: ResourceId;
-  revisionId: ExecutableRevisionId;
   runtime: string;
   grantLineage: GrantId[];
   bindings: Record<string, ResourceId>;
@@ -204,41 +117,29 @@ export type InvocationRecord = {
   result: 'done' | 'error' | 'cancelled';
 };
 
-/**
- * Resolves, authorizes, validates, and invokes one immutable revision.
- */
+/** Resolves, authorizes, parses, and invokes one deployment-owned runtime. */
 export async function* invokeExecutable(
   services: InvocationServices,
   resourceId: ResourceId,
   input: InvokeInput,
 ): AsyncIterable<InvocationEvent> {
   const definition = await services.getDefinition(resourceId);
-  if (!definition || definition.deletedAt) throw new RgapError('missing_executable', 'Executable does not exist.');
-  const revisionId = input.revisionId ?? definition.activeRevisionId;
-  if (!revisionId) throw new RgapError('missing_revision', 'Executable has no active revision.');
-  const revision = await services.getRevision(revisionId);
-  if (!revision || revision.resourceId !== resourceId) {
-    throw new RgapError('missing_revision', 'Executable revision does not exist on this resource.');
-  }
-
+  if (!definition) throw new RgapError('missing_executable', 'Executable does not exist.');
+  const runtime: InvokeRuntime = services.runtimes.get(definition.runtime);
   const authorization = await services.authorize(resourceId, 'invoke');
-  if (revision.inputSchema !== null) {
-    assertJsonSchema(services.validator, revision.inputSchema, input.input, 'Invocation input is invalid');
-  }
+  const parsedInput = runtime.inputSchema === null
+    ? input.input
+    : runtime.inputSchema.parse(input.input);
   const supplied = input.bindings ?? {};
-  validateBindings(revision.bindingSchema, supplied);
+  const declarations = runtime.bindings ?? {};
+  validateBindings(declarations, supplied);
   for (const boundId of Object.values(supplied)) {
     await services.authorize(boundId, 'invoke');
   }
 
-  const runtime: InvokeRuntime = services.runtimes.get(revision.runtime);
-  const program = revision.program;
-  runtime.validate(program);
-  const limits = effectiveExecutionLimits(services.runtimeLimits(revision.runtime), revision.limits);
   const bindings: Record<string, RuntimeBinding> = {};
   for (const [name, boundId] of Object.entries(supplied)) {
-    const slot = revision.bindingSchema[name];
-    bindings[name] = { resourceId: boundId, kind: slot.kind };
+    bindings[name] = { resourceId: boundId, kind: declarations[name].kind };
   }
 
   const controller = new AbortController();
@@ -246,10 +147,8 @@ export async function* invokeExecutable(
   if (input.signal?.aborted) cancel();
   else input.signal?.addEventListener('abort', cancel, { once: true });
   const context = {
-    revision: { ...cloned(revision), program: cloned(program) },
-    input: cloned(input.input),
+    input: parsedInput,
     bindings,
-    limits,
     signal: controller.signal,
   };
   const startedAt = new Date().toISOString();
@@ -261,16 +160,14 @@ export async function* invokeExecutable(
     if (isAsyncIterable(runtimeResult)) {
       for await (const value of runtimeResult) {
         if (value === undefined) continue;
-        if (revision.outputSchema !== null) {
-          assertJsonSchema(services.validator, revision.outputSchema, value, 'Runtime output is invalid');
-        }
-        yield { type: 'data', value };
+        const parsed = runtime.outputSchema === null ? value : runtime.outputSchema.parse(value);
+        yield { type: 'data', value: parsed };
       }
     } else if (runtimeResult !== undefined) {
-      if (revision.outputSchema !== null) {
-        assertJsonSchema(services.validator, revision.outputSchema, runtimeResult, 'Runtime output is invalid');
-      }
-      yield { type: 'data', value: runtimeResult };
+      const parsed = runtime.outputSchema === null
+        ? runtimeResult
+        : runtime.outputSchema.parse(runtimeResult);
+      yield { type: 'data', value: parsed };
     }
     exhausted = true;
     result = context.signal.aborted ? 'cancelled' : 'done';
@@ -285,8 +182,7 @@ export async function* invokeExecutable(
     input.signal?.removeEventListener('abort', cancel);
     await services.recordInvocation({
       resourceId,
-      revisionId,
-      runtime: revision.runtime,
+      runtime: definition.runtime,
       grantLineage: [...authorization.lineage],
       bindings: { ...supplied },
       startedAt,

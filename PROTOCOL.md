@@ -2,11 +2,11 @@
 
 This document is the normative definition of RGAP: the records, the permission algebra, the delegation rules, and the decision procedure. [README.md](README.md) explains the model and its intent, [IMPLEMENTATION.md](IMPLEMENTATION.md) describes the reference packages, and this document defines what any implementation must compute.
 
-Authorization and metadata transitions are expressed over one immutable state value. An implementation conforms when, given the same state and request, it reaches the same decision. Invocation additionally depends on the same deployment-owned runtime registry, validator, and limit ceilings.
+Authorization and metadata transitions are expressed over one immutable state value. An implementation conforms when, given the same state and request, it reaches the same decision. Invocation additionally depends on the same deployment-owned runtime registry.
 
 ## Records
 
-State is five normalized collections plus an ordered audit log.
+State is four normalized collections plus an ordered audit log.
 
 ```ts
 type State = {
@@ -14,7 +14,6 @@ type State = {
   grants: Record<string, Grant>;
   tokens: Record<string, Token>;
   executables: Record<string, ExecutableDefinition>;                 // keyed by resource ID
-  executableRevisions: Record<string, ExecutableRevision>;
   audit: AuditEvent[];
 };
 ```
@@ -58,30 +57,9 @@ type BindingSlot = {
   required?: boolean;                                // required unless explicitly false
 };
 
-type ExecutionLimits = {
-  timeoutMs?: number;
-  memoryBytes?: number;
-  outputBytes?: number;
-  concurrency?: number;
-  network?: { allowedOrigins: string[] };
-};
-
 type ExecutableDefinition = {
   resourceId: string;
-  activeRevisionId: string | null;
-  deletedAt: string | null;
-};
-
-type ExecutableRevision = {
-  id: string;
-  resourceId: string;
   runtime: string;
-  program: unknown;
-  inputSchema: boolean | Record<string, unknown> | null;
-  outputSchema: boolean | Record<string, unknown> | null;
-  bindingSchema: Record<string, BindingSlot>;
-  limits: ExecutionLimits;
-  createdAt: string;
 };
 
 type AuditEvent = {
@@ -96,7 +74,7 @@ type AuditEvent = {
 
 `Permission` is `'read' | 'write' | 'invoke' | 'move' | 'delete'`.
 
-Every persisted record is JSON-compatible. Executable programs and schemas are JSON-compatible values. Timestamps are RFC 3339 strings compared lexicographically, which requires them to be UTC with a fixed number of fractional digits.
+Every persisted record is JSON-compatible. Timestamps are RFC 3339 strings compared lexicographically, which requires them to be UTC with a fixed number of fractional digits.
 
 ## Identity and location
 
@@ -163,8 +141,8 @@ Each operation requires this authority:
 | Read a resource, list its children | `read` on the resource |
 | Invoke a resource | `invoke` on the resource |
 | Bind a resource to an invocation | `invoke` on the bound resource |
-| Read executable revisions | `read` on the resource |
-| Publish or delete an executable | `write` on the resource |
+| Read an executable association | `read` on the resource |
+| Set or delete an executable | `write` on the resource |
 | Create a child resource | `write` on the intended parent |
 | Move a resource | `move` on the resource **and** `write` on the destination parent |
 | Delete a resource and its descendants | `delete` on the resource |
@@ -359,11 +337,11 @@ Deletion does not rewrite or revoke grants. ID targets naming removed resources 
 
 ## Executables
 
-An executable definition is attached to one resource, which remains the authorization target. Publishing creates a new immutable revision and selects it as active. A revision ID is never reused, and no operation modifies a published revision. Publishing requires a live resource, a live definition or no definition, a registered runtime, a valid host-independent shape, and successful runtime program validation.
+An executable definition attaches one registered runtime to one live resource, which remains the authorization target. `setExecutable(state, resourceId, { runtime }, at, runtimes)` trims and validates the runtime name, requires the runtime to be registered, and atomically creates or replaces `{ resourceId, runtime }` with its audit event. Setting requires `write`.
 
-Deleting an executable sets its deletion marker and clears its active revision. It does not delete revisions or audit history, and a deleted definition cannot publish again. Reads of a definition or its revisions require `read`; publish and delete require `write`.
+Deleting an executable removes its association and records the deletion atomically. It leaves resource and audit records intact, and a later set may create another association. Reading requires `read`; deletion requires `write`.
 
-The runtime name identifies a host-registered implementation. The runtime registry is immutable deployment configuration from the repository's perspective: grants and executable programs cannot register, replace, or configure runtime code. RGAP defines no built-in runtime implementation.
+The runtime registry is immutable deployment configuration from the repository's perspective. Repository commands cannot register, replace, or configure runtime code. RGAP defines no built-in runtime implementation.
 
 ## Generic invocation
 
@@ -371,7 +349,6 @@ The runtime name identifies a host-registered implementation. The runtime regist
 type InvokeInput = {
   input: unknown;
   bindings?: Record<string, string>;   // slot name -> resource ID
-  revisionId?: string;
 };
 
 type InvocationEvent =
@@ -380,42 +357,45 @@ type InvocationEvent =
 
 type RuntimeResult<T> = T | AsyncIterable<T>;
 
-type RuntimeInvocation<TProgram, TInput> = {
-  revision: Omit<ExecutableRevision, 'program'> & { program: TProgram };
+type RuntimeSchema<T> = {
+  parse(value: unknown): T;
+};
+
+type RuntimeInvocation<TInput> = {
   input: TInput;
   bindings: Readonly<Record<string, { resourceId: string; kind: string }>>;
-  limits: ExecutionLimits;
   signal: AbortSignal;
 };
 
-interface InvokeRuntime<TProgram = unknown, TInput = unknown, TOutput = unknown> {
-  validate(program: unknown): asserts program is TProgram;
+interface InvokeRuntime<TInput = unknown, TOutput = unknown> {
+  inputSchema: RuntimeSchema<TInput> | null;
+  outputSchema: RuntimeSchema<TOutput> | null;
+  bindings?: Readonly<Record<string, BindingSlot>>;
   invoke(
-    context: RuntimeInvocation<TProgram, TInput>,
+    context: RuntimeInvocation<TInput>,
   ): RuntimeResult<TOutput> | Promise<RuntimeResult<TOutput>>;
 }
 ```
 
 Invocation is one ordered decision and lifecycle:
 
-1. Resolve the live executable definition and the requested revision, or its active revision when `revisionId` is omitted. The revision must belong to the invoked resource.
+1. Resolve the executable definition and registered runtime.
 2. Authorize `invoke` on the executable resource using the complete grant lineage.
-3. Validate input against `inputSchema` when it is not null.
+3. Parse input with the runtime's `inputSchema` when it is not null.
 4. Reject undeclared bindings and missing required slots.
 5. For every supplied binding, authorize `invoke` on its live resource using the complete lineage.
-6. Resolve the registered runtime, validate its program again, and intersect revision limits with immutable host ceilings. A revision may narrow but not expand a ceiling.
-7. Invoke the runtime with its validated typed program, typed input, an abort signal, effective limits, and opaque `{ resourceId, kind }` bindings.
-8. Await the runtime result. A single value becomes one `data` event. An async iterable becomes one `data` event per yielded value. Validate each emitted value against `outputSchema` when it is not null, then emit `done` automatically.
-9. Treat an `undefined` result or yielded item as no output: emit no `data` event for it. This permits void runtimes and ensures every HTTP event remains JSON-compatible.
-10. A runtime throw or rejection terminates the stream; it is not converted to an invocation event. Record normal exhaustion as `done`, runtime failure as `error`, and caller abort or early iterator return as `cancelled`.
+6. Invoke the runtime with typed input, an abort signal, and opaque `{ resourceId, kind }` bindings.
+7. Await the runtime result. A single value becomes one `data` event. An async iterable becomes one `data` event per yielded value. Parse each emitted value with the runtime's `outputSchema` when it is not null, then emit `done` automatically.
+8. Treat an `undefined` result or yielded item as no output: emit no `data` event for it. This permits void runtimes and ensures every HTTP event remains JSON-compatible.
+9. A runtime throw or rejection terminates the stream; it is not converted to an invocation event. Record normal exhaustion as `done`, runtime failure as `error`, and caller abort or early iterator return as `cancelled`.
 
-`RuntimeInvocation<TProgram, TInput>` contains the immutable revision with its `program` narrowed to `TProgram`, `input` as `TInput`, opaque bindings, effective limits, and the cancellation signal. Runtimes return raw output values and never construct protocol events. The registry accepts heterogeneous generic runtimes; type erasure is confined to registry lookup after program validation.
+`RuntimeInvocation<TInput>` contains typed input, opaque bindings, and the cancellation signal. Runtimes return raw output values and never construct protocol events. The registry accepts heterogeneous generic runtimes; type erasure is confined to registry lookup.
 
 Binding kinds are runtime-defined strings. Invocation authorizes every resource it exercises, including the executable and each binding, with `invoke`. Revocation affects the next decision. Cancellation propagates to the runtime through `AbortSignal`.
 
 ## Invocation auditing and redaction
 
-An invocation record contains the executable resource ID, revision ID, runtime name, grant-lineage IDs, binding resource IDs, start and finish times, and result (`done`, `error`, or `cancelled`). It does not contain invocation input or output data. Implementations apply the same rule to logs and errors.
+An invocation record contains the executable resource ID, runtime name, grant-lineage IDs, binding resource IDs, start and finish times, and result (`done`, `error`, or `cancelled`). It does not contain invocation input or output data. Implementations apply the same rule to logs and errors.
 
 ## Enforcement boundary
 
@@ -443,7 +423,7 @@ An implementation conforms when:
 9. Deleted resources are retained as tombstones, excluded from every read, and their IDs stay permanently taken.
 10. Stores expose command methods only through explicit `as(token)` or `admin()` plane selection.
 11. Every invocation binding requires `invoke` on its bound resource through the complete lineage.
-12. Executable revisions are immutable, belong to exactly one resource, are validated by a registered runtime at publish and invoke, and remain retained after executable deletion.
-13. Runtime registration and host ceilings are deployment configuration that repository commands cannot mutate.
-14. Invocation resolves one revision, conditionally validates nullable schemas, validates bindings, authorizes the executable and every binding through the complete lineage, passes only opaque resource bindings, normalizes raw runtime results into `data` and automatic `done` events, propagates cancellation, and records its result.
+12. An executable persists only one resource-to-runtime association, set validates registration atomically, and delete removes the association.
+13. Runtime registration, schemas, binding declarations, and behavior are deployment configuration that repository commands cannot mutate.
+14. Invocation resolves one runtime, conditionally parses with nullable runtime schemas, validates bindings, authorizes the executable and every binding through the complete lineage, passes only opaque resource bindings, normalizes raw runtime results into `data` and automatic `done` events, propagates cancellation, and records its result.
 15. Audit records, errors, and logs exclude inputs and outputs while retaining the IDs, runtime, timing, and result needed for accountability.

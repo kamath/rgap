@@ -81,13 +81,9 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
         await permit(resource.id, 'read');
         return resource.executable.get();
       },
-      async revisions() {
-        await permit(resource.id, 'read');
-        return resource.executable.revisions();
-      },
-      async publish(input) {
+      async set(input) {
         await permit(resource.id, 'write');
-        return resource.executable.publish(input);
+        return resource.executable.set(input);
       },
       async delete() {
         await permit(resource.id, 'write');
@@ -247,19 +243,9 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
         await permit(resourceId, 'read');
         return repository.executables.get(resourceId);
       },
-      async getRevision(id) {
-        const revision = await repository.executables.getRevision(id);
-        if (!revision) return undefined;
-        await permit(revision.resourceId, 'read');
-        return revision;
-      },
-      async revisions(resourceId) {
-        await permit(resourceId, 'read');
-        return repository.executables.revisions(resourceId);
-      },
-      async publish(resourceId, input) {
+      async set(resourceId, input) {
         await permit(resourceId, 'write');
-        return repository.executables.publish(resourceId, input);
+        return repository.executables.set(resourceId, input);
       },
       async delete(resourceId) {
         await permit(resourceId, 'write');

@@ -20,9 +20,7 @@ const expectedOperations = [
   'moveResource',
   'deleteResource',
   'getExecutable',
-  'getExecutableRevision',
-  'listExecutableRevisions',
-  'publishExecutable',
+  'setExecutable',
   'deleteExecutable',
   'invoke',
   'getGrant',
@@ -54,18 +52,21 @@ function testApp() {
 
 function executableTestApp() {
   const runtime: InvokeRuntime = {
-    validate() {},
+    inputSchema: null,
+    outputSchema: null,
+    bindings: { source: { kind: 'document' } },
     async invoke(context) {
       return context.input;
     },
   };
   const voidRuntime: InvokeRuntime = {
-    validate() {},
+    inputSchema: null,
+    outputSchema: null,
+    bindings: { source: { kind: 'document' } },
     async invoke() {},
   };
   store = new SqliteRgapStore({
     runtimes: { test: runtime, void: voidRuntime },
-    validator: { validate: () => ({ valid: true }) },
   });
   return createApp({ store, adminToken });
 }
@@ -78,9 +79,6 @@ describe('RGAP Hono API', () => {
       paths: Record<string, Record<string, { operationId?: string }>>;
       components: {
         schemas: {
-          ExecutableRevision: {
-            properties: { inputSchema: { anyOf: Array<{ type?: string }> } };
-          };
           InvocationEvent: { oneOf: Array<{ properties: { type: { enum: string[] } } }> };
         };
       };
@@ -92,8 +90,6 @@ describe('RGAP Hono API', () => {
     expect(response.status).toBe(200);
     expect(operationIds.sort()).toEqual([...expectedOperations].sort());
     expect(expectedOperations.every((operation) => typeof sdk[operation] === 'function')).toBe(true);
-    expect(document.components.schemas.ExecutableRevision.properties.inputSchema.anyOf)
-      .toContainEqual({ type: 'null' });
     expect(document.components.schemas.InvocationEvent.oneOf.map((event) => event.properties.type.enum[0]))
       .toEqual(['data', 'done']);
 
@@ -192,32 +188,14 @@ describe('RGAP Hono API', () => {
       name: 'source',
       parentId: null,
     })).json() as { id: string };
-    const publication = {
-      runtime: 'test',
-      program: { operation: 'echo' },
-      inputSchema: null,
-      outputSchema: true,
-      bindingSchema: {
-        source: { kind: 'document' },
-      },
-      limits: { timeoutMs: 1000 },
-    };
-
-    const published = await request(
-      `/resources/${executable.id}/executable/revisions`,
-      'POST',
-      publication,
+    const set = await request(
+      `/resources/${executable.id}/executable`,
+      'PUT',
+      { runtime: 'test' },
     );
-    const revision = await published.json() as { id: string; resourceId: string; inputSchema: unknown };
-    expect(published.status).toBe(200);
-    expect(revision.resourceId).toBe(executable.id);
-    expect(revision.inputSchema).toBeNull();
+    expect(set.status).toBe(200);
     expect(await (await request(`/resources/${executable.id}/executable`, 'GET')).json())
-      .toMatchObject({ resourceId: executable.id, activeRevisionId: revision.id });
-    expect(await (await request(`/executable-revisions/${revision.id}`, 'GET')).json())
-      .toMatchObject({ id: revision.id, program: publication.program });
-    expect(await (await request(`/resources/${executable.id}/executable/revisions`, 'GET')).json())
-      .toHaveLength(1);
+      .toEqual({ resourceId: executable.id, runtime: 'test' });
 
     expect((await request(`/resources/${executable.id}/invoke`, 'POST', {
       input: {},
@@ -227,7 +205,6 @@ describe('RGAP Hono API', () => {
     const invoked = await request(`/resources/${executable.id}/invoke`, 'POST', {
       input: { message: 'hello' },
       bindings: { source: source.id },
-      revisionId: revision.id,
     });
     expect(invoked.status).toBe(200);
     expect(invoked.headers.get('content-type')).toContain('application/x-ndjson');
@@ -235,15 +212,10 @@ describe('RGAP Hono API', () => {
       { type: 'data', value: { message: 'hello' } },
       { type: 'done' },
     ]);
-    const voidRevision = await (await request(
-      `/resources/${executable.id}/executable/revisions`,
-      'POST',
-      { ...publication, runtime: 'void', outputSchema: null },
-    )).json() as { id: string };
+    await request(`/resources/${executable.id}/executable`, 'PUT', { runtime: 'void' });
     const voidInvocation = await request(`/resources/${executable.id}/invoke`, 'POST', {
       input: null,
       bindings: { source: source.id },
-      revisionId: voidRevision.id,
     });
     expect((await voidInvocation.text()).trim().split('\n').map((line) => JSON.parse(line)))
       .toEqual([{ type: 'done' }]);
@@ -259,9 +231,9 @@ describe('RGAP Hono API', () => {
     expect((await request(`/resources/${executable.id}/executable`, 'GET', undefined, reader.value)).status)
       .toBe(200);
     expect((await request(
-      `/resources/${executable.id}/executable/revisions`,
-      'POST',
-      publication,
+      `/resources/${executable.id}/executable`,
+      'PUT',
+      { runtime: 'test' },
       reader.value,
     )).status).toBe(403);
     expect((await request(
@@ -272,7 +244,7 @@ describe('RGAP Hono API', () => {
     )).status).toBe(403);
 
     expect((await request(`/resources/${executable.id}/executable`, 'DELETE')).status).toBe(204);
-    expect((await request(`/resources/${executable.id}/executable`, 'GET')).status).toBe(200);
+    expect((await request(`/resources/${executable.id}/executable`, 'GET')).status).toBe(404);
   });
 
   it('exposes the same route contract through Hono RPC', async () => {
@@ -394,19 +366,10 @@ describe('RGAP Hono API', () => {
     });
     const admin = remote.admin();
     const executable = await admin.resources.create({ name: 'remote-echo' });
-    const revision = await executable.executable.publish({
-      runtime: 'test',
-      program: { operation: 'echo' },
-      inputSchema: true,
-      outputSchema: true,
-      bindingSchema: {},
-      limits: {},
-    });
-
-    expect((await executable.executable.get())?.activeRevisionId).toBe(revision.id);
-    expect((await executable.executable.revisions()).map(({ id }) => id)).toEqual([revision.id]);
+    await executable.executable.set({ runtime: 'test' });
+    expect((await executable.executable.get())?.runtime).toBe('test');
     const events = [];
-    for await (const event of executable.invoke({ input: { remote: true }, revisionId: revision.id })) {
+    for await (const event of executable.invoke({ input: { remote: true } })) {
       events.push(event);
     }
     expect(events).toEqual([

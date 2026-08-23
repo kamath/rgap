@@ -63,23 +63,9 @@ export const tokens = sqliteTable('tokens', {
   revokedAt: text('revoked_at'),
 });
 
-/** Immutable executable payloads are JSON text; their identity and resource relationship stay relational. */
-export const executableRevisions = sqliteTable('executable_revisions', {
-  id: text('id').primaryKey(),
-  resourceId: text('resource_id').notNull().references(() => resources.id),
-  runtime: text('runtime').notNull(),
-  program: text('program').notNull(),
-  inputSchema: text('input_schema'),
-  outputSchema: text('output_schema'),
-  bindingSchema: text('binding_schema').notNull(),
-  limits: text('limits').notNull(),
-  createdAt: text('created_at').notNull(),
-});
-
 export const executables = sqliteTable('executables', {
   resourceId: text('resource_id').primaryKey().references(() => resources.id),
-  activeRevisionId: text('active_revision_id').references(() => executableRevisions.id),
-  deletedAt: text('deleted_at'),
+  runtime: text('runtime').notNull(),
 });
 
 /** The log's order is stored rather than inferred, so a read returns the events in the order they were recorded. */

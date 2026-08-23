@@ -15,8 +15,6 @@ export type TokenId = Identity<'TokenId'>;
 export type TokenValue = Identity<'TokenValue'>;
 /** The stored hash of a bearer secret. The bearer itself is never stored. */
 export type TokenHash = Identity<'TokenHash'>;
-/** An immutable executable revision's stable identity. */
-export type ExecutableRevisionId = Identity<'ExecutableRevisionId'>;
 /** The record an audit event concerns. */
 export type RecordId = ResourceId | GrantId | TokenId;
 
@@ -25,45 +23,14 @@ export const grantId = (id: string): GrantId => id as GrantId;
 export const tokenId = (id: string): TokenId => id as TokenId;
 export const tokenValue = (id: string): TokenValue => id as TokenValue;
 export const tokenHash = (id: string): TokenHash => id as TokenHash;
-export const executableRevisionId = (id: string): ExecutableRevisionId => id as ExecutableRevisionId;
-
-/** JSON Schema is either a boolean schema or a JSON-compatible schema object. */
-export type JsonSchema = boolean | Readonly<Record<string, unknown>>;
-
 export type BindingSlot = {
   kind: string;
   required?: boolean;
 };
 
-export type NetworkLimits = {
-  allowedOrigins: string[];
-};
-
-/** Omitted limits inherit their host runtime ceiling. */
-export type ExecutionLimits = {
-  timeoutMs?: number;
-  memoryBytes?: number;
-  outputBytes?: number;
-  concurrency?: number;
-  network?: NetworkLimits;
-};
-
 export type ExecutableDefinition = {
   resourceId: ResourceId;
-  activeRevisionId: ExecutableRevisionId | null;
-  deletedAt: string | null;
-};
-
-export type ExecutableRevision = {
-  id: ExecutableRevisionId;
-  resourceId: ResourceId;
   runtime: string;
-  program: unknown;
-  inputSchema: JsonSchema | null;
-  outputSchema: JsonSchema | null;
-  bindingSchema: Record<string, BindingSlot>;
-  limits: ExecutionLimits;
-  createdAt: string;
 };
 
 export type Resource = {
@@ -118,7 +85,6 @@ export type State = {
   grants: Record<string, Grant>;
   tokens: Record<string, Token>;
   executables: Record<string, ExecutableDefinition>;
-  executableRevisions: Record<string, ExecutableRevision>;
   audit: AuditEvent[];
 };
 
@@ -229,19 +195,6 @@ export function stateIntegrity(state: State) {
   Object.values(state.executables).forEach((definition) => {
     if (!state.resources[definition.resourceId]) {
       problems.push(`Executable ${definition.resourceId} refers to a missing resource.`);
-    }
-    if (definition.activeRevisionId && !state.executableRevisions[definition.activeRevisionId]) {
-      problems.push(`Executable ${definition.resourceId} refers to missing revision ${definition.activeRevisionId}.`);
-    } else if (
-      definition.activeRevisionId &&
-      state.executableRevisions[definition.activeRevisionId].resourceId !== definition.resourceId
-    ) {
-      problems.push(`Executable ${definition.resourceId} selects a revision from another resource.`);
-    }
-  });
-  Object.values(state.executableRevisions).forEach((revision) => {
-    if (!state.resources[revision.resourceId]) {
-      problems.push(`Executable revision ${revision.id} refers to missing resource ${revision.resourceId}.`);
     }
   });
   return problems;

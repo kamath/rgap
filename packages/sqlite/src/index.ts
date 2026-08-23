@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { isDeepStrictEqual } from 'node:util';
 import Database from 'better-sqlite3';
 import { and, asc, eq, gt, isNull } from 'drizzle-orm';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
@@ -13,7 +12,6 @@ import {
   createResource as addResource,
   deleteExecutable as removeExecutable,
   deleteResource as removeResource,
-  executableRevisionId,
   grantId,
   getAuthorizedLineage,
   guardCommands,
@@ -23,7 +21,7 @@ import {
   moveResource as move,
   pageLimit,
   permissions as canonicalPermissions,
-  publishExecutable as addExecutableRevision,
+  setExecutable as associateExecutable,
   recordToken,
   resourceId,
   revokeGrant as revokeGrantBranch,
@@ -38,16 +36,12 @@ import {
   type Capability,
   type CreateGrantInput,
   type CreateResourceInput,
-  type ExecutableRevisionId,
-  type ExecutionLimits,
   type GrantId,
   type InvocationRecord,
   type InvokeInput,
-  type InvokeRuntime,
-  type JsonSchemaValidator,
   type RuntimeRegistrations,
   type Permission,
-  type PublishExecutableInput,
+  type SetExecutableInput,
   type AuditListQuery,
   type RecordId,
   type ResourceId,
@@ -73,10 +67,6 @@ export type SqliteRgapStoreOptions = {
   initialState?: State;
   /** Deployment-owned runtime implementations. They are configuration, not repository state. */
   runtimes?: RuntimeRegistry | RuntimeRegistrations;
-  /** Host JSON Schema implementation used at invocation boundaries. */
-  validator?: JsonSchemaValidator;
-  /** Per-runtime host ceilings. An omitted runtime has no configured ceilings. */
-  runtimeLimits?: Readonly<Record<string, ExecutionLimits>> | ((runtime: string) => ExecutionLimits);
 };
 
 export class SqliteRgapStore implements RgapStore {
@@ -105,19 +95,12 @@ class SqliteBackingRepository implements RgapCommands {
   private db: BetterSQLite3Database;
   private initialState: State;
   private readonly runtimes: RuntimeRegistry;
-  private readonly validator: JsonSchemaValidator;
-  private readonly runtimeLimits: (runtime: string) => ExecutionLimits;
 
   constructor(options: SqliteRgapStoreOptions = {}) {
     this.initialState = completeState(options.initialState);
     this.runtimes = options.runtimes instanceof RuntimeRegistry
       ? options.runtimes
       : new RuntimeRegistry(options.runtimes);
-    this.validator = options.validator ?? unavailableValidator;
-    const configuredLimits = options.runtimeLimits;
-    this.runtimeLimits = typeof configuredLimits === 'function'
-      ? configuredLimits
-      : (runtime) => structuredClone(configuredLimits?.[runtime] ?? {});
     this.connection = new Database(options.url ?? ':memory:');
     this.connection.pragma('foreign_keys = ON');
     this.db = drizzle(this.connection);
@@ -213,35 +196,14 @@ class SqliteBackingRepository implements RgapCommands {
     const row = this.db.select().from(schema.executables).where(eq(schema.executables.resourceId, id)).get();
     return row ? {
       resourceId: resourceId(row.resourceId),
-      activeRevisionId: row.activeRevisionId ? executableRevisionId(row.activeRevisionId) : null,
-      deletedAt: row.deletedAt,
+      runtime: row.runtime,
     } : undefined;
   }
 
-  async getExecutableRevision(id: ExecutableRevisionId) {
-    const row = this.db.select().from(schema.executableRevisions)
-      .where(eq(schema.executableRevisions.id, id)).get();
-    return row ? executableRevisionRecord(row) : undefined;
-  }
-
-  async listExecutableRevisions(id: ResourceId) {
-    return this.db.select().from(schema.executableRevisions)
-      .where(eq(schema.executableRevisions.resourceId, id))
-      .orderBy(asc(schema.executableRevisions.createdAt), asc(schema.executableRevisions.id))
-      .all().map(executableRevisionRecord);
-  }
-
-  async publishExecutable(id: ResourceId, input: PublishExecutableInput) {
-    const revisionId = executableRevisionId(randomUUID());
+  async setExecutable(id: ResourceId, input: SetExecutableInput) {
     return this.commit((state) => ({
-      state: addExecutableRevision(
-        state, id, input, revisionId, now(),
-        (runtime, program) => {
-          const implementation: InvokeRuntime = this.runtimes.get(runtime);
-          implementation.validate(program);
-        },
-      ),
-      pick: (committed) => committed.executableRevisions[revisionId],
+      state: associateExecutable(state, id, input, now(), this.runtimes),
+      pick: (committed) => committed.executables[id],
     }));
   }
 
@@ -252,22 +214,14 @@ class SqliteBackingRepository implements RgapCommands {
   invoke(id: ResourceId, input: InvokeInput) {
     const repository = this;
     return (async function* () {
-      // Surface an absent deployment runtime before another optional host service obscures it.
-      const definition = await repository.getExecutable(id);
-      const revisionId = input.revisionId ?? definition?.activeRevisionId;
-      const revision = revisionId ? await repository.getExecutableRevision(revisionId) : undefined;
-      if (revision?.resourceId === id) repository.runtimes.get(revision.runtime);
       yield* invokeExecutable({
         getDefinition: (resource) => repository.getExecutable(resource),
-        getRevision: (selected) => repository.getExecutableRevision(selected),
         // The selected repository plane already authorized invocation. The admin plane is unrestricted.
         authorize: async (resource) => {
           repository.requireLiveResource(resource);
           return { lineage: getAuthorizedLineage(input) };
         },
         runtimes: repository.runtimes,
-        validator: repository.validator,
-        runtimeLimits: (runtime) => structuredClone(repository.runtimeLimits(runtime)),
         recordInvocation: (record) => repository.recordInvocation(record),
       }, id, input);
     })();
@@ -358,7 +312,6 @@ class SqliteBackingRepository implements RgapCommands {
         target: record.resourceId,
         result: 'recorded',
         detail: JSON.stringify({
-          revisionId: record.revisionId,
           runtime: record.runtime,
           grantLineageIds: record.grantLineage,
           bindingResourceIds: Object.values(record.bindings),
@@ -469,16 +422,10 @@ class SqliteBackingRepository implements RgapCommands {
       };
     });
 
-    this.db.select().from(schema.executableRevisions)
-      .orderBy(asc(schema.executableRevisions.id)).all().forEach((row) => {
-        state.executableRevisions[row.id] = executableRevisionRecord(row);
-      });
-
     this.db.select().from(schema.executables).orderBy(asc(schema.executables.resourceId)).all().forEach((row) => {
       state.executables[row.resourceId] = {
         resourceId: resourceId(row.resourceId),
-        activeRevisionId: row.activeRevisionId ? executableRevisionId(row.activeRevisionId) : null,
-        deletedAt: row.deletedAt,
+        runtime: row.runtime,
       };
     });
 
@@ -502,7 +449,6 @@ class SqliteBackingRepository implements RgapCommands {
     this.db.delete(schema.capabilities).run();
     this.db.delete(schema.tokens).run();
     this.db.delete(schema.executables).run();
-    this.db.delete(schema.executableRevisions).run();
     this.db.delete(schema.audit).run();
     this.db.delete(schema.grants).run();
     this.db.delete(schema.resources).run();
@@ -535,24 +481,13 @@ class SqliteBackingRepository implements RgapCommands {
     insert(this.db, schema.capabilityPermissions, carried);
 
     insert(this.db, schema.tokens, Object.values(state.tokens));
-    insert(this.db, schema.executableRevisions, Object.values(state.executableRevisions).map((revision) => ({
-      id: revision.id,
-      resourceId: revision.resourceId,
-      runtime: revision.runtime,
-      program: encodeJson(revision.program),
-      inputSchema: revision.inputSchema === null ? null : encodeJson(revision.inputSchema),
-      outputSchema: revision.outputSchema === null ? null : encodeJson(revision.outputSchema),
-      bindingSchema: encodeJson(revision.bindingSchema),
-      limits: encodeJson(revision.limits),
-      createdAt: revision.createdAt,
-    })));
     insert(this.db, schema.executables, Object.values(state.executables));
     insert(this.db, schema.audit, state.audit.map((event, seq) => ({ ...event, seq })));
   }
 
   private isEmpty() {
     return [
-      schema.resources, schema.grants, schema.tokens, schema.executables, schema.executableRevisions,
+      schema.resources, schema.grants, schema.tokens, schema.executables,
       schema.audit,
     ].every(
       (table) => this.db.select().from(table).limit(1).all().length === 0,
@@ -565,7 +500,6 @@ const emptyState = (): State => ({
   grants: {},
   tokens: {},
   executables: {},
-  executableRevisions: {},
   audit: [],
 });
 const completeState = (state?: State): State => ({
@@ -598,37 +532,6 @@ const auditRecord = (row: typeof schema.audit.$inferSelect) => ({
   result: row.result,
   detail: row.detail,
 });
-const encodeJson = (value: unknown) => {
-  let encoded: string | undefined;
-  try {
-    encoded = JSON.stringify(value);
-  } catch {
-    throw new RgapError('invalid_json', 'Executable values must be JSON-compatible.');
-  }
-  if (encoded === undefined || !isDeepStrictEqual(value, JSON.parse(encoded))) {
-    throw new RgapError('invalid_json', 'Executable values must be JSON-compatible without lossy conversion.');
-  }
-  return encoded;
-};
-const executableRevisionRecord = (row: typeof schema.executableRevisions.$inferSelect) => ({
-  id: executableRevisionId(row.id),
-  resourceId: resourceId(row.resourceId),
-  runtime: row.runtime,
-  program: JSON.parse(row.program) as unknown,
-  inputSchema: row.inputSchema === null ? null : JSON.parse(row.inputSchema),
-  outputSchema: row.outputSchema === null ? null : JSON.parse(row.outputSchema),
-  bindingSchema: JSON.parse(row.bindingSchema),
-  limits: JSON.parse(row.limits),
-  createdAt: row.createdAt,
-});
-
-const unavailable = (service: string): never => {
-  throw new RgapError('service_unavailable', `${service} is not configured.`);
-};
-const unavailableValidator: JsonSchemaValidator = {
-  validate: () => unavailable('JSON Schema validator'),
-};
-
 /**
  * Records ordered so that every parent precedes its children, which is what lets the foreign keys
  * hold statement by statement. A cycle has no such order, so it is reported rather than written.

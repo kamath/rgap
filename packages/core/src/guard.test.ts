@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  executableRevisionId, grantId, resourceId, tokenHash, tokenId, tokenValue, type Capability, type State,
+  grantId, resourceId, tokenHash, tokenId, tokenValue, type Capability, type State,
 } from './domain';
 import { fixture, stubCommands } from './fixture';
 import { guardCommands } from './guard';
@@ -210,33 +210,19 @@ describe('command guard', () => {
     await expect(guard.grants.get(g('ghost'))).rejects.toThrow('outside this token');
   });
 
-  it('guards executable metadata, publishing, and binding invocation', async () => {
+  it('guards executable metadata, setting, and binding invocation', async () => {
     const initial = state();
-    const revision = {
-      id: executableRevisionId('revision'), resourceId: r('search-files'), runtime: 'test',
-      program: {}, inputSchema: true, outputSchema: null,
-      bindingSchema: { target: { kind: 'resource' } },
-      limits: {}, createdAt: at,
-    };
     initial.executables['search-files'] = {
-      resourceId: r('search-files'), activeRevisionId: revision.id, deletedAt: null,
+      resourceId: r('search-files'), runtime: 'test',
     };
-    initial.executableRevisions.revision = revision;
     const { commands, calls } = stubCommands(initial, at);
     const guard = guardCommands(repositoryFrom(commands), bearer);
     const search = await guard.resources.get(r('search-files'));
-    const publication = {
-      runtime: 'test', program: {}, inputSchema: true, outputSchema: null, bindingSchema: {}, limits: {},
-    };
 
-    expect((await guard.executables.get(r('search-files')))?.activeRevisionId).toBe('revision');
-    expect((await guard.executables.getRevision(revision.id))?.resourceId).toBe('search-files');
-    expect(await guard.executables.getRevision(executableRevisionId('missing'))).toBeUndefined();
-    expect(await guard.executables.revisions(r('search-files'))).toEqual([revision]);
+    expect((await guard.executables.get(r('search-files')))?.runtime).toBe('test');
     expect((await search.executable.get())?.resourceId).toBe('search-files');
-    expect(await search.executable.revisions()).toEqual([revision]);
-    await guard.executables.publish(r('search-files'), publication);
-    await search.executable.publish(publication);
+    await guard.executables.set(r('search-files'), { runtime: 'test' });
+    await search.executable.set({ runtime: 'test' });
     await guard.executables.delete(r('search-files'));
     await search.executable.delete();
     for await (const event of guard.invoke(r('search-files'), {
@@ -246,31 +232,16 @@ describe('command guard', () => {
       expect(event.type).toBe('done');
     }
     expect(calls.map(({ method }) => method)).toEqual([
-      'publishExecutable', 'publishExecutable', 'deleteExecutable', 'deleteExecutable',
+      'setExecutable', 'setExecutable', 'deleteExecutable', 'deleteExecutable',
       'invoke', 'invoke',
     ]);
   });
 
   it('invokes with or without opaque bindings', async () => {
     const initial = state();
-    const revision = {
-      id: executableRevisionId('branch-revision'),
-      resourceId: r('search-files'),
-      runtime: 'test',
-      program: {},
-      inputSchema: true,
-      outputSchema: null,
-      bindingSchema: {
-        readonly: { kind: 'resource' },
-      },
-      limits: {},
-      createdAt: at,
-    };
-    initial.executableRevisions[revision.id] = revision;
     initial.executables['search-files'] = {
       resourceId: r('search-files'),
-      activeRevisionId: revision.id,
-      deletedAt: null,
+      runtime: 'test',
     };
     const { commands, calls } = stubCommands(initial, at);
     const guard = guardCommands(repositoryFrom(commands), bearer);
@@ -280,21 +251,18 @@ describe('command guard', () => {
     }
     for await (const event of guard.invoke(r('drive'), {
       input: {},
-      revisionId: revision.id,
       bindings: { readonly: r('read-file') },
     })) {
       expect(event.type).toBe('done');
     }
     for await (const event of guard.invoke(r('search-files'), {
       input: {},
-      revisionId: revision.id,
       bindings: { readonly: r('read-file'), undeclared: r('drive') },
     })) {
       expect(event.type).toBe('done');
     }
     for await (const event of guard.invoke(r('search-files'), {
       input: {},
-      revisionId: revision.id,
     })) {
       expect(event.type).toBe('done');
     }

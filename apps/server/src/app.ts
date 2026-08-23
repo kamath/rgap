@@ -2,7 +2,6 @@ import { timingSafeEqual } from 'node:crypto';
 import { swaggerUI } from '@hono/swagger-ui';
 import { createRoute, OpenAPIHono, type RouteConfig, z } from '@hono/zod-openapi';
 import {
-  executableRevisionId,
   grantId,
   resourceId,
   RgapError,
@@ -22,7 +21,6 @@ import {
   AuthorizationHeaderSchema,
   AuthorizeSchema,
   ExecutableDefinitionSchema,
-  ExecutableRevisionSchema,
   InvocationEventSchema,
   InvokeSchema,
   DecisionSchema,
@@ -35,7 +33,7 @@ import {
   IssuedTokenSchema,
   MoveResourceSchema,
   PageQuerySchema,
-  PublishExecutableSchema,
+  SetExecutableSchema,
   ResourceListQuerySchema,
   ResourceSchema,
   ResourceWriteSchema,
@@ -109,26 +107,12 @@ const getExecutableRoute = commandRoute({
   request: { params: IdParamsSchema },
   responses: { 200: jsonResponse(ExecutableDefinitionSchema, 'Executable definition'), ...errors },
 });
-const getExecutableRevisionRoute = commandRoute({
-  method: 'get',
-  path: '/executable-revisions/{id}',
-  operationId: 'getExecutableRevision',
-  request: { params: IdParamsSchema },
-  responses: { 200: jsonResponse(ExecutableRevisionSchema, 'Executable revision'), ...errors },
-});
-const listExecutableRevisionsRoute = commandRoute({
-  method: 'get',
-  path: '/resources/{id}/executable/revisions',
-  operationId: 'listExecutableRevisions',
-  request: { params: IdParamsSchema },
-  responses: { 200: jsonResponse(z.array(ExecutableRevisionSchema), 'Executable revisions'), ...errors },
-});
-const publishExecutableRoute = commandRoute({
-  method: 'post',
-  path: '/resources/{id}/executable/revisions',
-  operationId: 'publishExecutable',
-  request: { params: IdParamsSchema, body: jsonBody(PublishExecutableSchema) },
-  responses: { 200: jsonResponse(ExecutableRevisionSchema, 'Published executable revision'), ...errors },
+const setExecutableRoute = commandRoute({
+  method: 'put',
+  path: '/resources/{id}/executable',
+  operationId: 'setExecutable',
+  request: { params: IdParamsSchema, body: jsonBody(SetExecutableSchema) },
+  responses: { 200: jsonResponse(ExecutableDefinitionSchema, 'Executable definition'), ...errors },
 });
 const deleteExecutableRoute = commandRoute({
   method: 'delete',
@@ -316,26 +300,9 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
       const definition = await repository(c).executables.get(resourceId(id));
       return c.json(requireRecord(definition, 'missing_executable', 'Executable does not exist.'), 200);
     })
-    .openapi(getExecutableRevisionRoute, async (c) => {
+    .openapi(setExecutableRoute, async (c) => {
       const { id } = c.req.valid('param');
-      const revision = await repository(c).executables.getRevision(executableRevisionId(id));
-      return c.json(ExecutableRevisionSchema.parse(
-        requireRecord(revision, 'missing_revision', 'Executable revision does not exist.'),
-      ), 200);
-    })
-    .openapi(listExecutableRevisionsRoute, async (c) => {
-      const { id } = c.req.valid('param');
-      return c.json(
-        (await repository(c).executables.revisions(resourceId(id))).map((revision) =>
-          ExecutableRevisionSchema.parse(revision)),
-        200,
-      );
-    })
-    .openapi(publishExecutableRoute, async (c) => {
-      const { id } = c.req.valid('param');
-      return c.json(ExecutableRevisionSchema.parse(
-        await repository(c).executables.publish(resourceId(id), c.req.valid('json')),
-      ), 200);
+      return c.json(await repository(c).executables.set(resourceId(id), c.req.valid('json')), 200);
     })
     .openapi(deleteExecutableRoute, async (c) => {
       const { id } = c.req.valid('param');
@@ -344,7 +311,7 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
     })
     .openapi(invokeRoute, async (c) => {
       const { id } = c.req.valid('param');
-      const { input, bindings, revisionId } = c.req.valid('json');
+      const { input, bindings } = c.req.valid('json');
       // @hono/zod-openapi does not express a typed streaming body, although the route schema
       // documents each NDJSON event. Runtime validation and integration tests cover the stream.
       return invocationResponse(c.req.raw.signal, (signal) => repository(c).invoke(resourceId(id), {
@@ -352,7 +319,6 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
         bindings: bindings
           ? Object.fromEntries(Object.entries(bindings).map(([name, boundId]) => [name, resourceId(boundId)]))
           : undefined,
-        revisionId: revisionId ? executableRevisionId(revisionId) : undefined,
         signal,
       })) as never;
     })

@@ -1,5 +1,5 @@
 import {
-  authorize, inspectAuthority, executableRevisionId, grantId, resourceId, tokenHash, tokenId, tokenValue,
+  authorize, inspectAuthority, grantId, resourceId, tokenHash, tokenId, tokenValue,
   type Capability, type Resource, type State,
 } from './domain';
 import { paginateRecords, repositoryFrom, type RgapCommands } from './repository';
@@ -32,7 +32,6 @@ export function fixture(): State {
       },
     },
     executables: {},
-    executableRevisions: {},
     audit: [],
   };
 }
@@ -94,12 +93,8 @@ export function stubCommands(state: State, at: string) {
     moveResource: (id, parentId) => record('moveResource', [id, parentId], resourceStub(id, parentId)),
     deleteResource: (id) => record('deleteResource', [id], undefined),
     getExecutable: (id) => Promise.resolve(state.executables[id]),
-    getExecutableRevision: (id) => Promise.resolve(state.executableRevisions[id]),
-    listExecutableRevisions: (id) => Promise.resolve(
-      Object.values(state.executableRevisions).filter((revision) => revision.resourceId === id),
-    ),
-    publishExecutable: (id, input) => record('publishExecutable', [id, input], {
-      ...input, id: executableRevisionId('revision'), resourceId: id, createdAt: at,
+    setExecutable: (id, input) => record('setExecutable', [id, input], {
+      resourceId: id, runtime: input.runtime,
     }),
     deleteExecutable: (id) => record('deleteExecutable', [id], undefined),
     invoke: (id, input) => {

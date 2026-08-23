@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import {
-  authorize, availableId, covers, createGrant, createResource, deleteResource, executableRevisionId, grantId, inspectAuthority,
+  authorize, availableId, covers, createGrant, createResource, deleteResource, grantId, inspectAuthority,
   InvalidParentError, isLive, isWithin, liveResources, moveResource, normalizePath, permissions, recordToken,
   requireResourceId, resourceId, resourceIdAtPath, resourcePath, revokeGrant, revokeToken, RgapError, setCapabilities,
   stateIntegrity, tryResourcePath, tokenHash, tokenId, type Capability, type CapabilityConfig, type CreateGrantInput,
@@ -60,42 +60,9 @@ describe('RGAP domain', () => {
     const state = fixture();
     delete state.resources['search-files'];
     delete state.grants.coordinator;
-    state.executableRevisions.orphan = {
-      id: executableRevisionId('orphan'),
-      resourceId: r('missing-executable-resource'),
-      runtime: 'test',
-      program: {},
-      inputSchema: true,
-      outputSchema: null,
-      bindingSchema: {},
-      limits: {},
-      createdAt: at,
-    };
     state.executables['missing-definition-resource'] = {
       resourceId: r('missing-definition-resource'),
-      activeRevisionId: null,
-      deletedAt: null,
-    };
-    state.executables.drive = {
-      resourceId: r('drive'),
-      activeRevisionId: executableRevisionId('missing-active-revision'),
-      deletedAt: null,
-    };
-    state.executableRevisions.cross = {
-      id: executableRevisionId('cross'),
-      resourceId: r('read-file'),
       runtime: 'test',
-      program: {},
-      inputSchema: true,
-      outputSchema: null,
-      bindingSchema: {},
-      limits: {},
-      createdAt: at,
-    };
-    state.executables['create-issue'] = {
-      resourceId: r('create-issue'),
-      activeRevisionId: executableRevisionId('cross'),
-      deletedAt: null,
     };
 
     expect(stateIntegrity(state)).toEqual([
@@ -103,9 +70,6 @@ describe('RGAP domain', () => {
       'Grant researcher refers to missing resource search-files.',
       'Token demo refers to missing grant coordinator.',
       'Executable missing-definition-resource refers to a missing resource.',
-      'Executable drive refers to missing revision missing-active-revision.',
-      'Executable create-issue selects a revision from another resource.',
-      'Executable revision orphan refers to missing resource missing-executable-resource.',
     ]);
   });
 

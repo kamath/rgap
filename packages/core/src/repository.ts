@@ -6,8 +6,6 @@ import {
   type Capability,
   type Decision,
   type ExecutableDefinition,
-  type ExecutableRevision,
-  type ExecutableRevisionId,
   type Grant,
   type GrantId,
   type Permission,
@@ -17,7 +15,7 @@ import {
   type TokenId,
   type TokenValue,
 } from './domain';
-import type { InvokeInput, PublishExecutableInput } from './executable';
+import type { InvokeInput, SetExecutableInput } from './executable';
 import type { InvocationEvent } from './runtime';
 
 export type ResourceWrite = { name: string };
@@ -52,8 +50,7 @@ export type ResourceHandle = Resource & {
   delete(): Promise<void>;
   executable: {
     get(): Promise<ExecutableDefinition | undefined>;
-    revisions(): Promise<ExecutableRevision[]>;
-    publish(input: PublishExecutableInput): Promise<ExecutableRevision>;
+    set(input: SetExecutableInput): Promise<ExecutableDefinition>;
     delete(): Promise<void>;
   };
   invoke(input: InvokeInput): AsyncIterable<InvocationEvent>;
@@ -100,9 +97,7 @@ export interface RgapCommands {
   moveResource(id: ResourceId, parentId: ResourceId | null): Promise<Resource>;
   deleteResource(id: ResourceId): Promise<void>;
   getExecutable(resourceId: ResourceId): Promise<ExecutableDefinition | undefined>;
-  getExecutableRevision(id: ExecutableRevisionId): Promise<ExecutableRevision | undefined>;
-  listExecutableRevisions(resourceId: ResourceId): Promise<ExecutableRevision[]>;
-  publishExecutable(resourceId: ResourceId, input: PublishExecutableInput): Promise<ExecutableRevision>;
+  setExecutable(resourceId: ResourceId, input: SetExecutableInput): Promise<ExecutableDefinition>;
   deleteExecutable(resourceId: ResourceId): Promise<void>;
   invoke(resourceId: ResourceId, input: InvokeInput): AsyncIterable<InvocationEvent>;
   createGrant(input: GrantWrite & { parentId: GrantId | null }): Promise<Grant>;
@@ -123,9 +118,7 @@ export interface RgapRepository {
   };
   executables: {
     get(resourceId: ResourceId): Promise<ExecutableDefinition | undefined>;
-    getRevision(id: ExecutableRevisionId): Promise<ExecutableRevision | undefined>;
-    revisions(resourceId: ResourceId): Promise<ExecutableRevision[]>;
-    publish(resourceId: ResourceId, input: PublishExecutableInput): Promise<ExecutableRevision>;
+    set(resourceId: ResourceId, input: SetExecutableInput): Promise<ExecutableDefinition>;
     delete(resourceId: ResourceId): Promise<void>;
   };
   invoke(resourceId: ResourceId, input: InvokeInput): AsyncIterable<InvocationEvent>;
@@ -155,9 +148,7 @@ export function repositoryFrom(commands: RgapCommands): RgapRepository {
     },
     executables: {
       get: (resourceId) => commands.getExecutable(resourceId),
-      getRevision: (id) => commands.getExecutableRevision(id),
-      revisions: (resourceId) => commands.listExecutableRevisions(resourceId),
-      publish: (resourceId, input) => commands.publishExecutable(resourceId, input),
+      set: (resourceId, input) => commands.setExecutable(resourceId, input),
       delete: (resourceId) => commands.deleteExecutable(resourceId),
     },
     invoke: (resourceId, input) => commands.invoke(resourceId, input),
@@ -205,8 +196,7 @@ function asResource(commands: RgapCommands, resource: Resource): ResourceHandle 
     delete: () => commands.deleteResource(resource.id),
     executable: {
       get: () => commands.getExecutable(resource.id),
-      revisions: () => commands.listExecutableRevisions(resource.id),
-      publish: (input) => commands.publishExecutable(resource.id, input),
+      set: (input) => commands.setExecutable(resource.id, input),
       delete: () => commands.deleteExecutable(resource.id),
     },
     invoke: (input) => commands.invoke(resource.id, input),

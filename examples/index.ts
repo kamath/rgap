@@ -9,13 +9,11 @@
  * with `new HttpRgapStore(...)` to run the same walkthrough against the Hono API.
  */
 import { fileURLToPath } from 'node:url';
-import Ajv2020, { type AnySchema } from 'ajv/dist/2020';
 import { z } from 'zod';
 import {
   resourceId,
   resourcePath,
   type InvokeRuntime,
-  type JsonSchemaValidator,
   type Permission,
   type ResourceId,
   type TokenValue,
@@ -27,29 +25,20 @@ type TreeNode<Id extends string> = { id: Id; parentId: Id | null; name: string }
 
 // To use Hono, replace the next line with:
 // const store = new HttpRgapStore({ baseUrl: 'http://localhost:3000', adminToken: process.env.RGAP_ADMIN_TOKEN ?? 'test' });
-const ajv = new Ajv2020();
-const validator: JsonSchemaValidator = {
-  validate(schema, value) {
-    const check = ajv.compile(schema as AnySchema);
-    return check(value)
-      ? { valid: true }
-      : { valid: false, errors: (check.errors ?? []).map((error) => `${error.instancePath} ${error.message}`) };
-  },
-};
-const EchoProgramSchema = z.object({ prefix: z.string() });
 const EchoInputSchema = z.object({ query: z.string() });
 const EchoOutputSchema = z.object({ message: z.string(), scope: z.string() });
 const echo: InvokeRuntime<
-  z.infer<typeof EchoProgramSchema>,
   z.infer<typeof EchoInputSchema>,
   z.infer<typeof EchoOutputSchema>
 > = {
-  validate(program): asserts program is z.infer<typeof EchoProgramSchema> {
-    EchoProgramSchema.parse(program);
+  inputSchema: EchoInputSchema,
+  outputSchema: EchoOutputSchema,
+  bindings: {
+    scope: { kind: 'resource' },
   },
-  async invoke({ revision, input, bindings }) {
+  async invoke({ input, bindings }) {
     return {
-      message: `${revision.program.prefix}${input.query}`,
+      message: `result: ${input.query}`,
       scope: bindings.scope.resourceId,
     };
   },
@@ -57,7 +46,6 @@ const echo: InvokeRuntime<
 const store = new SqliteRgapStore({
   url: fileURLToPath(new URL('scratch.db', import.meta.url)),
   runtimes: { echo },
-  validator,
 });
 const root = store.admin();
 
@@ -82,15 +70,8 @@ const docs = await platform.create({ name: 'docs' });
 const design = await docs.create({ name: 'design' });
 const tools = await platform.create({ name: 'tools' });
 const search = await tools.create({ name: 'search' });
-await search.executable.publish({
+await search.executable.set({
   runtime: 'echo',
-  program: { prefix: 'result: ' },
-  inputSchema: z.toJSONSchema(EchoInputSchema),
-  outputSchema: z.toJSONSchema(EchoOutputSchema),
-  bindingSchema: {
-    scope: { kind: 'resource' },
-  },
-  limits: {},
 });
 const finance = await companyRoot.create({ name: 'finance' });
 const payroll = await finance.create({ name: 'payroll' });

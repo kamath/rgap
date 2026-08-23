@@ -217,7 +217,7 @@ The repository contains four workspace packages:
 - `@rgap/server` exposes the repository as a Hono HTTP API.
 - `@rgap/examples` is an executable scratchpad for exploring the model.
 
-`@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, runtime contracts, and asynchronous `RgapStore` and `RgapRepository` contracts. Identities in that TypeScript surface are branded (`ResourceId`, `GrantId`, `TokenId`, `TokenValue`, `TokenHash`, `ExecutableRevisionId`); they serialize as ordinary strings. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. Ordinary commands are request-response operations; invoke returns an async event iterable. The package has no dependency on a storage implementation or transport.
+`@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, runtime contracts, and asynchronous `RgapStore` and `RgapRepository` contracts. Identities in that TypeScript surface are branded (`ResourceId`, `GrantId`, `TokenId`, `TokenValue`, `TokenHash`); they serialize as ordinary strings. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. Ordinary commands are request-response operations; invoke returns an async event iterable. The package has no dependency on a storage implementation or transport.
 
 A repository is the request-response interface returned by `as` or `admin`. It exposes collections, looks up existing records, reads current state, and answers decision queries. Creating a grant or a resource is one command; the parent is an argument. TypeScript fills that argument from the receiver so the caller does not pass it.
 
@@ -358,7 +358,7 @@ const decision = await repository.authorize(value, child.id, 'read');
 store.close();
 ```
 
-The constructor takes an optional `url`, a file path or `:memory:`, an optional `initialState`, runtime registry, schema validator, and runtime limit ceilings. A database that already holds records is opened as it stands. `close()` releases the connection. Bearer values are returned once and never stored; the `tokens` table holds only hashes.
+The constructor takes an optional `url`, a file path or `:memory:`, an optional `initialState`, and a runtime registry. A database that already holds records is opened as it stands. `close()` releases the connection. Bearer values are returned once and never stored; the `tokens` table holds only hashes.
 
 `admin()` and `as(token)` return the same `RgapRepository` interface, so callers cannot accidentally switch planes by changing command code. Only the explicit store selection differs.
 
