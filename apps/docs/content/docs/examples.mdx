@@ -66,6 +66,73 @@ The authority view prints `['read', 'invoke']`. The agent receives the RGAP
 token and output events. It never receives `OPENAI_API_KEY`. The complete
 executable version lives in `examples/openai.ts`.
 
+## Expose a user-managed secret through invoke
+
+A deployment can keep end-user secrets in its own store and expose one
+`reveal-secret` executable. The caller supplies the secret's RGAP resource as
+a binding. The runtime depends only on a small store interface:
+
+```ts
+interface SecretStore {
+  get(resourceId: ResourceId): string | undefined | Promise<string | undefined>;
+  set(resourceId: ResourceId, value: string): void | Promise<void>;
+  close(): void | Promise<void>;
+}
+
+const revealSecret = {
+  inputSchema: z.null(),
+  outputSchema: z.string(),
+  bindings: {
+    secret: { kind: 'resource' },
+  },
+  async invoke({ bindings }) {
+    return secretStore.get(bindings.secret.resourceId);
+  },
+} satisfies InvokeRuntime<null, string>;
+```
+
+RGAP requires `invoke` on both the `reveal-secret` executable and the bound
+secret resource before the runtime runs. The secret store indexes values by
+the stable resource ID, so the caller cannot bypass authorization by supplying
+a secret name:
+
+```ts
+const grant = await admin.grants.create({
+  name: 'users/alice/secret-reader',
+  resources: [
+    { id: reveal.id, permissions: ['invoke'] },
+    { id: githubToken.id, permissions: ['invoke'] },
+  ],
+  expiresAt: null,
+});
+
+for await (const event of reveal.invoke({
+  input: null,
+  bindings: { secret: githubToken.id },
+})) {
+  // The data event contains the secret string.
+}
+```
+
+The holder can copy or disclose the plaintext after invocation. This pattern
+is appropriate only when the caller is trusted to possess the secret.
+
+Inputs and outputs stay out of RGAP invocation audit records, logs, and errors.
+The surrounding application must also keep the returned value out of model
+context, telemetry, caches, and exception messages. The complete executable
+Hono app lives in `examples/secret-store`. It uses one SQLite database for
+RGAP state and initializes `SqliteSecretStore` with another SQLite database
+for secret values. A deployment can supply a different `SecretStore`
+implementation without changing the runtime.
+
+### Consume a secret without revealing it
+
+When a caller only needs to perform an operation, the executable fetches and
+uses the secret internally instead. The OpenAI example above follows this
+pattern: `invoke` grants use of the model while the provider API key remains in
+the runtime. This narrower interface prevents the caller from exfiltrating the
+credential and is the preferred design for tool and provider integrations.
+
 ## MCP server governance
 
 ```text

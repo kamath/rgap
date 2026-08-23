@@ -2,5 +2,7 @@ node_modules/
 dist/
 .DS_Store
 examples/scratch.db*
+examples/secret-store/*.db*
+examples/secret-store/*.token
 apps/server/openapi.json
 apps/server/src/client/generated/
