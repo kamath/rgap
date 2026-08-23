@@ -562,15 +562,15 @@ describe('creating a grant at a path', () => {
   it('reuses active prefixes and creates a relative path from a parent', () => {
     const created = createGrantAtPath(fixture(), {
       ...write,
-      name: 'researcher/assistant',
+      name: 'Researcher/assistant',
       expiresAt: '2027-01-01T00:00:00.000Z',
     }, g('coordinator'), at);
 
-    expect(grantIdAtPath(created.grants, 'researcher/assistant', g('coordinator'), at)).toBe(g('assistant'));
+    expect(grantIdAtPath(created.grants, 'Researcher/assistant', g('coordinator'), at)).toBe(g('assistant'));
     expect(created.grants.assistant.parentId).toBe(g('researcher'));
     expect(() => createGrantAtPath(created, {
       ...write,
-      name: 'researcher/assistant',
+      name: 'Researcher/assistant',
       expiresAt: '2027-01-01T00:00:00.000Z',
     }, g('coordinator'), at)).toThrow('A grant already exists at that path.');
   });

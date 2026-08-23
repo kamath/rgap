@@ -212,7 +212,9 @@ describe('SqliteRgapStore', () => {
     await expect(collect(store.as(value).invoke(resourceId('drive'), { input: {} })))
       .rejects.toMatchObject({ code: 'unauthorized' });
 
-    const invoker = await rootGrant(admin);
+    const invoker = await admin.grants.create({
+      name: 'Acme invoker', resources: [], expiresAt: null,
+    });
     await invoker.resources.set([{ id: resourceId('drive'), permissions: ['invoke'] }]);
     const allowed = await invoker.tokens.create({ label: 'invoker' });
     expect(await collect(store.as(allowed.value).invoke(resourceId('drive'), { input: {} })))

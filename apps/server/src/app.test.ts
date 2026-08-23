@@ -396,7 +396,7 @@ describe('RGAP Hono API', () => {
     const guarded = remote.as(issued.value);
     const child = await (await guarded.resources.get(root.id)).create({ name: 'docs' });
     const delegated = await guarded.grants.create({
-      name: 'reader',
+      name: 'writer/reader',
       resources: [{ id: root.id, permissions: ['read'] }],
       expiresAt: null,
     });
