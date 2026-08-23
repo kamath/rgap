@@ -195,7 +195,7 @@ describe('RGAP Hono API', () => {
     );
     expect(set.status).toBe(200);
     expect(await (await request(`/resources/${executable.id}/executable`, 'GET')).json())
-      .toEqual({ id: executable.id, runtime: 'test' });
+      .toEqual({ resourceId: executable.id, runtime: 'test' });
 
     expect((await request(`/resources/${executable.id}/invoke`, 'POST', {
       input: {},
