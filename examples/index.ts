@@ -9,7 +9,7 @@
  * with `new HttpRgapStore(...)` to run the same walkthrough against the Hono API.
  */
 import { fileURLToPath } from 'node:url';
-import Ajv, { type AnySchema } from 'ajv';
+import Ajv2020, { type AnySchema } from 'ajv/dist/2020';
 import { z } from 'zod';
 import {
   resourceId,
@@ -27,7 +27,7 @@ type TreeNode<Id extends string> = { id: Id; parentId: Id | null; name: string }
 
 // To use Hono, replace the next line with:
 // const store = new HttpRgapStore({ baseUrl: 'http://localhost:3000', adminToken: process.env.RGAP_ADMIN_TOKEN ?? 'test' });
-const ajv = new Ajv();
+const ajv = new Ajv2020();
 const validator: JsonSchemaValidator = {
   validate(schema, value) {
     const check = ajv.compile(schema as AnySchema);
