@@ -111,6 +111,9 @@ importers:
       '@ai-sdk/openai':
         specifier: ^4.0.46
         version: 4.0.46(zod@4.4.3)
+      '@hono/node-server':
+        specifier: ^2.1.1
+        version: 2.1.1(hono@4.13.3)
       '@rgap/core':
         specifier: workspace:*
         version: link:../packages/core
@@ -123,10 +126,16 @@ importers:
       ai:
         specifier: ^7.0.77
         version: 7.0.77(zod@4.4.3)
+      better-sqlite3:
+        specifier: ^13.0.3
+        version: 13.0.3
       zod:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@types/better-sqlite3':
+        specifier: ^9.6.0
+        version: 9.6.0
       '@types/node':
         specifier: latest
         version: 26.2.0
