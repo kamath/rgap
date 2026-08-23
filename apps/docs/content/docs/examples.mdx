@@ -66,6 +66,80 @@ The authority view prints `['read', 'invoke']`. The agent receives the RGAP
 token and output events. It never receives `OPENAI_API_KEY`. The complete
 executable version lives in `examples/openai.ts`.
 
+## Expose a user-managed secret through invoke
+
+A deployment can keep end-user secrets in any secret store and expose a
+secret as an executable resource. RGAP authorizes `invoke` before the runtime
+fetches the value, so the resource grant determines which callers can reveal
+it:
+
+```ts
+const secretStore: SecretStore = {
+  async get(reference) {
+    return externalSecretClient.read(reference);
+  },
+};
+
+const revealGithubToken = revealSecret(
+  secretStore,
+  'users/alice/github-token',
+);
+
+const store = new SqliteRgapStore({
+  url: ':memory:',
+  runtimes: { revealGithubToken },
+});
+
+const secret = await admin.resources.create({
+  name: 'users/alice/secrets/github-token',
+});
+await secret.executable.set({ runtime: 'revealGithubToken' });
+
+const grant = await admin.grants.create({
+  name: 'users/alice/secret-reader',
+  resources: [{ id: secret.id, permissions: ['invoke'] }],
+  expiresAt: null,
+});
+```
+
+The runtime closes over the deployment-owned store and its fixed secret
+reference. The invocation input does not accept a caller-selected secret name:
+
+```ts
+function revealSecret(
+  secretStore: SecretStore,
+  reference: string,
+): InvokeRuntime<null, { value: string }> {
+  return {
+    inputSchema: z.null(),
+    outputSchema: z.object({ value: z.string() }),
+    async invoke() {
+      const value = await secretStore.get(reference);
+      if (value === undefined) throw new Error('Secret is unavailable.');
+      return { value };
+    },
+  };
+}
+```
+
+One resource represents one independently grantable secret. Granting `invoke`
+on a resource permits the holder to receive that secret as plaintext. The
+holder can copy or disclose the value after invocation, so this pattern is
+appropriate only when the caller is trusted to possess the secret.
+
+Inputs and outputs stay out of RGAP invocation audit records, logs, and errors.
+The surrounding application must also keep the returned value out of model
+context, telemetry, caches, and exception messages. The complete executable
+version lives in `examples/user-secrets.ts`.
+
+### Consume a secret without revealing it
+
+When a caller only needs to perform an operation, the executable fetches and
+uses the secret internally instead. The OpenAI example above follows this
+pattern: `invoke` grants use of the model while the provider API key remains in
+the runtime. This narrower interface prevents the caller from exfiltrating the
+credential and is the preferred design for tool and provider integrations.
+
 ## MCP server governance
 
 ```text
