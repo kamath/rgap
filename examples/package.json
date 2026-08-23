@@ -12,7 +12,8 @@
     "@rgap/core": "workspace:*",
     "@rgap/server": "workspace:*",
     "@rgap/sqlite": "workspace:*",
-    "ajv": "^8.20.0"
+    "ajv": "^8.20.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "latest",

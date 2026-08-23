@@ -10,8 +10,8 @@
  */
 import { fileURLToPath } from 'node:url';
 import Ajv, { type AnySchema } from 'ajv';
+import { z } from 'zod';
 import {
-  RgapError,
   resourceId,
   resourcePath,
   type InvokeRuntime,
@@ -36,18 +36,15 @@ const validator: JsonSchemaValidator = {
       : { valid: false, errors: (check.errors ?? []).map((error) => `${error.instancePath} ${error.message}`) };
   },
 };
-type EchoProgram = { prefix: string };
-type EchoInput = { query: string };
-type EchoOutput = { message: string; scope: ResourceId };
+const EchoProgramSchema = z.object({ prefix: z.string() });
+const EchoInputSchema = z.object({ query: z.string() });
+const EchoOutputSchema = z.object({ message: z.string(), scope: z.string() });
+type EchoProgram = z.infer<typeof EchoProgramSchema>;
+type EchoInput = z.infer<typeof EchoInputSchema>;
+type EchoOutput = z.infer<typeof EchoOutputSchema>;
 const echo: InvokeRuntime<EchoProgram, EchoInput, EchoOutput> = {
   validate(program): asserts program is EchoProgram {
-    if (
-      !program
-      || typeof program !== 'object'
-      || typeof (program as { prefix?: unknown }).prefix !== 'string'
-    ) {
-      throw new RgapError('invalid_program', 'Echo programs require a prefix.');
-    }
+    EchoProgramSchema.parse(program);
   },
   async invoke({ revision, input, bindings }) {
     return {
@@ -87,21 +84,8 @@ const search = await tools.create({ name: 'search' });
 await search.executable.publish({
   runtime: 'echo',
   program: { prefix: 'result: ' },
-  inputSchema: {
-    type: 'object',
-    properties: { query: { type: 'string' } },
-    required: ['query'],
-    additionalProperties: false,
-  },
-  outputSchema: {
-    type: 'object',
-    properties: {
-      message: { type: 'string' },
-      scope: { type: 'string' },
-    },
-    required: ['message', 'scope'],
-    additionalProperties: false,
-  },
+  inputSchema: z.toJSONSchema(EchoInputSchema),
+  outputSchema: z.toJSONSchema(EchoOutputSchema),
   bindingSchema: {
     scope: { kind: 'resource' },
   },
