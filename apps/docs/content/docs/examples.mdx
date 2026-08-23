@@ -37,7 +37,8 @@ const openai: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
 ```
 
 The deployment registers that runtime, associates it with a resource, and
-grants an agent `invoke` on that resource:
+grants an agent `invoke` on that resource. The stored entry also includes
+`read`, so the agent can look up the model before calling it:
 
 ```ts
 const model = await admin.resources.create({ name: 'acme/models/openai' });
@@ -50,6 +51,8 @@ const agentGrant = await admin.grants.create({
 });
 const agentToken = await agentGrant.tokens.create({ label: 'openai-agent' });
 const agent = store.as(agentToken.value);
+const authority = await agent.inspectToken(agentToken.value);
+console.log(authority.permissions[model.id]);
 const authorizedModel = await agent.resources.get(model.id);
 
 for await (const event of authorizedModel.invoke({
@@ -59,9 +62,9 @@ for await (const event of authorizedModel.invoke({
 }
 ```
 
-The agent receives the RGAP token and output events. It never receives
-`OPENAI_API_KEY`. The complete executable version lives in
-`examples/openai.ts`.
+The authority view prints `['read', 'invoke']`. The agent receives the RGAP
+token and output events. It never receives `OPENAI_API_KEY`. The complete
+executable version lives in `examples/openai.ts`.
 
 ## MCP server governance
 
@@ -130,7 +133,8 @@ Its expiration is earlier than the coordinator's expiration.
 
 To enforce application-specific argument restrictions—such as allowed Slack
 channels or Drive roots—register each protected scope as a resource and grant
-the applicable leaves. RGAP's core permission algebra remains a plain set.
+the applicable leaves. Submitted `invoke` entries store `read` as well.
+`write`, `invoke`, `move`, and `delete` stay independent of each other.
 
 ## Gateway request flow
 

@@ -41,7 +41,7 @@ const resource = (id: string, parent: string | null): Resource => ({
 });
 
 const cap = (id: string): GrantResource => ({
-  id: resourceId(id), permissions: ['invoke'],
+  id: resourceId(id), permissions: ['read', 'invoke'],
 });
 
 /** A call the guard forwarded to the command sink, in the order the guard made it. */

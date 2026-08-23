@@ -142,9 +142,10 @@ covers(parent, child, resources) =
 Two path entries compare normalized locations lexically. Any comparison
 involving an ID resolves both targets against the current live resource tree.
 
-<Callout type="info" title="Permissions are plain sets">
-  No permission implies another. `write` does not imply `read`, and `read` is
-  not included by holding any other permission.
+<Callout type="info" title="Every entry includes read">
+  A resource entry always includes `read`. Submitting `['invoke']` stores
+  `['read', 'invoke']`. `write`, `invoke`, `move`, and `delete` remain
+  independent of each other.
 </Callout>
 
 ## The complete lineage matters

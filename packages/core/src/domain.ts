@@ -262,13 +262,16 @@ export function covers(parent: GrantResource, child: GrantResource, resources: S
 function normalizeResources(entries: GrantResource[], resources: State['resources']) {
   return entries.map((entry) => {
     if (!entry.permissions.length) throw new RgapError('invalid_grant_resource', 'Select at least one permission.');
+    const normalizedPermissions = permissions.filter((permission) =>
+      permission === 'read' || entry.permissions.includes(permission)
+    );
     if (isPathResource(entry)) {
       if ('id' in entry) {
         throw new RgapError('invalid_grant_resource', 'Grant resource must name an id or a path.');
       }
       const path = normalizePath(entry.path);
       if (!path) throw new RgapError('invalid_grant_resource', 'Grant resource path is required.');
-      return { ...structuredClone(entry), path };
+      return { ...structuredClone(entry), path, permissions: normalizedPermissions };
     }
     if (!('id' in entry)) {
       throw new RgapError('invalid_grant_resource', 'Grant resource must name an id or a path.');
@@ -276,7 +279,7 @@ function normalizeResources(entries: GrantResource[], resources: State['resource
     if (!isLive(resources[entry.id])) {
       throw new RgapError('missing_resource', 'Grant resource does not exist.');
     }
-    return structuredClone(entry);
+    return { ...structuredClone(entry), permissions: normalizedPermissions };
   });
 }
 

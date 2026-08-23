@@ -318,8 +318,8 @@ describe('RGAP Hono API', () => {
       client,
       headers,
       path: { id: grantId },
-      body: { resources: [{ id: root.data!.id, permissions: ['read'] }] },
-    })).data?.resources[0]).toMatchObject({ permissions: ['read'] });
+      body: { resources: [{ id: root.data!.id, permissions: ['invoke'] }] },
+    })).data?.resources[0]).toMatchObject({ permissions: ['read', 'invoke'] });
 
     const issued = await sdk.issueToken({
       client,

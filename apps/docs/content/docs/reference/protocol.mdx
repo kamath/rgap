@@ -131,7 +131,23 @@ only live resources, so a new resource may reuse a deleted name with a new ID.
 | `move` | Relocating a resource to a different parent. |
 | `delete` | Deleting a resource together with its descendants. |
 
-No permission implies another. Permissions form a plain set compared by subset.
+A resource entry always includes `read`. A write accepts any non-empty
+permission set and stores that set unioned with `read`, in canonical order:
+
+```ts
+normalizePermissions(submitted) =
+  ['read', 'write', 'invoke', 'move', 'delete']
+    .filter((permission) =>
+      permission === 'read' || submitted.includes(permission),
+    );
+```
+
+Submitting `['invoke']` stores `['read', 'invoke']`. Submitting `['read']`
+stores `['read']`.
+
+No permission implies another during authorization. `write` does not include
+`invoke`, `invoke` does not include `write`, and `delete` does not include
+`move`. `authorize` tests membership in the stored set.
 
 | Operation | Required authority |
 | --- | --- |
@@ -202,7 +218,8 @@ current live tree and the child target must be within the parent target.
 A grant is created only when:
 
 1. Its stored name is a single non-empty segment and contains no `/`.
-2. Every resource entry has at least one permission and exactly one target.
+2. Every resource entry has exactly one target and a non-empty permission
+   set that includes `read`.
 3. Resource targets are live; path targets are non-empty after normalization
    and may currently be unresolved.
 4. Its parent exists and is active, or the grant is a root.
@@ -457,7 +474,8 @@ An implementation conforms when:
 
 1. Stable IDs are assigned once and never reused.
 2. Paths are derived and canonicalized as defined.
-3. Permissions are plain sets with no implication.
+3. Resource-entry permission sets always include `read` and are compared as
+   plain sets with no implication.
 4. `covers` implements path and current-tree containment exactly.
 5. Grant creation and amendment prove attenuation.
 6. Authorization checks the complete grant lineage.
