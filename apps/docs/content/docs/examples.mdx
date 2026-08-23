@@ -120,7 +120,7 @@ the applicable leaves. RGAP's core permission algebra remains a plain set.
 
 ```ts
 const coordinator = await companyPlane.grants.create({
-  name: 'Project coordinator',
+  name: 'Company/Project coordinator',
   resources: [],
   expiresAt: '2026-08-20T23:00:00.000Z',
 });
@@ -140,7 +140,7 @@ const coordinatorToken = await coordinator.tokens.create({
 const coordinatorPlane = store.as(coordinatorToken.value);
 
 const researcher = await coordinatorPlane.grants.create({
-  name: 'Research sub-agent',
+  name: 'Company/Project coordinator/Research sub-agent',
   resources: [],
   expiresAt: '2026-08-20T22:00:00.000Z',
 });

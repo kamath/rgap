@@ -16,6 +16,65 @@ Alice: read/write/delete projects/alpha
 Bob cannot grant write access, reach outside `projects/alpha/docs`, or create a
 child that outlives Bob's grant.
 
+## Create at a path
+
+Create accepts a slash-separated location in `name`. The path is the location,
+so the write does not include a parent ID. Collection create walks from the
+grant forest root. Handle create walks from that grant. Missing active prefixes
+are created, and the command returns the leaf.
+
+```ts
+const subagent = await admin.grants.create({
+  name: 'Company/Team/Employee/Agent/Subagent',
+  resources: [{
+    path: 'acme/platform/docs/design',
+    permissions: ['read'],
+  }],
+  expiresAt: null,
+});
+```
+
+`subagent.name` is `Subagent`. `subagent.parentId` is the `Agent` grant. The
+derived path of `subagent` is `Company/Team/Employee/Agent/Subagent`.
+
+The same command creates a relative path under an existing grant:
+
+```ts
+const company = await admin.grants.create({
+  name: 'Company',
+  resources: [{ id: acme.id, permissions: ['read', 'write', 'invoke'] }],
+  expiresAt: null,
+});
+const subagent = await company.create({
+  name: 'Team/Employee/Agent/Subagent',
+  resources: [{
+    path: 'acme/platform/docs/design',
+    permissions: ['read'],
+  }],
+  expiresAt: null,
+});
+```
+
+Each stored grant name is one segment. Missing prefixes become ordinary grants
+and receive the submitted resource set and expiration. Active prefixes are
+reused and keep their current records. The leaf must be absent: a second create
+at an occupied path fails with `duplicate_path`.
+
+Active sibling names are unique under one parent. A revoked or expired name may
+be reused by a new grant with a new ID.
+
+Create is one state transition. Each newly created grant is audited as
+`grant.create` or `grant.delegate` and receives a stable ID minted from its
+segment name. Each new child still proves coverage and expiration against its
+parent. When several grants are created in one walk, they share the submitted
+resource set, so each new child is covered by the new parent.
+
+Creating a new root grant is administrative. Creating a child requires that the
+child downscopes the acting grant. `store.as(token).grants.create` walks from
+the grant forest root: it refuses a path that would create a new root, and it
+requires the parent of every grant it creates to be the acting grant or a
+descendant of it. Existing prefixes need no additional permission.
+
 ## Resource entries
 
 A grant aggregates one or more resource entries:

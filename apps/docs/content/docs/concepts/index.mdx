@@ -29,6 +29,8 @@ or renaming a resource changes its position without changing its identity.
 ## Grants describe where authority comes from
 
 A grant contains resource entries and may delegate authority to child grants.
+Create accepts a slash-separated location and materializes missing prefixes,
+the same way resource create does.
 
 ```text
 Company: acme, all permissions
