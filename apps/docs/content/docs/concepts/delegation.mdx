@@ -23,12 +23,6 @@ so the write does not include a parent ID. Collection create walks from the
 grant forest root. Handle create walks from that grant. Missing active prefixes
 are created, and the command returns the leaf.
 
-Each segment is stored as a lowercase kebab-case name. Create lowercases the
-segment, replaces every run of characters other than letters and digits with a
-single hyphen, and strips leading and trailing hyphens. `Company/Documentation
-agent` stores `company` and `documentation-agent`. Lookups use the same
-normalization, so those presentations name the same location.
-
 ```ts
 const subagent = await admin.grants.create({
   name: 'company/team/employee/agent/subagent',
@@ -61,11 +55,10 @@ const subagent = await company.create({
 });
 ```
 
-Each stored grant name is one kebab-case segment. A segment that is empty after
-normalization fails. Missing prefixes become ordinary grants and receive the
-submitted resource set and expiration. Active prefixes are reused and keep
-their current records. The leaf must be absent: a second create at an occupied
-path fails with `duplicate_path`.
+Each stored grant name is one segment. Missing prefixes become ordinary grants
+and receive the submitted resource set and expiration. Active prefixes are
+reused and keep their current records. The leaf must be absent: a second create
+at an occupied path fails with `duplicate_path`.
 
 Active sibling names are unique under one parent. A revoked or expired name may
 be reused by a new grant with a new ID.
