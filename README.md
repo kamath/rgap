@@ -212,11 +212,12 @@ A move or deletion commits the resource-tree change and its audit event atomical
 
 ## Repository architecture
 
-The repository contains four workspace packages:
+The repository contains five workspace packages:
 
 - `@rgap/core` defines the protocol records, pure authorization rules, and store and repository contracts.
 - `@rgap/sqlite` provides durable SQLite persistence.
 - `@rgap/server` exposes the repository as a Hono HTTP API.
+- `@rgap/docs` publishes the documentation website from MDX content.
 - `@rgap/examples` is an executable scratchpad for exploring the model.
 
 `@rgap/core` contains the JSON-compatible domain records, pure RGAP rules, runtime contracts, and asynchronous `RgapStore` and `RgapRepository` contracts. Identities in that TypeScript surface are branded (`ResourceId`, `GrantId`, `TokenId`, `TokenValue`, `TokenHash`); they serialize as ordinary strings. A store owns persistence and exposes only `as(token)` and `admin()` command-plane selection. Ordinary commands are request-response operations; invoke returns an async event iterable. The package has no dependency on a storage implementation or transport.
@@ -290,6 +291,26 @@ Collection queries return an ordered array of plain serializable records directl
 `authorize` and `inspectToken` remain repository queries about a presented bearer rather than methods on a token handle, because the caller often has only the secret, not a stored record.
 
 Every command addresses resources by `ResourceId`. A resource path describes only where a resource currently sits, so it is a presentation concern: `@rgap/core` exports the pure helpers that render a resource's path and resolve a path to an ID, and callers use them before they look up a handle or issue a command. Keeping resolution outside the boundary means a command can never act on whatever happens to occupy a path at the moment it arrives.
+
+## Documentation website
+
+`@rgap/docs` is a Next.js and Fumadocs application in `apps/docs`. It publishes the project documentation from MDX files in `apps/docs/content/docs`. The content tree and its metadata define the URL structure, sidebar groups, labels, and page order.
+
+The site provides a responsive documentation shell with:
+
+- A persistent desktop sidebar and mobile navigation.
+- Page-level tables of contents.
+- Full-text documentation search.
+- Syntax-highlighted code blocks with copy controls.
+- Reusable MDX callouts, cards, tabs, and step components.
+- Light and dark color schemes that follow the reader's system preference and can be selected manually.
+- Previous-page and next-page navigation generated from the content order.
+
+The visual design uses RGAP's own typography, color tokens, logo treatment, and component styling on top of Fumadocs rather than presenting an unmodified framework theme. Pages remain readable without custom MDX components, while components add structure where prose, tables, and code fences are insufficient.
+
+The documentation is organized into overview, concepts, guides, protocol reference, implementation reference, examples, and comparisons. The existing protocol and repository documentation lives in that hierarchy as MDX, so the published site and repository use one documentation source. The HTTP API reference links to the server's generated OpenAPI document and interactive Swagger UI rather than maintaining a second handwritten endpoint contract.
+
+From the repository root, `pnpm docs:dev` starts the documentation development server and `pnpm docs:build` verifies a production build. The workspace-wide build includes the documentation application.
 
 ## HTTP API
 
