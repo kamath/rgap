@@ -79,6 +79,54 @@ Successful requests return the JSON-compatible RGAP records and decisions
 described by the generated schema. Commands with no response value return
 `204`.
 
+## Invoke without incremental streaming
+
+`POST /resources/{id}/invoke` returns newline-delimited JSON events rather than
+server-sent events. A client that does not need incremental delivery waits for
+the complete HTTP response and parses all lines together.
+
+The deployment configures the `openai` runtime and keeps `OPENAI_API_KEY` on the
+server. The client creates the resource, associates the runtime, creates an
+invoke-only grant, and uses its RGAP token:
+
+```ts
+const model = await request('/resources', {
+  name: 'acme/models/openai',
+});
+await request(`/resources/${model.id}/executable`, {
+  runtime: 'openai',
+}, 'PUT');
+
+const grant = await request('/grants', {
+  name: 'company/openai-agent',
+  resources: [{ id: model.id, permissions: ['invoke'] }],
+  expiresAt: null,
+});
+const issued = await request(`/grants/${grant.id}/tokens`, {
+  label: 'openai-agent',
+});
+
+const response = await fetch(`${baseUrl}/resources/${model.id}/invoke`, {
+  method: 'POST',
+  headers: {
+    authorization: `Bearer ${issued.value}`,
+    'content-type': 'application/json',
+  },
+  body: JSON.stringify({
+    input: { prompt: 'Summarize the design notes.' },
+  }),
+});
+
+const events = (await response.text())
+  .trim()
+  .split('\n')
+  .filter(Boolean)
+  .map((line) => JSON.parse(line));
+```
+
+This uses one ordinary HTTP response body and no `EventSource` or SSE client.
+See `examples/openai-http.ts` for the complete executable request helper.
+
 ## Generate the TypeScript client
 
 ```bash
