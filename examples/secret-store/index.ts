@@ -4,25 +4,14 @@ import { serve } from '@hono/node-server';
 import type { InvokeRuntime } from '@rgap/core';
 import { createApp } from '@rgap/server';
 import { SqliteRgapStore } from '@rgap/sqlite';
-import Database from 'better-sqlite3';
 import { z } from 'zod';
+import {
+  SqliteSecretStore,
+  type SecretStore,
+} from './store';
 
 const directory = fileURLToPath(new URL('.', import.meta.url));
-const secretDatabase = new Database(`${directory}/secrets.db`);
-secretDatabase.exec(`
-  CREATE TABLE IF NOT EXISTS secrets (
-    resource_id TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  )
-`);
-
-const selectSecret = secretDatabase.prepare(
-  'SELECT value FROM secrets WHERE resource_id = ?',
-);
-const putSecret = secretDatabase.prepare(`
-  INSERT INTO secrets (resource_id, value) VALUES (?, ?)
-  ON CONFLICT (resource_id) DO UPDATE SET value = excluded.value
-`);
+const secretStore: SecretStore = new SqliteSecretStore(`${directory}/secrets.db`);
 
 const revealSecret: InvokeRuntime<null, string> = {
   inputSchema: z.null(),
@@ -31,11 +20,9 @@ const revealSecret: InvokeRuntime<null, string> = {
     secret: { kind: 'resource' },
   },
   async invoke({ bindings }) {
-    const row = selectSecret.get(bindings.secret.resourceId) as
-      | { value: string }
-      | undefined;
-    if (!row) throw new Error('Secret is unavailable.');
-    return row.value;
+    const value = await secretStore.get(bindings.secret.resourceId);
+    if (value === undefined) throw new Error('Secret is unavailable.');
+    return value;
   },
 };
 
@@ -55,7 +42,10 @@ await reveal.executable.set({ runtime: 'revealSecret' });
 const githubToken = await admin.resources.create({
   name: 'users/alice/secrets/github-token',
 });
-putSecret.run(githubToken.id, process.env.DEMO_SECRET ?? 'example-user-secret');
+await secretStore.set(
+  githubToken.id,
+  process.env.DEMO_SECRET ?? 'example-user-secret',
+);
 
 const grant = await admin.grants.create({
   name: 'users/alice/secret-reader',
@@ -82,9 +72,9 @@ const server = serve({ fetch: app.fetch, port }, ({ port: listeningPort }) => {
 });
 
 function close() {
-  server.close(() => {
+  server.close(async () => {
     store.close();
-    secretDatabase.close();
+    await secretStore.close();
   });
 }
 

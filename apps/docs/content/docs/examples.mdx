@@ -70,9 +70,15 @@ executable version lives in `examples/openai.ts`.
 
 A deployment can keep end-user secrets in its own store and expose one
 `reveal-secret` executable. The caller supplies the secret's RGAP resource as
-a binding:
+a binding. The runtime depends only on a small store interface:
 
 ```ts
+interface SecretStore {
+  get(resourceId: ResourceId): string | undefined | Promise<string | undefined>;
+  set(resourceId: ResourceId, value: string): void | Promise<void>;
+  close(): void | Promise<void>;
+}
+
 const revealSecret = {
   inputSchema: z.null(),
   outputSchema: z.string(),
@@ -115,7 +121,9 @@ Inputs and outputs stay out of RGAP invocation audit records, logs, and errors.
 The surrounding application must also keep the returned value out of model
 context, telemetry, caches, and exception messages. The complete executable
 Hono app lives in `examples/secret-store`. It uses one SQLite database for
-RGAP state and another SQLite database for secret values.
+RGAP state and initializes `SqliteSecretStore` with another SQLite database
+for secret values. A deployment can supply a different `SecretStore`
+implementation without changing the runtime.
 
 ### Consume a secret without revealing it
 

@@ -2,7 +2,9 @@
 
 This app exposes a generic `reveal-secret` runtime through the RGAP Hono API.
 It keeps authorization state in `rgap.db` and secret values in `secrets.db`.
-The secret database indexes each value by its stable RGAP resource ID.
+`SecretStore` defines the storage interface, and `SqliteSecretStore` is the
+default implementation initialized by `index.ts`. The secret database indexes
+each value by its stable RGAP resource ID.
 
 Start the app:
 
