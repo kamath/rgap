@@ -7,7 +7,7 @@ import {
   RgapError,
   tokenId,
   tokenValue,
-  type Capability,
+  type GrantResource,
   type GrantHandle,
   type InvocationEvent,
   type ResourceHandle,
@@ -37,7 +37,7 @@ import {
   ResourceListQuerySchema,
   ResourceSchema,
   ResourceWriteSchema,
-  SetCapabilitiesSchema,
+  SetResourcesSchema,
   TokenListQuerySchema,
   TokenSchema,
   TokenWriteSchema,
@@ -152,11 +152,11 @@ const createGrantRoute = commandRoute({
   request: { body: jsonBody(GrantWriteSchema) },
   responses: { 200: jsonResponse(GrantSchema, 'Created grant'), ...errors },
 });
-const setCapabilitiesRoute = commandRoute({
+const setResourcesRoute = commandRoute({
   method: 'put',
-  path: '/grants/{id}/capabilities',
-  operationId: 'setCapabilities',
-  request: { params: IdParamsSchema, body: jsonBody(SetCapabilitiesSchema) },
+  path: '/grants/{id}/resources',
+  operationId: 'setResources',
+  request: { params: IdParamsSchema, body: jsonBody(SetResourcesSchema) },
   responses: { 200: jsonResponse(GrantSchema, 'Updated grant'), ...errors },
 });
 const issueTokenRoute = commandRoute({
@@ -336,8 +336,8 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
       return c.json(records, 200);
     })
     .openapi(createGrantRoute, async (c) => {
-      const { parentId, capabilities, ...input } = c.req.valid('json');
-      const write = { ...input, capabilities: brandedCapabilities(capabilities) };
+      const { parentId, resources, ...input } = c.req.valid('json');
+      const write = { ...input, resources: brandedResources(resources) };
       if (parentId === null && !c.get('admin')) {
         throw new RgapError('unauthorized', 'Creating a root grant is an administrative operation.');
       }
@@ -346,11 +346,11 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
         : await repository(c).grants.get(grantId(parentId)).then((parent) => parent.create(write));
       return c.json(grantRecord(record), 200);
     })
-    .openapi(setCapabilitiesRoute, async (c) => {
+    .openapi(setResourcesRoute, async (c) => {
       const { id } = c.req.valid('param');
-      const { capabilities } = c.req.valid('json');
+      const { resources } = c.req.valid('json');
       const record = await repository(c).grants.get(grantId(id))
-        .then((grant) => grant.capabilities.set(brandedCapabilities(capabilities)));
+        .then((grant) => grant.resources.set(brandedResources(resources)));
       return c.json(grantRecord(record), 200);
     })
     .openapi(issueTokenRoute, async (c) => {
@@ -538,8 +538,8 @@ function resourceRecord(record: ResourceHandle) {
 }
 
 function grantRecord(record: GrantHandle) {
-  const { id, name, parentId, capabilities, expiresAt, revokedAt } = record;
-  return { id, name, parentId, capabilities: [...capabilities], expiresAt, revokedAt };
+  const { id, name, parentId, resources, expiresAt, revokedAt } = record;
+  return { id, name, parentId, resources: [...resources], expiresAt, revokedAt };
 }
 
 function tokenRecord(record: TokenHandle) {
@@ -547,11 +547,11 @@ function tokenRecord(record: TokenHandle) {
   return { id, grantId: owningGrantId, label, hash, expiresAt, revokedAt };
 }
 
-function brandedCapabilities(
-  entries: Array<{ permissions: Capability['permissions']; resourceId: string } | { permissions: Capability['permissions']; path: string }>,
-): Capability[] {
-  return entries.map((entry) => 'resourceId' in entry
-    ? { ...entry, resourceId: resourceId(entry.resourceId) }
+function brandedResources(
+  entries: Array<{ permissions: GrantResource['permissions']; id: string } | { permissions: GrantResource['permissions']; path: string }>,
+): GrantResource[] {
+  return entries.map((entry) => 'id' in entry
+    ? { ...entry, id: resourceId(entry.id) }
     : entry);
 }
 

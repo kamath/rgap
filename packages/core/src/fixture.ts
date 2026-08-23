@@ -1,6 +1,6 @@
 import {
   authorize, inspectAuthority, grantId, resourceId, tokenHash, tokenId, tokenValue,
-  type Capability, type Resource, type State,
+  type GrantResource, type Resource, type State,
 } from './domain';
 import { paginateRecords, repositoryFrom, type RgapCommands } from './repository';
 
@@ -15,12 +15,12 @@ export function fixture(): State {
     grants: {
       coordinator: {
         id: grantId('coordinator'), name: 'Coordinator', parentId: null,
-        capabilities: [cap('search-files'), cap('create-issue')],
+        resources: [cap('search-files'), cap('create-issue')],
         expiresAt: '2027-08-21T23:00:00.000Z', revokedAt: null,
       },
       researcher: {
         id: grantId('researcher'), name: 'Researcher', parentId: grantId('coordinator'),
-        capabilities: [cap('search-files')],
+        resources: [cap('search-files')],
         expiresAt: '2027-08-21T22:00:00.000Z', revokedAt: null,
       },
     },
@@ -40,8 +40,8 @@ const resource = (id: string, parent: string | null): Resource => ({
   id: resourceId(id), parentId: parent ? resourceId(parent) : null, name: id, deletedAt: null,
 });
 
-const cap = (id: string): Capability => ({
-  resourceId: resourceId(id), permissions: ['invoke'],
+const cap = (id: string): GrantResource => ({
+  id: resourceId(id), permissions: ['invoke'],
 });
 
 /** A call the guard forwarded to the command sink, in the order the guard made it. */
@@ -104,8 +104,8 @@ export function stubCommands(state: State, at: string) {
       })();
     },
     createGrant: (input) => record('createGrant', [input], { ...input, id: grantId('created'), revokedAt: null }),
-    setCapabilities: (id, capabilities) =>
-      record('setCapabilities', [id, capabilities], { ...state.grants[id], capabilities }),
+    setResources: (id, resources) =>
+      record('setResources', [id, resources], { ...state.grants[id], resources }),
     issueToken: (id, label) => record('issueToken', [id, label], {
       record: {
         id: tokenId('issued'), grantId: id, label, hash: tokenHash('issued-hash'), expiresAt: null, revokedAt: null,

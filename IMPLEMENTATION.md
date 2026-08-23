@@ -44,7 +44,7 @@ Each heterogeneous `InvokeRuntime<TInput, TOutput>` owns nullable structural inp
 | --- | --- |
 | `resources` | Stable resource records and tombstones. |
 | `grants` | Grant identity, ancestry, expiration, and revocation. |
-| `capabilities`, `capability_permissions` | Capability targets and normalized permission sets. |
+| `grant_resources`, `grant_resource_permissions` | Grant-resource targets and normalized permission sets. |
 | `tokens` | Token records and bearer hashes. |
 | `executables` | One row per association, keyed by `resource_id`, with only `runtime`. |
 | `audit` | Ordered authorization, mutation, and invocation events. |

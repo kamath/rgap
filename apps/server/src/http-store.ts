@@ -7,7 +7,7 @@ import {
   tokenId,
   tokenValue,
   type AuditEvent,
-  type Capability,
+  type GrantResource,
   type ExecutableDefinition,
   type InvocationEvent,
   type Grant,
@@ -41,13 +41,13 @@ import {
   reset,
   revokeGrant,
   revokeToken,
-  setCapabilities,
+  setResources,
 } from './client/generated/sdk.gen';
 import { createClient, type Client } from './client/generated/client';
 import type {
   ApiError,
   AuditEvent as HttpAuditEvent,
-  Capability as HttpCapability,
+  GrantResource as HttpGrantResource,
   ExecutableDefinition as HttpExecutableDefinition,
   Grant as HttpGrant,
   Resource as HttpResource,
@@ -221,14 +221,14 @@ class HttpRgapCommands implements RgapCommands {
       ? await this.actingGrantId()
       : input.parentId;
     return asGrant(unwrap(await createGrant(this.options({
-      body: { ...input, parentId, capabilities: input.capabilities.map(asHttpCapability) },
+      body: { ...input, parentId, resources: input.resources.map(asHttpGrantResource) },
     }))));
   }
 
-  async setCapabilities(id: ReturnType<typeof grantId>, capabilities: Capability[]) {
-    return asGrant(unwrap(await setCapabilities(this.options({
+  async setResources(id: ReturnType<typeof grantId>, resources: GrantResource[]) {
+    return asGrant(unwrap(await setResources(this.options({
       path: { id },
-      body: { capabilities: capabilities.map(asHttpCapability) },
+      body: { resources: resources.map(asHttpGrantResource) },
     }))));
   }
 
@@ -356,18 +356,18 @@ function asGrant(record: HttpGrant): Grant {
     ...record,
     id: grantId(record.id),
     parentId: record.parentId === null ? null : grantId(record.parentId),
-    capabilities: record.capabilities.map(asCapability),
+    resources: record.resources.map(asGrantResource),
   };
 }
 
-function asCapability(capability: HttpCapability): Capability {
-  return 'resourceId' in capability
-    ? { ...capability, resourceId: resourceId(capability.resourceId) }
-    : capability;
+function asGrantResource(entry: HttpGrantResource): GrantResource {
+  return 'id' in entry
+    ? { ...entry, id: resourceId(entry.id) }
+    : entry;
 }
 
-function asHttpCapability(capability: Capability): HttpCapability {
-  return capability;
+function asHttpGrantResource(entry: GrantResource): HttpGrantResource {
+  return entry;
 }
 
 function asToken(record: HttpToken): Token {

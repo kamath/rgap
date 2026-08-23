@@ -105,7 +105,7 @@ grant → opaque handle → live ancestry check at enforcement
           ancestor revocation takes effect on the next check
 ```
 
-Keycard evaluates policy during token exchange and scopes the resulting credential to a requested resource. RGAP additionally requires every child capability entry to be mechanically covered by a parent entry. Constraint types define deterministic containment rules, so delegation cannot expand authority even when an agent asks for it.
+Keycard evaluates policy during token exchange and scopes the resulting credential to a requested resource. RGAP additionally requires every child resource entry to be mechanically covered by a parent entry. Constraint types define deterministic containment rules, so delegation cannot expand authority even when an agent asks for it.
 
 RGAP also makes mutable containment part of the authorization protocol. Moving a resource can remove inherited access, revoke a containment-derived grant, or reject the move. Keycard's public resource and delegation documentation does not define equivalent resource-move behavior as a protocol invariant.
 

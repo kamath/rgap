@@ -42,26 +42,26 @@ export const InvocationEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('done') }).strict(),
 ]).openapi('InvocationEvent');
 
-const CapabilityConfigSchema = {
+const GrantResourceConfigSchema = {
   permissions: z.array(PermissionSchema),
 };
 
-export const CapabilitySchema = z.union([
+export const GrantResourceSchema = z.union([
   z.object({
-    ...CapabilityConfigSchema,
-    resourceId: IdSchema,
+    ...GrantResourceConfigSchema,
+    id: IdSchema,
   }).strict(),
   z.object({
-    ...CapabilityConfigSchema,
+    ...GrantResourceConfigSchema,
     path: z.string(),
   }).strict(),
-]).openapi('Capability');
+]).openapi('GrantResource');
 
 export const GrantSchema = z.object({
   id: IdSchema,
   name: z.string(),
   parentId: NullableIdSchema,
-  capabilities: z.array(CapabilitySchema),
+  resources: z.array(GrantResourceSchema),
   expiresAt: NullableTimestampSchema,
   revokedAt: NullableTimestampSchema,
 }).openapi('Grant');
@@ -153,12 +153,12 @@ export const MoveResourceSchema = z.object({
 export const GrantWriteSchema = z.object({
   name: z.string().min(1),
   parentId: NullableIdSchema,
-  capabilities: z.array(CapabilitySchema),
+  resources: z.array(GrantResourceSchema),
   expiresAt: NullableTimestampSchema,
 }).strict();
 
-export const SetCapabilitiesSchema = z.object({
-  capabilities: z.array(CapabilitySchema),
+export const SetResourcesSchema = z.object({
+  resources: z.array(GrantResourceSchema),
 }).strict();
 
 export const TokenWriteSchema = z.object({

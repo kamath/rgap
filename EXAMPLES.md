@@ -23,7 +23,7 @@ acme/
             └── create_issue
 ```
 
-The MCP server resource is the high-level governance boundary. An operator can register, disable, or revoke an entire server branch. Tool-level capability entries determine which operations an agent can actually invoke. Registering or discovering a tool does not grant access to it.
+The MCP server resource is the high-level governance boundary. An operator can register, disable, or revoke an entire server branch. Tool-level resource entries determine which operations an agent can actually invoke. Registering or discovering a tool does not grant access to it.
 
 Server-wide grants include tools registered later under that server, because every entry covers its subtree. Operators who do not want that expansion grant the tools rather than the server.
 
@@ -33,8 +33,8 @@ A coordinator agent receives one grant containing selected tools from several MC
 
 ```yaml
 id: grant_coordinator
-capabilities:
-  - resourceId: tool_drive_search_files
+resources:
+  - id: tool_drive_search_files
     permissions: [invoke]
     constraints:
       drive_roots: [folder_project_alpha]
@@ -43,7 +43,7 @@ capabilities:
     permissions: [invoke]
     constraints:
       channels: [channel_project_alpha, channel_engineering]
-  - resourceId: tool_github_create_issue
+  - id: tool_github_create_issue
     permissions: [invoke]
     constraints:
       repositories: [repo_alpha]
@@ -59,8 +59,8 @@ The coordinator delegates a narrower grant to a research sub-agent:
 ```yaml
 id: grant_researcher
 parent_grant_id: grant_coordinator
-capabilities:
-  - resourceId: tool_drive_search_files
+resources:
+  - id: tool_drive_search_files
     permissions: [invoke]
     constraints:
       drive_roots: [folder_project_alpha_docs]
@@ -80,7 +80,7 @@ The research sub-agent cannot create GitHub issues, search the engineering Slack
 2. The user or an authorized policy selects tools and constraints for the coordinator grant.
 3. The coordinator receives an opaque RGAP token, while provider credentials remain inside the MCP gateway or tool runtime.
 4. An MCP `tools/list` response includes only tools visible through the active grant.
-5. For `tools/call`, the gateway maps the server and tool name to stable resource IDs, validates the requested arguments against the capability constraints, and checks every ancestor grant.
+5. For `tools/call`, the gateway maps the server and tool name to stable resource IDs, validates the requested arguments against the resource constraints, and checks every ancestor grant.
 6. The gateway retrieves the protected provider credential, invokes the MCP server, and records the grant lineage and decision in the audit log.
 7. A sub-agent receives a new token referencing a child grant rather than receiving the coordinator's token or an upstream provider credential.
 8. Revoking the coordinator grant immediately disables the coordinator and every sub-agent descended from it.

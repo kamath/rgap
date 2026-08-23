@@ -26,19 +26,19 @@ type Resource = {
   deletedAt: string | null;                          // tombstone marker
 };
 
-type CapabilityConfig = {
+type GrantResourceConfig = {
   permissions: Permission[];                         // a set; order is not significant
 };
 
-type ResourceCapability = CapabilityConfig & { resourceId: string };  // follows one stable resource identity
-type PathCapability = CapabilityConfig & { path: string };            // stays attached to one normalized location
-type Capability = ResourceCapability | PathCapability;
+type IdResource = GrantResourceConfig & { id: string };               // follows one stable resource identity
+type PathResource = GrantResourceConfig & { path: string };           // stays attached to one normalized location
+type GrantResource = IdResource | PathResource;
 
 type Grant = {
   id: string;
   name: string;
   parentId: string | null;                           // null for a root grant
-  capabilities: Capability[];                        // a set; may be empty, which authorizes nothing
+  resources: GrantResource[];                        // a set; may be empty, which authorizes nothing
   expiresAt: string | null;                          // null never expires
   revokedAt: string | null;
 };
@@ -94,7 +94,7 @@ resourceIdAtPath(resources, path) -> string | null      // null when nothing liv
 requireResourceId(resources, path) -> string            // raises missing_resource instead of returning null
 ```
 
-Resource commands name resources by stable ID, so a caller resolves an operational path at the moment it reads state. Capability path targets are different: the normalized path is stored as part of the grant and resolved from the current tree for every authorization decision.
+Resource commands name resources by stable ID, so a caller resolves an operational path at the moment it reads state. Grant-resource path targets are different: the normalized path is stored as part of the grant and resolved from the current tree for every authorization decision.
 
 An ID entry names an identity. It follows the resource and its subtree when they move. A path entry names a location. It remains attached to the same normalized path while empty and applies to a resource that later occupies that path, including that resource's subtree. Every entry covers its target and the live resources currently under it.
 
@@ -115,12 +115,12 @@ Deletion marks `deletedAt` on a resource and its live descendants. The records a
 isLive(resource) = resource !== undefined && resource.deletedAt === null
 ```
 
-Every read skips resources that are not live: path resolution, listings, capability validation, authorization, and the authority view. Two consequences are load-bearing:
+Every read skips resources that are not live: path resolution, listings, grant-resource validation, authorization, and the authority view. Two consequences are load-bearing:
 
-- A stable ID is never reissued, because the retained record still occupies it. A capability or audit event that names a deleted ID still names exactly what it always named.
+- A stable ID is never reissued, because the retained record still occupies it. A grant resource or audit event that names a deleted ID still names exactly what it always named.
 - A name is released, because uniqueness among siblings is checked against live resources only. A new resource may take a deleted resource's name under the same parent; it is a different resource with its own new ID.
 
-`resourcePath` continues to resolve for a tombstone, so an ID-targeted capability can still report the path its resource held.
+`resourcePath` continues to resolve for a tombstone, so an ID-targeted grant resource can still report the path its resource held.
 
 ## Permissions
 
@@ -147,30 +147,30 @@ Each operation requires this authority:
 | Move a resource | `move` on the resource **and** `write` on the destination parent |
 | Delete a resource and its descendants | `delete` on the resource |
 | Delegate a child grant | The delegating grant is the grant the token references, and the child downscopes it |
-| Set a grant's capabilities | The grant is delegated from the acting token's grant, and the new set downscopes the grant's parent |
+| Set a grant's resources | The grant is delegated from the acting token's grant, and the new set downscopes the grant's parent |
 | Issue or revoke a token | The token's grant is the acting token's grant or a grant delegated from it |
 | Revoke a grant | The grant is the acting token's own grant or one delegated from it |
 
 A move requires authority at both ends because relocation changes who reaches the resource. Without `write` on the destination, a move would place a resource inside a scope the mover does not hold.
 
-Creating a root resource, moving a resource to a root, creating a root grant, and setting a root grant's capabilities are administrative operations. No token authorizes them, because there is no resource or grant above them to derive authority from.
+Creating a root resource, moving a resource to a root, creating a root grant, and setting a root grant's resources are administrative operations. No token authorizes them, because there is no resource or grant above them to derive authority from.
 
-## Capability algebra
+## Resource algebra
 
-Two relations define everything else: what a capability authorizes, and when one capability contains another.
+Two relations define everything else: what a grant resource authorizes, and when one grant resource contains another.
 
 ### Authorization by a single entry
 
 ```ts
-targetResourceId(capability, resources) =
-  'path' in capability
-    ? resourceIdAtPath(resources, capability.path)
-    : (isLive(resources[capability.resourceId]) ? capability.resourceId : null)
+targetResourceId(entry, resources) =
+  'path' in entry
+    ? resourceIdAtPath(resources, entry.path)
+    : (isLive(resources[entry.id]) ? entry.id : null)
 
-authorizes(capability, resources, resourceId, permission) =
-  capability.permissions.includes(permission) &&
-  targetResourceId(capability, resources) !== null &&
-  isWithin(resources, resourceId, targetResourceId(capability, resources))
+authorizes(entry, resources, resourceId, permission) =
+  entry.permissions.includes(permission) &&
+  targetResourceId(entry, resources) !== null &&
+  isWithin(resources, resourceId, targetResourceId(entry, resources))
 ```
 
 ### Containment
@@ -206,23 +206,23 @@ Containment is required when a grant is issued or amended. Authorization separat
 A grant is created only when all of the following hold:
 
 1. `name` is non-empty.
-2. Every entry in `capabilities` has at least one permission and names exactly one of `resourceId` or `path`. A `resourceId` names a live resource. A `path` has a non-empty normalized path and need not currently resolve. The set may be empty, in which case the grant authorizes nothing until its capabilities are set.
+2. Every entry in `resources` has at least one permission and names exactly one of `id` or `path`. An `id` names a live resource. A `path` has a non-empty normalized path and need not currently resolve. The set may be empty, in which case the grant authorizes nothing until its resources are set.
 3. If `parentId` is set, the parent grant exists and is active. A missing or inactive parent is `InvalidParentError` (`missing_parent` or `inactive_parent`).
 4. If the parent has an `expiresAt`, the child has one and it is no later than the parent's.
-5. Every child capability entry is covered by at least one parent capability entry, by `covers` above.
+5. Every child resource entry is covered by at least one parent resource entry, by `covers` above.
 
 Rules 4 and 5 are the downscoping proof. A root grant, having no parent, is unconstrained by them and is therefore administrative.
 
-### Setting capabilities
+### Setting resources
 
-A grant's identity, parent, and expiry are fixed at issue. Its capability set is not: `setCapabilities(state, grantId, capabilities, at)` replaces the whole set in one atomic transition.
+A grant's identity, parent, and expiry are fixed at issue. Its resource set is not: `setResources(state, grantId, resources, at)` replaces the whole set in one atomic transition.
 
 1. The grant exists and is active. A revoked or expired grant is not amended.
-2. Every entry has at least one permission and names exactly one of `resourceId` or `path`. Resource IDs name live resources, and paths hold non-empty normalized locations that may be empty.
+2. Every entry has at least one permission and names exactly one of `id` or `path`. IDs name live resources, and paths hold non-empty normalized locations that may be empty.
 3. If the grant has a parent, every entry is covered by at least one entry of the parent grant, by `covers` above. A root grant's entries are unconstrained, so setting them is administrative.
 4. Let `orphaned` be the active grants delegated directly from this grant that hold an entry which no entry of the new set covers.
 5. Revoke each grant in `orphaned` together with everything delegated from it.
-6. Commit the normalized capability set, the revocations, and the audit event together.
+6. Commit the normalized resource set, the revocations, and the audit event together.
 
 Rule 3 is the same downscoping proof as issue, applied at the moment the set changes, so an amended grant is bounded by its parent exactly as a newly issued one is. Rule 4 need only consider direct children: a deeper grant is covered against its own parent, which this operation does not change. A child is orphaned when the parent gives up its target or permission coverage.
 
@@ -281,7 +281,7 @@ The procedure:
 
 ```ts
 allowed = chain.every((grant) =>
-  grant.capabilities.some((entry) =>
+  grant.resources.some((entry) =>
     authorizes(entry, resources, resourceId, permission)));
 ```
 
@@ -413,13 +413,13 @@ The store does not authenticate callers of `admin()`. Its host keeps the store o
 An implementation conforms when:
 
 1. Stable IDs are assigned once, never rewritten, and never reissued after deletion.
-2. Paths are derived from names and canonicalized as defined. Operational paths resolve before resource commands; capability path targets resolve during every decision.
+2. Paths are derived from names and canonicalized as defined. Operational paths resolve before resource commands; grant-resource path targets resolve during every decision.
 3. Permissions are compared as sets, with no implication between them.
 4. `covers` is implemented exactly as defined, including lexical containment for two path targets and current-tree containment otherwise.
-5. A grant is created, and its capabilities set, only when the result satisfies every validity rule, so authority never widens through delegation.
+5. A grant is created, and its resources set, only when the result satisfies every validity rule, so authority never widens through delegation.
 6. `authorize` checks the complete lineage and allows only what survives every grant in it.
 7. Revocation cascades to delegated grants, and an inactive ancestor disables its descendants.
-8. Resource operations and capability amendments commit their record changes and audit events as one atomic transition; capability amendments also commit any resulting child-grant revocations.
+8. Resource operations and grant-resource amendments commit their record changes and audit events as one atomic transition; grant-resource amendments also commit any resulting child-grant revocations.
 9. Deleted resources are retained as tombstones, excluded from every read, and their IDs stay permanently taken.
 10. Stores expose command methods only through explicit `as(token)` or `admin()` plane selection.
 11. Every invocation binding requires `invoke` on its bound resource through the complete lineage.

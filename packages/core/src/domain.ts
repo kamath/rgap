@@ -41,23 +41,23 @@ export type Resource = {
   deletedAt: string | null;
 };
 
-export type CapabilityConfig = {
+export type GrantResourceConfig = {
   permissions: Permission[];
 };
 
-export type ResourceCapability = CapabilityConfig & { resourceId: ResourceId };
-export type PathCapability = CapabilityConfig & { path: string };
-export type Capability = ResourceCapability | PathCapability;
+export type IdResource = GrantResourceConfig & { id: ResourceId };
+export type PathResource = GrantResourceConfig & { path: string };
+export type GrantResource = IdResource | PathResource;
 
-export function isPathCapability(capability: Capability): capability is PathCapability {
-  return 'path' in capability;
+export function isPathResource(entry: GrantResource): entry is PathResource {
+  return 'path' in entry;
 }
 
 export type Grant = {
   id: GrantId;
   name: string;
   parentId: GrantId | null;
-  capabilities: Capability[];
+  resources: GrantResource[];
   expiresAt: string | null;
   revokedAt: string | null;
 };
@@ -183,9 +183,9 @@ export function stateIntegrity(state: State) {
     if (grant.parentId && !state.grants[grant.parentId]) {
       problems.push(`Grant ${grant.id} refers to missing parent ${grant.parentId}.`);
     }
-    grant.capabilities.forEach((cap) => {
-      if (!isPathCapability(cap) && !state.resources[cap.resourceId]) {
-        problems.push(`Grant ${grant.id} refers to missing resource ${cap.resourceId}.`);
+    grant.resources.forEach((entry) => {
+      if (!isPathResource(entry) && !state.resources[entry.id]) {
+        problems.push(`Grant ${grant.id} refers to missing resource ${entry.id}.`);
       }
     });
   });
@@ -220,32 +220,32 @@ export function requireResourceId(resources: ResourceCollection, path: string) {
 
 export const normalizePath = (path: string) => pathParts(path).join('/');
 
-function targetResourceId(capability: Capability, resources: State['resources']) {
-  if (isPathCapability(capability)) return resourceIdAtPath(resources, capability.path);
-  return isLive(resources[capability.resourceId]) ? capability.resourceId : null;
+function targetResourceId(entry: GrantResource, resources: State['resources']) {
+  if (isPathResource(entry)) return resourceIdAtPath(resources, entry.path);
+  return isLive(resources[entry.id]) ? entry.id : null;
 }
 
 /** Whether one entry authorizes a request against the current live resource tree. */
-export function capabilityAuthorizes(
-  capability: Capability,
+export function resourceAuthorizes(
+  entry: GrantResource,
   resources: State['resources'],
   id: ResourceId,
   permission: Permission,
 ) {
-  if (!capability.permissions.includes(permission)) return false;
-  const rootId = targetResourceId(capability, resources);
+  if (!entry.permissions.includes(permission)) return false;
+  const rootId = targetResourceId(entry, resources);
   return Boolean(rootId && isWithin(resources, id, rootId));
 }
 
-function pathContains(parent: Capability, child: Capability) {
-  if (!isPathCapability(parent) || !isPathCapability(child)) return null;
+function pathContains(parent: GrantResource, child: GrantResource) {
+  if (!isPathResource(parent) || !isPathResource(child)) return null;
   const parentParts = pathParts(normalizePath(parent.path));
   const childParts = pathParts(normalizePath(child.path));
   return parentParts.every((part, index) => childParts[index] === part);
 }
 
 /** Whether every request the child entry currently authorizes is also authorized by the parent. */
-export function covers(parent: Capability, child: Capability, resources: State['resources']) {
+export function covers(parent: GrantResource, child: GrantResource, resources: State['resources']) {
   const lexicalCoverage = pathContains(parent, child);
   const parentId = targetResourceId(parent, resources);
   const childId = targetResourceId(child, resources);
@@ -253,24 +253,24 @@ export function covers(parent: Capability, child: Capability, resources: State['
   return locationCovered && child.permissions.every((permission) => parent.permissions.includes(permission));
 }
 
-function normalizeCapabilities(capabilities: Capability[], resources: State['resources']) {
-  return capabilities.map((capability) => {
-    if (!capability.permissions.length) throw new RgapError('invalid_capability', 'Select at least one permission.');
-    if (isPathCapability(capability)) {
-      if ('resourceId' in capability) {
-        throw new RgapError('invalid_capability', 'Capability must name a resourceId or a path.');
+function normalizeResources(entries: GrantResource[], resources: State['resources']) {
+  return entries.map((entry) => {
+    if (!entry.permissions.length) throw new RgapError('invalid_grant_resource', 'Select at least one permission.');
+    if (isPathResource(entry)) {
+      if ('id' in entry) {
+        throw new RgapError('invalid_grant_resource', 'Grant resource must name an id or a path.');
       }
-      const path = normalizePath(capability.path);
-      if (!path) throw new RgapError('invalid_capability', 'Capability path is required.');
-      return { ...structuredClone(capability), path };
+      const path = normalizePath(entry.path);
+      if (!path) throw new RgapError('invalid_grant_resource', 'Grant resource path is required.');
+      return { ...structuredClone(entry), path };
     }
-    if (!('resourceId' in capability)) {
-      throw new RgapError('invalid_capability', 'Capability must name a resourceId or a path.');
+    if (!('id' in entry)) {
+      throw new RgapError('invalid_grant_resource', 'Grant resource must name an id or a path.');
     }
-    if (!isLive(resources[capability.resourceId])) {
-      throw new RgapError('missing_resource', 'Capability resource does not exist.');
+    if (!isLive(resources[entry.id])) {
+      throw new RgapError('missing_resource', 'Grant resource does not exist.');
     }
-    return structuredClone(capability);
+    return structuredClone(entry);
   });
 }
 
@@ -359,55 +359,55 @@ export function deleteResource(state: State, id: ResourceId, at: string) {
 
 export function createGrant(state: State, input: CreateGrantInput, id: GrantId, at: string) {
   if (!input.name.trim()) throw new RgapError('invalid_grant', 'Grant name is required.');
-  const capabilities = normalizeCapabilities(input.capabilities, state.resources);
+  const resources = normalizeResources(input.resources, state.resources);
   if (input.parentId) {
     const parent = requireActiveParent(state, input.parentId, at);
     if (parent.expiresAt && (!input.expiresAt || input.expiresAt > parent.expiresAt)) {
       throw new RgapError('expiration_expands', 'Child expiration must not exceed its parent.');
     }
-    capabilities.forEach((cap) => {
-      if (!parent.capabilities.some((parentCap) => covers(parentCap, cap, state.resources))) {
-        throw new RgapError('authority_expands', 'Child capability is not covered by its parent.');
+    resources.forEach((entry) => {
+      if (!parent.resources.some((parentEntry) => covers(parentEntry, entry, state.resources))) {
+        throw new RgapError('authority_expands', 'Child resource is not covered by its parent.');
       }
     });
   }
   const next = copy(state);
   next.grants[id] = {
-    ...input, capabilities, id, name: input.name.trim(), revokedAt: null,
+    ...input, resources, id, name: input.name.trim(), revokedAt: null,
   };
   audit(next, { at, action: input.parentId ? 'grant.delegate' : 'grant.create', target: id, result: 'recorded', detail: `Created ${input.name}.` });
   return next;
 }
 
 /**
- * Replaces a grant's whole capability set in one transition. Identity, parent, and expiry
+ * Replaces a grant's whole resource set in one transition. Identity, parent, and expiry
  * are fixed at issue; what a grant reaches is not, so this runs the same downscoping proof as issue
  * at the moment the set changes, and revokes any child the new set no longer covers.
  */
-export function setCapabilities(state: State, grantId: GrantId, capabilities: Capability[], at: string) {
+export function setResources(state: State, grantId: GrantId, resources: GrantResource[], at: string) {
   const grant = state.grants[grantId];
   if (!grant) throw new RgapError('missing_grant', 'Grant does not exist.');
   if (!active(grant, at)) throw new RgapError('inactive_grant', 'A revoked or expired grant is not amended.');
-  const normalized = normalizeCapabilities(capabilities, state.resources);
+  const normalized = normalizeResources(resources, state.resources);
   if (grant.parentId) {
     const parent = requireActiveParent(state, grant.parentId, at);
-    normalized.forEach((cap) => {
-      if (!parent.capabilities.some((parentCap) => covers(parentCap, cap, state.resources))) {
-        throw new RgapError('authority_expands', 'Capability is not covered by the parent grant.');
+    normalized.forEach((entry) => {
+      if (!parent.resources.some((parentEntry) => covers(parentEntry, entry, state.resources))) {
+        throw new RgapError('authority_expands', 'Resource is not covered by the parent grant.');
       }
     });
   }
   const next = copy(state);
-  next.grants[grantId] = { ...grant, capabilities: normalized };
+  next.grants[grantId] = { ...grant, resources: normalized };
   // Only direct children are checked: a deeper grant is covered against its own parent, unchanged here.
   const orphaned = Object.values(state.grants).filter((child) =>
     child.parentId === grantId &&
     active(child, at) &&
-    child.capabilities.some((cap) => !normalized.some((kept) => covers(kept, cap, state.resources))),
+    child.resources.some((entry) => !normalized.some((kept) => covers(kept, entry, state.resources))),
   );
   orphaned.forEach((child) => revokeBranch(next, child.id, at));
   audit(next, {
-    at, action: 'grant.capabilities', target: grantId, result: 'recorded',
+    at, action: 'grant.resources', target: grantId, result: 'recorded',
     detail: orphaned.length
       ? `Set ${normalized.length} entries on ${grant.name}, revoking ${orphaned.map((child) => child.name).join(', ')}.`
       : `Set ${normalized.length} entries on ${grant.name}.`,
@@ -449,11 +449,11 @@ export function authorize(state: State, hash: TokenHash, id: ResourceId, permiss
     return { allowed: false, detail: 'A grant in the delegation chain is expired or revoked.', grantId: token.grantId, lineage: chain.map((grant) => grant.id) };
   }
   const allowed = chain.every((grant) =>
-    grant.capabilities.some((capability) => capabilityAuthorizes(capability, state.resources, id, permission)),
+    grant.resources.some((entry) => resourceAuthorizes(entry, state.resources, id, permission)),
   );
   return {
     allowed,
-    detail: allowed ? `${permission} is covered by every grant in the chain.` : `No ${permission} capability survives the complete grant chain.`,
+    detail: allowed ? `${permission} is covered by every grant in the chain.` : `No ${permission} resource survives the complete grant chain.`,
     grantId: token.grantId,
     lineage: chain.map((grant) => grant.id),
   };

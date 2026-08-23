@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  grantId, resourceId, tokenHash, tokenId, tokenValue, type Capability, type State,
+  grantId, resourceId, tokenHash, tokenId, tokenValue, type GrantResource, type State,
 } from './domain';
 import { fixture, stubCommands } from './fixture';
 import { guardCommands } from './guard';
@@ -11,24 +11,24 @@ const bearer = tokenValue('b528aaf0496a7f1b670eaf73987ee9237eaddbbefa1ade4844e5d
 const subBearer = tokenValue('sub-token-hash');
 const r = resourceId;
 const g = grantId;
-const cap = (id: string, permissions: Capability['permissions']): Capability =>
-  ({ resourceId: r(id), permissions });
+const cap = (id: string, permissions: GrantResource['permissions']): GrantResource =>
+  ({ id: r(id), permissions });
 
 /** The demo token references `coordinator`, which holds every permission across the drive subtree. */
 function state(): State {
   const base = fixture();
-  base.grants.coordinator.capabilities = [cap('drive', ['read', 'write', 'delete', 'move', 'invoke'])];
-  base.grants.researcher.capabilities = [
-    { resourceId: r('search-files'), permissions: ['invoke'] },
+  base.grants.coordinator.resources = [cap('drive', ['read', 'write', 'delete', 'move', 'invoke'])];
+  base.grants.researcher.resources = [
+    { id: r('search-files'), permissions: ['invoke'] },
   ];
   // A grant tree beside the acting grant, which no token on the coordinator branch reaches.
   base.grants['other-root'] = {
     id: g('other-root'), name: 'Other root', parentId: null,
-    capabilities: [], expiresAt: null, revokedAt: null,
+    resources: [], expiresAt: null, revokedAt: null,
   };
   base.grants.other = {
     id: g('other'), name: 'Other', parentId: g('other-root'),
-    capabilities: [], expiresAt: null, revokedAt: null,
+    resources: [], expiresAt: null, revokedAt: null,
   };
   // A second token on a delegated grant, which has a parent whose authority its holder cannot claim.
   base.tokens.sub = {
@@ -101,7 +101,7 @@ describe('command guard', () => {
 
     await expect(guard.grants.get(g('coordinator'))).rejects.toThrow('outside this token');
     await expect(guard.grants.create({
-      name: 'Child', capabilities: [], expiresAt: null,
+      name: 'Child', resources: [], expiresAt: null,
     })).rejects.toThrow('Token is unknown, expired, or revoked.');
     expect(await guard.resources.list()).toEqual([]);
   });
@@ -113,8 +113,8 @@ describe('command guard', () => {
     await expect(guard.resources.create({ name: 'root' }))
       .rejects.toThrow('Creating a root resource is an administrative operation');
     await expect(drive.move(null)).rejects.toThrow('Moving a resource to a root is an administrative');
-    await expect((await guard.grants.get(g('coordinator'))).capabilities.set([]))
-      .rejects.toThrow("Setting a root grant's capabilities is an administrative");
+    await expect((await guard.grants.get(g('coordinator'))).resources.set([]))
+      .rejects.toThrow("Setting a root grant's resources is an administrative");
     await expect(guard.reset()).rejects.toThrow('Resetting the store is an administrative');
     expect(calls).toEqual([]);
   });
@@ -138,7 +138,7 @@ describe('command guard', () => {
 
     await expect(guard.resources.get(r('post-message'))).rejects.toThrow('outside this token');
     await expect((await guard.resources.get(r('search-files'))).move(r('slack')))
-      .rejects.toThrow('No write capability survives the complete grant chain.');
+      .rejects.toThrow('No write resource survives the complete grant chain.');
   });
 
   it('deletes a resource only where the token holds delete on it', async () => {
@@ -152,7 +152,7 @@ describe('command guard', () => {
 
   it('delegates from the acting grant, including via grants.create', async () => {
     const { guard, calls } = guarded();
-    const input = { name: 'Child', capabilities: [], expiresAt: null };
+    const input = { name: 'Child', resources: [], expiresAt: null };
 
     expect((await guard.grants.create(input)).id).toBe('created');
     expect((await (await guard.grants.get(g('coordinator'))).create(input)).id).toBe('created');
@@ -165,22 +165,22 @@ describe('command guard', () => {
       .rejects.toThrow('A token may only delegate from the grant it references.');
   });
 
-  it('sets capabilities below its own grant, never on its own grant or beside it', async () => {
+  it('sets resources below its own grant, never on its own grant or beside it', async () => {
     const { guard, calls } = guarded();
     const researcher = await guard.grants.get(g('researcher'));
 
-    expect([...(await researcher.capabilities.set([])).capabilities]).toEqual([]);
-    expect(calls).toEqual([{ method: 'setCapabilities', args: [g('researcher'), []] }]);
+    expect([...(await researcher.resources.set([])).resources]).toEqual([]);
+    expect(calls).toEqual([{ method: 'setResources', args: [g('researcher'), []] }]);
 
     await expect(guard.grants.get(g('ghost'))).rejects.toThrow('outside this token');
     await expect(guard.grants.get(g('other'))).rejects.toThrow('outside this token');
   });
 
-  it('refuses to set the capabilities of the grant its own token references', async () => {
+  it('refuses to set the resources of the grant its own token references', async () => {
     const { guard, calls } = guarded(subBearer);
 
-    await expect((await guard.grants.get(g('researcher'))).capabilities.set([]))
-      .rejects.toThrow('A token may not set the capabilities of its own grant.');
+    await expect((await guard.grants.get(g('researcher'))).resources.set([]))
+      .rejects.toThrow('A token may not set the resources of its own grant.');
     await expect((await guard.grants.get(g('coordinator'))).tokens.create({ label: 'parent' }))
       .rejects.toThrow('neither this token\'s grant nor delegated from it');
     expect(calls).toEqual([]);

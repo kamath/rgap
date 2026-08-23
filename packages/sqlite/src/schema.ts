@@ -18,28 +18,28 @@ export const grants = sqliteTable('grants', {
   revokedAt: text('revoked_at'),
 });
 
-/** A capability entry has no ID of its own, so it is keyed by its grant and its position in that grant's set. */
-export const capabilities = sqliteTable(
-  'capabilities',
+/** A grant resource has no ID of its own, so it is keyed by its grant and its position in that grant's set. */
+export const grantResources = sqliteTable(
+  'grant_resources',
   {
     grantId: text('grant_id').notNull().references(() => grants.id),
     position: integer('position').notNull(),
-    resourceId: text('resource_id').references(() => resources.id),
+    id: text('id').references(() => resources.id),
     path: text('path'),
   },
   (table) => [
     primaryKey({ columns: [table.grantId, table.position] }),
     check(
-      'capabilities_target_check',
-      sql`(${table.resourceId} is not null and ${table.path} is null)
-        or (${table.resourceId} is null and ${table.path} is not null)`,
+      'grant_resources_target_check',
+      sql`(${table.id} is not null and ${table.path} is null)
+        or (${table.id} is null and ${table.path} is not null)`,
     ),
   ],
 );
 
 /** One row per permission an entry carries, so a permission set is a relation rather than an encoded value. */
-export const capabilityPermissions = sqliteTable(
-  'capability_permissions',
+export const grantResourcePermissions = sqliteTable(
+  'grant_resource_permissions',
   {
     grantId: text('grant_id').notNull(),
     position: integer('position').notNull(),
@@ -49,7 +49,7 @@ export const capabilityPermissions = sqliteTable(
     primaryKey({ columns: [table.grantId, table.position, table.permission] }),
     foreignKey({
       columns: [table.grantId, table.position],
-      foreignColumns: [capabilities.grantId, capabilities.position],
+      foreignColumns: [grantResources.grantId, grantResources.position],
     }),
   ],
 );
