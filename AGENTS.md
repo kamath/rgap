@@ -1,16 +1,16 @@
 # Repository Instructions
 
-## README-first workflow
+## Docs-and-examples-first workflow
 
-Before making any coding edit, update `README.md` first to describe the proposed behavior, design, or interface.
+Before making any coding edit, update the relevant MDX documentation in `apps/docs/content/docs` and the executable material in `examples` to describe the proposed behavior, design, or interface.
 
-After updating `README.md`, stop and obtain the user's explicit approval of that README change. Do not create, modify, or delete code, tests, schemas, migrations, configuration, or other implementation files until approval is received.
+After updating both the documentation and examples, stop and obtain the user's explicit approval of those changes. Do not create, modify, or delete code, tests, schemas, migrations, configuration, or other implementation files until approval is received.
 
-Once the README change is approved, implement exactly the approved design. If implementation requires a material design change, update the README and obtain approval again before continuing.
+Once the documentation and examples are approved, implement exactly the approved design. If implementation requires a material design change, update both and obtain approval again before continuing.
 
-## README style
+## Documentation style
 
-- Write `README.md` in the present tense.
+- Write documentation in the present tense.
 - Describe the system as it exists under the current design.
 - Do not discuss legacy behavior, historical behavior, migration from older designs, or backward compatibility.
 

@@ -63,7 +63,7 @@ export default function HomePage() {
             />
           </Link>
           <Link
-            href="/docs/guides/quickstart"
+            href="/docs/quickstarts/typescript"
             className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-fd-border bg-fd-background/80 px-5 text-sm font-semibold text-fd-foreground shadow-sm backdrop-blur transition hover:bg-fd-accent"
           >
             <Terminal className="size-4" aria-hidden="true" />

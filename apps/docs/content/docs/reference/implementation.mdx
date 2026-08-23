@@ -5,12 +5,12 @@ icon: Blocks
 ---
 
 The repository implements RGAP as framework-neutral TypeScript rules, durable
-SQLite persistence, a Hono HTTP server, an executable scratchpad, and this MDX
-documentation application.
+SQLite persistence, deployment-owned executable runtimes, a Hono HTTP server,
+an executable scratchpad, and this MDX documentation application.
 
 ```text
 packages/
-├── core/           # records, pure rules, and repository contracts
+├── core/           # authorization, executable orchestration, and contracts
 └── sqlite/         # Drizzle and SQLite implementation
 apps/
 ├── server/         # Hono HTTP API and generated clients
@@ -21,14 +21,27 @@ examples/
 
 ## Core boundary
 
-`@rgap/core` exports `RgapStore` and `RgapRepository`. A store exposes only
-`as(token)` and `admin()`. Either method returns a repository whose collections
-mint and look up resource, grant, and token handles.
+`@rgap/core` separates five modules:
+
+- `domain.ts` defines resources, grants, tokens, executable associations, audit
+  events, permission algebra, and pure resource and grant rules.
+- `repository.ts` defines `RgapCommands`, `RgapStore`, `RgapRepository`, and
+  resource, grant, and token handles.
+- `guard.ts` constructs the bearer-token command plane and enforces visibility
+  and command authority.
+- `executable.ts` atomically sets and deletes associations, validates bindings,
+  and orchestrates invocation.
+- `runtime.ts` defines structural runtime schemas, typed invocations and
+  results, invocation events, opaque bindings, and `RuntimeRegistry`.
+
+A store exposes only `as(token)` and `admin()`. Either method returns a
+repository whose collections mint and look up handles.
 
 Handles combine record fields with applicable commands:
 
-- A resource creates children, moves, and deletes.
-- A grant creates child grants, replaces capabilities, issues tokens, and
+- A resource creates children, moves, deletes, manages its executable
+  association, and invokes it.
+- A grant creates child grants, replaces resource entries, issues tokens, and
   revokes.
 - A token revokes.
 
@@ -55,13 +68,49 @@ Focused collection queries list resources, grants, tokens, and audit events.
 They return ordered arrays of serializable records with bounded page sizes and
 keyset cursors. A caller never needs to load the complete store.
 
-The contract is asynchronous and JSON-compatible, so local and HTTP adapters
-present the same API.
+Ordinary commands are asynchronous and JSON-compatible. Invocation returns
+`AsyncIterable<InvocationEvent>`, where events are `data` or `done`; runtime
+failures terminate the iterable.
+
+### TypeScript identities
+
+The TypeScript surface brands identifiers that remain ordinary strings at
+runtime and on the wire:
+
+| Type | Used for |
+| --- | --- |
+| `ResourceId` | Resource records, grant-resource ID targets, and move destinations. |
+| `GrantId` | Grant records, grant ancestry, and token grant references. |
+| `TokenId` | Stored token-record identity. |
+| `TokenValue` | The one-time bearer accepted by `store.as`, `authorize`, and `inspectToken`. |
+| `TokenHash` | The bearer hash stored on a token record. |
+
+Repository reads return branded values. Seed data and tests that construct
+records directly use `resourceId`, `grantId`, `tokenId`, `tokenValue`, and
+`tokenHash`. A path remains an ordinary string because it names a location
+rather than a stable identity.
+
+## Deployment-owned runtimes
+
+The SQLite store accepts deployment-owned runtime configuration:
+
+```ts
+new SqliteRgapStore({
+  url,
+  runtimes,
+});
+```
+
+Each heterogeneous `InvokeRuntime<TInput, TOutput>` owns nullable structural
+input and output schemas, optional binding declarations, and its invocation
+implementation. The schemas expose `parse(value: unknown)`, so Zod schemas work
+directly without a core dependency on Zod. Runtime registration and behavior
+are not repository state.
 
 ## SQLite store
 
-`@rgap/sqlite` exports `SqliteRgapStore`. It accepts a file path or `:memory:`
-and an optional initial state.
+`@rgap/sqlite` exports `SqliteRgapStore`. It accepts a file path or `:memory:`,
+an optional initial state, and a runtime registry.
 
 `src/schema.ts` declares normalized tables, and Drizzle Kit generates the DDL.
 The constructor applies that DDL when it opens a database.
@@ -75,6 +124,42 @@ Each command runs in one `better-sqlite3` transaction:
 
 Rows are written parents before children so foreign keys hold after every
 statement. Issued bearer values are returned once; token rows contain hashes.
+
+The normalized schema also stores one `executables` row per association, keyed
+by `resource_id`, with only the runtime name. `setExecutable` verifies the
+resource is live and the runtime is registered, then atomically upserts the
+association and audit event. `deleteExecutable` removes the row and records the
+deletion. There is no executable tombstone or revision table.
+
+| Table | Contents |
+| --- | --- |
+| `resources` | Stable resource records and tombstones. |
+| `grants` | Grant identity, ancestry, expiration, and revocation. |
+| `grant_resources` | Ordered resource-ID or path targets for each grant. |
+| `grant_resource_permissions` | Normalized permission sets for grant-resource entries. |
+| `tokens` | Token metadata and bearer hashes. |
+| `executables` | One resource-to-runtime association per executable resource. |
+| `audit` | Ordered authorization, mutation, and invocation events. |
+
+## Invocation lifecycle
+
+The token plane authorizes `invoke` on the executable resource and every
+supplied binding. The orchestrator then:
+
+1. Resolves the executable association and registered runtime.
+2. Parses input when `inputSchema` is not null.
+3. Rejects undeclared bindings and missing required bindings.
+4. Calls the runtime with typed input, an `AbortSignal`, and opaque
+   `{ resourceId, kind }` bindings.
+5. Normalizes a single value, promise, async iterable, or `undefined`.
+6. Parses every output when `outputSchema` is not null, emits `data`, and emits
+   `done` automatically.
+7. Records redacted facts as `done`, `error`, or `cancelled` in a `finally`
+   block.
+
+The audit detail contains resource ID, runtime, grant-lineage IDs, binding
+resource IDs, timing, and result. It excludes input and output values. Caller
+cancellation and early iterator return abort runtime work.
 
 ## HTTP server
 
@@ -92,18 +177,37 @@ The package generates:
 `HttpRgapStore` implements `RgapStore` over that generated SDK and reconstructs
 the same repository handles used by the local store.
 
+Executable operations map one-to-one:
+
+```text
+GET    /resources/{id}/executable
+PUT    /resources/{id}/executable     { runtime }
+DELETE /resources/{id}/executable
+POST   /resources/{id}/invoke         { input, bindings? }
+```
+
+Invoke responds as `application/x-ndjson`, with one serialized `data` or
+`done` event per line. Runtime failures fail the response stream. The server
+obtains the first event before committing the response, propagates request
+cancellation, and closes the runtime iterator when the client disconnects.
+`HttpRgapStore` uses generated methods for JSON operations and a streaming
+fetch reader for invocation.
+
 ## Documentation application
 
 `@rgap/docs` is a Next.js application using Fumadocs and MDX. Content metadata
 defines navigation order and sidebar groups. The application generates search,
 tables of contents, syntax highlighting, theme controls, social images, and
-LLM-readable Markdown routes from the same pages.
+LLM-readable Markdown routes from the same pages. `pnpm docs:dev` serves it on
+port 3001 so the HTTP API can run beside it on port 3000.
 
 ## Scratchpad
 
 `@rgap/examples` consumes `@rgap/sqlite` and `@rgap/core` like an external
-TypeScript application. It arranges resources and grants, exercises delegated
-planes, and prints authorization decisions.
+TypeScript application. It configures a typed `echo` runtime with Zod
+input/output schemas and a binding declaration, associates it with
+`search.executable.set({ runtime: 'echo' })`, invokes it through an ordinary
+repository plane, and also exercises delegated authorization.
 
 Change only store construction to run the same walkthrough against HTTP:
 
@@ -129,3 +233,10 @@ The core package enforces 100% statement, branch, function, and line coverage
 over its source. SQLite tests use real in-memory databases. Server tests cover
 validation, authorization plane selection, OpenAPI generation, generated SDK
 calls, and the HTTP store.
+
+## Verification
+
+`pnpm build` type-checks every workspace package and produces the documentation
+site. `pnpm test` runs the core, SQLite, and server suites. Core's 100% coverage
+threshold is a gate over its source rather than a report, and each downstream
+package exercises its real adapter instead of a stand-in.

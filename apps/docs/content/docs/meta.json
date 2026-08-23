@@ -2,6 +2,7 @@
   "title": "RGAP Documentation",
   "pages": [
     "index",
+    "quickstarts",
     "---Learn---",
     "concepts",
     "guides",
