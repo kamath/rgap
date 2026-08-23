@@ -201,7 +201,9 @@ current live tree and the child target must be within the parent target.
 
 A grant is created only when:
 
-1. Its stored name is a single non-empty segment and contains no `/`.
+1. Its stored name is a single non-empty kebab-case segment: lowercase letters,
+   digits, and hyphens, with no leading, trailing, or repeated hyphen, and no
+   `/`.
 2. Every resource entry has at least one permission and exactly one target.
 3. Resource targets are live; path targets are non-empty after normalization
    and may currently be unresolved.
@@ -220,8 +222,11 @@ create walks from that grant. The path is normalized by splitting on `/`,
 trimming segments, and discarding empty segments. After normalization the path
 must contain at least one segment.
 
-The command walks the path in one state transition. Each stored grant name is
-one segment and contains no `/`. Active prefixes are reused. Missing prefixes
+The command walks the path in one state transition. Each segment is normalized
+to lowercase kebab-case before lookup or create: the segment is lowercased,
+every run of characters other than letters and digits becomes one hyphen, and
+leading and trailing hyphens are removed. A segment that is empty after
+normalization is `invalid_grant`. Active prefixes are reused. Missing prefixes
 are created as ordinary grants with the submitted resource set and expiration.
 Each created record stores the parent ID derived from that walk. The leaf must
 not already exist; an occupied path is `duplicate_path`.

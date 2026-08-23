@@ -23,9 +23,15 @@ so the write does not include a parent ID. Collection create walks from the
 grant forest root. Handle create walks from that grant. Missing active prefixes
 are created, and the command returns the leaf.
 
+Each segment is stored as a lowercase kebab-case name. Create lowercases the
+segment, replaces every run of characters other than letters and digits with a
+single hyphen, and strips leading and trailing hyphens. `Company/Documentation
+agent` stores `company` and `documentation-agent`. Lookups use the same
+normalization, so those presentations name the same location.
+
 ```ts
 const subagent = await admin.grants.create({
-  name: 'Company/Team/Employee/Agent/Subagent',
+  name: 'company/team/employee/agent/subagent',
   resources: [{
     path: 'acme/platform/docs/design',
     permissions: ['read'],
@@ -34,19 +40,19 @@ const subagent = await admin.grants.create({
 });
 ```
 
-`subagent.name` is `Subagent`. `subagent.parentId` is the `Agent` grant. The
-derived path of `subagent` is `Company/Team/Employee/Agent/Subagent`.
+`subagent.name` is `subagent`. `subagent.parentId` is the `agent` grant. The
+derived path of `subagent` is `company/team/employee/agent/subagent`.
 
 The same command creates a relative path under an existing grant:
 
 ```ts
 const company = await admin.grants.create({
-  name: 'Company',
+  name: 'company',
   resources: [{ id: acme.id, permissions: ['read', 'write', 'invoke'] }],
   expiresAt: null,
 });
 const subagent = await company.create({
-  name: 'Team/Employee/Agent/Subagent',
+  name: 'team/employee/agent/subagent',
   resources: [{
     path: 'acme/platform/docs/design',
     permissions: ['read'],
@@ -55,10 +61,11 @@ const subagent = await company.create({
 });
 ```
 
-Each stored grant name is one segment. Missing prefixes become ordinary grants
-and receive the submitted resource set and expiration. Active prefixes are
-reused and keep their current records. The leaf must be absent: a second create
-at an occupied path fails with `duplicate_path`.
+Each stored grant name is one kebab-case segment. A segment that is empty after
+normalization fails. Missing prefixes become ordinary grants and receive the
+submitted resource set and expiration. Active prefixes are reused and keep
+their current records. The leaf must be absent: a second create at an occupied
+path fails with `duplicate_path`.
 
 Active sibling names are unique under one parent. A revoked or expired name may
 be reused by a new grant with a new ID.
@@ -143,9 +150,9 @@ with its descendants.
 ```text
 Before                         After parent narrows
 
-Team: docs + tools             Team: docs
-├── Writer: docs               └── Writer: docs
-└── Runner: tools                  Runner: revoked
+team: docs + tools             team: docs
+├── writer: docs               └── writer: docs
+└── runner: tools                  runner: revoked
 ```
 
 ## Empty grants

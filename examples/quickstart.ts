@@ -11,7 +11,7 @@ try {
   });
 
   const company = await admin.grants.create({
-    name: 'Company',
+    name: 'company',
     resources: [],
     expiresAt: null,
   });
@@ -29,7 +29,7 @@ try {
   const companyPlane = store.as(companyToken.value);
 
   const agent = await companyPlane.grants.create({
-    name: 'Company/Documentation agent',
+    name: 'company/documentation-agent',
     resources: [],
     expiresAt: null,
   });

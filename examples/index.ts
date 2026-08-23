@@ -4,7 +4,7 @@
  *
  * This file walks company → team → employee → agent → subagent. Company is created first so
  * it can hold the broad `acme` grant. The rest of the chain is one create at
- * `Company/Team/Employee/Agent/Subagent`. Intermediate grants then receive narrower
+ * `company/team/employee/agent/subagent`. Intermediate grants then receive narrower
  * resource sets, and each step issues a token.
  *
  * `pnpm scratch` runs this file against examples/scratch.db. Replace the store-construction line
@@ -56,7 +56,7 @@ await root.reset();
 
 const acme = await root.resources.create({ name: 'acme' });
 const companyGrant = await root.grants.create({
-  name: 'Company',
+  name: 'company',
   resources: [{
     id: acme.id,
     permissions: ['read', 'write', 'delete', 'move', 'invoke'],
@@ -82,7 +82,7 @@ printPaths(companyResources);
 console.log('\n\n');
 
 const subagentGrant = await company.grants.create({
-  name: 'Company/Team/Employee/Agent/Subagent',
+  name: 'company/team/employee/agent/subagent',
   resources: [{ path: 'acme/platform/docs/design', permissions: ['read'] }],
   expiresAt: null,
 });
