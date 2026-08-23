@@ -87,7 +87,7 @@ export default function HomePage() {
               company.grants.create({'{\n'}
               {'  '}name: <span className="rgap-code-string">&apos;Docs team&apos;</span>,
               resources: [{'{\n'}
-              {'    '}path: <span className="rgap-code-string">&apos;acme/platform/docs&apos;</span>,
+              {'    '}id: <span className="text-fd-foreground">docs.id</span>,
               permissions: [<span className="rgap-code-string">&apos;read&apos;</span>,{' '}
               <span className="rgap-code-string">&apos;write&apos;</span>],{'\n'}
               {'  }'}],{'\n'}
