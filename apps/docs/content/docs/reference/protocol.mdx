@@ -31,13 +31,10 @@ type Resource = {
   deletedAt: string | null;
 };
 
-type GrantResourceConfig = {
+type GrantResource = {
+  id: string;
   permissions: Permission[];
 };
-
-type IdResource = GrantResourceConfig & { id: string };
-type PathResource = GrantResourceConfig & { path: string };
-type GrantResource = IdResource | PathResource;
 
 type Grant = {
   id: string;
@@ -97,8 +94,8 @@ resourcePath(resources, id) =
 Paths are canonicalized by splitting on `/`, trimming each segment, and
 discarding empty segments. The empty path names nothing.
 
-Resource commands use stable IDs. Capability path targets store a normalized
-location and resolve it from the current tree for every decision.
+Resource commands and grant-resource entries use stable IDs. Paths remain a
+derived presentation of the current tree.
 
 ### Ancestry
 
@@ -161,11 +158,7 @@ when one entry contains another.
 
 ```ts
 targetResourceId(entry, resources) =
-  'path' in entry
-    ? resourceIdAtPath(resources, entry.path)
-    : isLive(resources[entry.id])
-      ? entry.id
-      : null;
+  isLive(resources[entry.id]) ? entry.id : null;
 
 authorizes(entry, resources, resourceId, permission) =
   entry.permissions.includes(permission) &&
@@ -190,9 +183,8 @@ covers(parent, child, resources) =
   );
 ```
 
-For two path entries, `location` requires the child path to equal or sit
-lexically beneath the parent path. Otherwise both entries resolve against the
-current live tree and the child target must be within the parent target.
+`location` resolves both entries against the current live tree and requires the
+child target to sit within the parent target.
 
 ## Grants
 
@@ -201,12 +193,11 @@ current live tree and the child target must be within the parent target.
 A grant is created only when:
 
 1. Its name is non-empty.
-2. Every resource entry has at least one permission and exactly one target.
-3. Resource targets are live; path targets are non-empty after normalization
-   and may currently be unresolved.
-4. Its parent exists and is active.
-5. It does not outlive its parent.
-6. Every child resource entry is covered by a parent resource entry.
+2. Every resource entry has at least one permission and exactly one live
+   resource ID.
+3. Its parent exists and is active.
+4. It does not outlive its parent.
+5. Every child resource entry is covered by a parent resource entry.
 
 The resource set may be empty and authorize nothing.
 
@@ -325,8 +316,8 @@ resource, and commits atomically. It never rewrites or revokes grants.
 ### Delete
 
 Deletion finds the live subtree, marks every member with `deletedAt`, and
-commits atomically. ID targets naming deleted resources become permanently
-ineffective. Path targets remain attached to their locations.
+commits atomically. Grant entries naming deleted resources become permanently
+ineffective.
 
 ## Executables
 
@@ -429,7 +420,7 @@ An implementation conforms when:
 1. Stable IDs are assigned once and never reused.
 2. Paths are derived and canonicalized as defined.
 3. Permissions are plain sets with no implication.
-4. `covers` implements path and current-tree containment exactly.
+4. `covers` implements current-tree containment exactly.
 5. Grant creation and amendment prove attenuation.
 6. Authorization checks the complete grant lineage.
 7. Revocation cascades through descendant grants.

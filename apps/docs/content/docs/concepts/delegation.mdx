@@ -21,24 +21,15 @@ child that outlives Bob's grant.
 A grant aggregates one or more resource entries:
 
 ```ts
-type GrantResourceConfig = {
+type GrantResource = {
+  id: ResourceId;
   permissions: Permission[];
 };
-
-type IdResource = GrantResourceConfig & {
-  id: ResourceId;
-};
-
-type PathResource = GrantResourceConfig & {
-  path: string;
-};
-
-type GrantResource = IdResource | PathResource;
 ```
 
-Each entry names exactly one target. Multiple entries let a grant combine
-authority from separate branches, such as selected tools from several MCP
-servers.
+Each entry names exactly one live resource. Multiple entries let a grant
+combine authority from separate branches, such as selected tools from several
+MCP servers.
 
 ## Coverage
 
@@ -53,8 +44,8 @@ covers(parent, child, resources) =
   );
 ```
 
-Two path entries compare normalized locations lexically. Any comparison
-involving an ID resolves both targets against the current live resource tree.
+`locationContains` resolves both entries against the current live resource tree
+and requires the child's target to sit within the parent's target.
 
 <Callout type="info" title="Permissions are plain sets">
   No permission implies another. `write` does not imply `read`, and `read` is

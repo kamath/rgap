@@ -1,5 +1,4 @@
-import { sql } from 'drizzle-orm';
-import { check, foreignKey, integer, primaryKey, sqliteTable, text, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
+import { foreignKey, integer, primaryKey, sqliteTable, text, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import type { AuditEvent, Permission } from '@rgap/core';
 
 /** A resource's stable ID is its key; its parent is a reference to another row of the same table. */
@@ -24,16 +23,10 @@ export const grantResources = sqliteTable(
   {
     grantId: text('grant_id').notNull().references(() => grants.id),
     position: integer('position').notNull(),
-    id: text('id').references(() => resources.id),
-    path: text('path'),
+    id: text('id').notNull().references(() => resources.id),
   },
   (table) => [
     primaryKey({ columns: [table.grantId, table.position] }),
-    check(
-      'grant_resources_target_check',
-      sql`(${table.id} is not null and ${table.path} is null)
-        or (${table.id} is null and ${table.path} is not null)`,
-    ),
   ],
 );
 
