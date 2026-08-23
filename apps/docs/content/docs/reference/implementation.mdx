@@ -1,0 +1,131 @@
+---
+title: Repository implementation
+description: TypeScript rules, SQLite persistence, Hono transport, and documentation packages.
+icon: Blocks
+---
+
+The repository implements RGAP as framework-neutral TypeScript rules, durable
+SQLite persistence, a Hono HTTP server, an executable scratchpad, and this MDX
+documentation application.
+
+```text
+packages/
+├── core/           # records, pure rules, and repository contracts
+└── sqlite/         # Drizzle and SQLite implementation
+apps/
+├── server/         # Hono HTTP API and generated clients
+└── docs/           # Next.js and Fumadocs documentation
+examples/
+└── index.ts        # executable scratchpad
+```
+
+## Core boundary
+
+`@rgap/core` exports `RgapStore` and `RgapRepository`. A store exposes only
+`as(token)` and `admin()`. Either method returns a repository whose collections
+mint and look up resource, grant, and token handles.
+
+Handles combine record fields with applicable commands:
+
+- A resource creates children, moves, and deletes.
+- A grant creates child grants, replaces capabilities, issues tokens, and
+  revokes.
+- A token revokes.
+
+Adapters implement an ID-based `RgapCommands` sink.
+`repositoryFrom(commands)` builds the handle surface. Path parsing, rendering,
+and resolution remain pure helpers callers apply before commands.
+
+### Repository planes
+
+`store.as(token)` returns a guarded repository. Its commands authorize the
+required permission before forwarding and reject with the decision detail.
+
+`store.admin()` returns an unrestricted repository for trusted bootstrap and
+operations code. Both planes share the same interface.
+
+```ts
+const repository = store.as(token);
+const admin = store.admin();
+```
+
+### Reads
+
+Focused collection queries list resources, grants, tokens, and audit events.
+They return ordered arrays of serializable records with bounded page sizes and
+keyset cursors. A caller never needs to load the complete store.
+
+The contract is asynchronous and JSON-compatible, so local and HTTP adapters
+present the same API.
+
+## SQLite store
+
+`@rgap/sqlite` exports `SqliteRgapStore`. It accepts a file path or `:memory:`
+and an optional initial state.
+
+`src/schema.ts` declares normalized tables, and Drizzle Kit generates the DDL.
+The constructor applies that DDL when it opens a database.
+
+Each command runs in one `better-sqlite3` transaction:
+
+1. Read the current state.
+2. Apply the relevant pure core rule.
+3. Replace persisted rows with the returned state.
+4. Commit the state change and audit event together.
+
+Rows are written parents before children so foreign keys hold after every
+statement. Issued bearer values are returned once; token rows contain hashes.
+
+## HTTP server
+
+`@rgap/server` exposes `RgapCommands` with Hono and
+`@hono/zod-openapi`. Each route declaration defines runtime validation and the
+OpenAPI contract.
+
+The package generates:
+
+- An OpenAPI 3.1 document.
+- An interactive Swagger UI.
+- A fetch-based TypeScript SDK with HeyAPI.
+- Hono RPC types from the same chained route definitions.
+
+`HttpRgapStore` implements `RgapStore` over that generated SDK and reconstructs
+the same repository handles used by the local store.
+
+## Documentation application
+
+`@rgap/docs` is a Next.js application using Fumadocs and MDX. Content metadata
+defines navigation order and sidebar groups. The application generates search,
+tables of contents, syntax highlighting, theme controls, social images, and
+LLM-readable Markdown routes from the same pages.
+
+## Scratchpad
+
+`@rgap/examples` consumes `@rgap/sqlite` and `@rgap/core` like an external
+TypeScript application. It arranges resources and grants, exercises delegated
+planes, and prints authorization decisions.
+
+Change only store construction to run the same walkthrough against HTTP:
+
+```ts
+const store = new HttpRgapStore({
+  baseUrl: 'http://localhost:3000',
+  adminToken: process.env.RGAP_ADMIN_TOKEN ?? 'test',
+});
+```
+
+## Commands
+
+```bash
+pnpm install
+pnpm build
+pnpm test
+pnpm scratch
+pnpm docs:dev
+pnpm docs:build
+```
+
+The core package enforces 100% statement, branch, function, and line coverage
+over its source. SQLite tests use real in-memory databases. Server tests cover
+validation, authorization plane selection, OpenAPI generation, generated SDK
+calls, and the HTTP store.

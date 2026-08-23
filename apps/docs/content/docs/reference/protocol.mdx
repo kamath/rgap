@@ -1,0 +1,324 @@
+---
+title: Protocol
+description: Normative records, permission algebra, delegation rules, and decision procedure.
+icon: ScrollText
+---
+
+This page is the normative definition of RGAP. An implementation conforms when,
+given the same state and request, it reaches the same decision.
+
+## Records
+
+State is four normalized collections.
+
+```ts
+type State = {
+  resources: Record<string, Resource>;
+  grants: Record<string, Grant>;
+  tokens: Record<string, Token>;
+  audit: AuditEvent[];
+};
+```
+
+```ts
+type Resource = {
+  id: string;
+  parentId: string | null;
+  name: string;
+  deletedAt: string | null;
+};
+
+type CapabilityConfig = {
+  permissions: Permission[];
+};
+
+type ResourceCapability = CapabilityConfig & { resourceId: string };
+type PathCapability = CapabilityConfig & { path: string };
+type Capability = ResourceCapability | PathCapability;
+
+type Grant = {
+  id: string;
+  name: string;
+  parentId: string | null;
+  capabilities: Capability[];
+  expiresAt: string | null;
+  revokedAt: string | null;
+};
+
+type Token = {
+  id: string;
+  grantId: string;
+  label: string;
+  hash: string;
+  expiresAt: string | null;
+  revokedAt: string | null;
+};
+
+type AuditEvent = {
+  id: string;
+  at: string;
+  action: string;
+  target: string;
+  result: 'allowed' | 'denied' | 'recorded';
+  detail: string;
+};
+```
+
+`Permission` is `'read' | 'write' | 'delete' | 'move' | 'invoke'`. Every
+record is JSON-compatible. Timestamps are RFC 3339 strings in UTC with a fixed
+number of fractional digits so lexical comparison preserves time order.
+
+## Identity and location
+
+A resource's ID is assigned once and never changes. Its path is derived by
+joining the names of its ancestors and itself with `/`.
+
+```ts
+resourcePath(resources, id) =
+  [...ancestors(id), id]
+    .map((each) => resources[each].name)
+    .join('/');
+```
+
+Paths are canonicalized by splitting on `/`, trimming each segment, and
+discarding empty segments. The empty path names nothing.
+
+Resource commands use stable IDs. Capability path targets store a normalized
+location and resolve it from the current tree for every decision.
+
+### Ancestry
+
+```ts
+isWithin(resources, id, rootId) =
+  id === rootId ||
+  (parentId(id) !== null &&
+    isWithin(resources, parentId(id), rootId));
+```
+
+`isWithin` is reflexive. Implementations detect a repeated parent while walking
+the tree and raise `resource_cycle`.
+
+### Tombstones
+
+Deletion marks a resource and its live descendants with `deletedAt`. Tombstones
+are not live and are excluded from path resolution, listings, capability
+validation, authorization, and authority views.
+
+Records remain so stable IDs are never reused. Sibling-name uniqueness considers
+only live resources, so a new resource may reuse a deleted name with a new ID.
+
+## Permissions
+
+| Permission | Authorizes |
+| --- | --- |
+| `read` | Reading a resource and listing its children. |
+| `write` | Modifying a resource and creating children under it. |
+| `invoke` | Calling a resource, such as executing a tool. |
+| `move` | Relocating a resource to a different parent. |
+| `delete` | Deleting a resource together with its descendants. |
+
+No permission implies another. Permissions form a plain set compared by subset.
+
+| Operation | Required authority |
+| --- | --- |
+| Read a resource or list children | `read` on the resource |
+| Invoke a resource | `invoke` on the resource |
+| Create a child | `write` on the intended parent |
+| Move a resource | `move` on the resource and `write` on the destination |
+| Delete a subtree | `delete` on its root |
+| Delegate a grant | The child downscopes the acting grant |
+| Set capabilities | The new set downscopes the grant's parent |
+| Issue or revoke a token | The grant is acting or delegated from acting |
+| Revoke a grant | The grant is acting or delegated from acting |
+
+Creating a root resource, moving a resource to a root, creating a root grant,
+and setting a root grant's capabilities are administrative operations.
+
+## Capability algebra
+
+Two relations define the model: what one entry authorizes and when one entry
+contains another.
+
+### Authorization by one entry
+
+```ts
+targetResourceId(capability, resources) =
+  'path' in capability
+    ? resourceIdAtPath(resources, capability.path)
+    : isLive(resources[capability.resourceId])
+      ? capability.resourceId
+      : null;
+
+authorizes(capability, resources, resourceId, permission) =
+  capability.permissions.includes(permission) &&
+  targetResourceId(capability, resources) !== null &&
+  isWithin(
+    resources,
+    resourceId,
+    targetResourceId(capability, resources),
+  );
+```
+
+### Containment
+
+`covers(parent, child)` holds when every request the child entry authorizes is
+also authorized by the parent entry.
+
+```ts
+covers(parent, child, resources) =
+  location(parent, child, resources) &&
+  child.permissions.every((permission) =>
+    parent.permissions.includes(permission),
+  );
+```
+
+For two path entries, `location` requires the child path to equal or sit
+lexically beneath the parent path. Otherwise both entries resolve against the
+current live tree and the child target must be within the parent target.
+
+## Grants
+
+### Validity at creation
+
+A grant is created only when:
+
+1. Its name is non-empty.
+2. Every capability has at least one permission and exactly one target.
+3. Resource targets are live; path targets are non-empty after normalization
+   and may currently be unresolved.
+4. Its parent exists and is active.
+5. It does not outlive its parent.
+6. Every child capability is covered by a parent capability.
+
+The capability set may be empty and authorize nothing.
+
+### Setting capabilities
+
+Setting capabilities atomically replaces the whole set.
+
+1. The grant exists and is active.
+2. Every replacement entry is structurally valid.
+3. Every entry is covered by the parent when one exists.
+4. Every direct child no longer covered by the replacement is identified.
+5. Each identified child and all descendants are revoked.
+6. The replacement, revocations, and audit event commit together.
+
+### Activity and lineage
+
+```ts
+isActive(record, now) =
+  record.revokedAt === null &&
+  (record.expiresAt === null || record.expiresAt > now);
+
+lineage(grants, grantId) =
+  [grants[grantId], ...lineage(grants, grants[grantId].parentId)];
+```
+
+The lineage runs from the selected grant to its root. A missing ancestor is
+`missing_parent`; a repeated ancestor is `grant_cycle`.
+
+Revoking a grant timestamps it and every descendant grant. Revoking a token
+timestamps only that token.
+
+## Tokens
+
+A token is an opaque bearer string. Implementations store only a
+preimage-resistant hash and compare the hash of a presented bearer. A token
+does not outlive its grant and grants no authority of its own.
+
+## Decision procedure
+
+`authorize(state, tokenHash, resourceId, permission, now)` returns:
+
+```ts
+type Decision = {
+  allowed: boolean;
+  detail: string;
+  grantId: string | null;
+  lineage: string[];
+};
+```
+
+The procedure:
+
+1. Deny when the target resource is not live.
+2. Find the token by hash and deny when it is missing or inactive.
+3. Compute the selected grant's lineage and deny when any grant is inactive.
+4. For each grant, look for an entry that authorizes the concrete request.
+5. Allow only when every grant has such an entry.
+
+```ts
+allowed = chain.every((grant) =>
+  grant.capabilities.some((entry) =>
+    authorizes(entry, resources, resourceId, permission),
+  ),
+);
+```
+
+Authority is the intersection of the complete lineage in the current resource
+tree.
+
+### Authority view
+
+`inspectToken(state, tokenHash, now)` evaluates the decision procedure for each
+permission on every live resource:
+
+```ts
+type AuthorityView = {
+  valid: boolean;
+  detail: string;
+  grantId: string | null;
+  lineage: string[];
+  permissions: Record<string, Permission[]>;
+};
+```
+
+An invalid token or inactive lineage yields no permissions and a detail that
+explains why.
+
+## Resource operations
+
+Every operation computes and commits one complete state transition with its
+audit event.
+
+### Create
+
+Creation requires a non-empty name containing no `/`, a live parent when
+present, an unused ID, and no live sibling with the same name.
+
+### Move
+
+A move requires a live resource and destination, rejects cycles, reparents the
+resource, and commits atomically. It never rewrites or revokes grants.
+
+### Delete
+
+Deletion finds the live subtree, marks every member with `deletedAt`, and
+commits atomically. ID targets naming deleted resources become permanently
+ineffective. Path targets remain attached to their locations.
+
+## Enforcement boundary
+
+Stores expose no unrestricted command methods directly:
+
+- `store.as(token)` returns commands authorized by the bearer.
+- `store.admin()` returns unrestricted commands for trusted infrastructure.
+
+The token plane enforces operation authority before forwarding each command.
+The administrative plane enforces protocol invariants without token checks.
+Both expose the same repository interface.
+
+## Conformance
+
+An implementation conforms when:
+
+1. Stable IDs are assigned once and never reused.
+2. Paths are derived and canonicalized as defined.
+3. Permissions are plain sets with no implication.
+4. `covers` implements path and current-tree containment exactly.
+5. Grant creation and amendment prove attenuation.
+6. Authorization checks the complete grant lineage.
+7. Revocation cascades through descendant grants.
+8. Resource operations and grant amendments commit atomically with audit.
+9. Deleted resources remain as unreadable tombstones.
+10. Commands are exposed only through explicit token or administrative planes.

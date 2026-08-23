@@ -1,0 +1,13 @@
+{
+  "title": "RGAP Documentation",
+  "pages": [
+    "index",
+    "---Learn---",
+    "concepts",
+    "guides",
+    "---Reference---",
+    "reference",
+    "examples",
+    "landscape"
+  ]
+}

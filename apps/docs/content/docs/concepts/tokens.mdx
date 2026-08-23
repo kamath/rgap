@@ -1,0 +1,81 @@
+---
+title: Tokens and revocation
+description: Opaque credentials backed by live grant state.
+icon: KeyRound
+---
+
+A token is an opaque bearer credential that references one grant. It provides
+no authority independently from that grant.
+
+```ts
+type Token = {
+  id: TokenId;
+  grantId: GrantId;
+  label: string;
+  hash: TokenHash;
+  expiresAt: string | null;
+  revokedAt: string | null;
+};
+```
+
+The bearer value is returned only when a token is issued. Persistent state
+stores its cryptographic hash, never the bearer itself.
+
+## Issuing credentials
+
+```ts
+const issued = await grant.tokens.create({
+  label: 'research-agent',
+});
+
+const repository = store.as(issued.value);
+```
+
+`store.as(token)` returns a repository plane whose commands are authorized by
+that bearer. `store.admin()` selects the unrestricted administrative plane for
+trusted bootstrap and operations.
+
+Both planes expose the same repository interface. Command code cannot switch
+authority accidentally by calling a method directly on the store.
+
+## Token and grant revocation
+
+Token revocation and grant revocation have intentionally different reach:
+
+| Action | Effect |
+| --- | --- |
+| Revoke one token | Disables only that bearer credential. |
+| Revoke a grant | Disables all its tokens and every descendant grant. |
+| Revoke an ancestor | Disables the complete delegation branch. |
+
+Grant records remain present after revocation. The revocation timestamp is part
+of the auditable state.
+
+## Expiration
+
+A child grant cannot outlive its parent. A token cannot outlive the grant it
+references. Expiration is exclusive: a record whose `expiresAt` equals the
+current decision time is inactive.
+
+```ts
+isActive(record, now) =
+  record.revokedAt === null &&
+  (record.expiresAt === null || record.expiresAt > now);
+```
+
+## Why online checks
+
+RGAP deliberately resolves opaque tokens against live state. This creates an
+online authorization dependency, but it gives moves, grant amendments, and
+ancestor revocations strongly current semantics.
+
+```text
+grant → opaque token → live lineage and resource-tree check
+                         ↑
+                 current authoritative state
+```
+
+<Callout type="warn" title="Protect bearer values">
+  Possession authorizes use. Keep bearer values out of logs, model context,
+  persistent records, and error messages.
+</Callout>

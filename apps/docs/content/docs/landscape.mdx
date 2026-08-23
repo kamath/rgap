@@ -1,0 +1,162 @@
+---
+title: Authorization landscape
+description: How RGAP relates to capability tokens, relationship authorization, and agent control planes.
+icon: Map
+---
+
+RGAP defines transitive, attenuated delegation for users, agents, and
+sub-agents. It combines a mutable resource hierarchy, immutable grant lineage,
+opaque credentials, and strongly current revocation.
+
+The design sits between decentralized capability tokens and centralized
+relationship-based authorization.
+
+```text
+resource hierarchy
++ capability sets
++ delegation lineage
++ enforced attenuation
++ opaque agent credentials
++ cascading online revocation
++ transactional resource moves
+```
+
+## Comparison
+
+| System | Primary strength | Relationship to RGAP | Remaining difference |
+| --- | --- | --- | --- |
+| Macaroons | Bearer credentials with additive caveats | Establishes practical credential attenuation | Revocation and mutable topology need external coordination |
+| Biscuit | Offline attenuation and public-key verification | Closely matches downscoped bearer delegation | Revocation distribution and current topology remain external |
+| UCAN | Signed delegation chains and provenance | Closely matches transitive delegation | Targets decentralized verification instead of strongly current enforcement |
+| Zanzibar | Globally consistent relationship authorization | Establishes scalable object and relationship evaluation | Does not define agent-held capability exchange and attenuation |
+| OpenFGA | Open-source relationship authorization | Naturally models server, tool, folder, and document hierarchies | Delegation credentials and cascading grant semantics remain application concerns |
+| SpiceDB | Relationship authorization with consistency controls | Handles dynamic relationships and authorization freshness | Agent attenuation and credential lineage require an application model |
+| Cedar | Expressive principal/action/resource policies | Can express individual RGAP decisions | Does not supply credential delegation and descendant revocation |
+| OAuth opaque tokens | Centrally introspected credentials | Matches online token lookup and immediate revocation | Scopes alone do not define resource trees or mandatory attenuation |
+| OAuth Token Exchange | Standard delegation and impersonation flow | Supplies a compatible parent-to-child exchange shape | Does not require persistent lineage or inherited revocation |
+
+## Capability-token systems
+
+### Macaroons
+
+[Macaroons](https://research.google/pubs/macaroons-cookies-with-contextual-caveats-for-decentralized-authorization-in-the-cloud/)
+use chained message authentication codes and additive caveats. A holder can add
+restrictions without gaining authority.
+
+RGAP keeps authoritative grant state online and uses an opaque bearer as a
+handle. This favors immediate revocation, auditability, and decisions based on
+current resource placement.
+
+### Biscuit
+
+[Biscuit](https://doc.biscuitsec.org/reference/specifications) supports offline
+attenuation with a Datalog authorization language. Appended blocks narrow a
+credential and carry revocation identifiers.
+
+Distribution of those revocations is a deployment concern. RGAP accepts an
+online dependency so every request can observe committed revocations and the
+current resource tree.
+
+### UCAN
+
+[UCAN](https://github.com/ucan-wg/spec) defines signed, user-controlled
+delegation chains. Every direct delegation restates or attenuates authority,
+and the chain forms a provenance record.
+
+RGAP uses similar attenuation and provenance concepts while choosing opaque,
+stateful credentials and online grant evaluation.
+
+## Relationship-based authorization
+
+### Zanzibar, OpenFGA, and SpiceDB
+
+[Zanzibar](https://research.google/pubs/zanzibar-googles-consistent-global-authorization-system/)
+establishes a scalable model for relationships between users and objects.
+[OpenFGA](https://openfga.dev/docs/modeling/parent-child) and
+[SpiceDB](https://authzed.com/docs/spicedb/concepts/schema) provide systems
+inspired by it.
+
+These systems naturally model a document inheriting viewers from a folder or a
+tool belonging to an MCP server. An application can represent RGAP grants as
+objects, but still supplies:
+
+- Opaque token issuance.
+- Mandatory parent-to-child attenuation.
+- Delegation lineage.
+- Cascading grant revocation.
+- Resource-move transactions.
+- The agent-facing exchange workflow.
+
+RGAP makes those concerns the primary abstraction.
+
+### Cedar
+
+[Cedar](https://www.cedarpolicy.com/) evaluates policies over a principal,
+action, resource, and request context. It can express many individual RGAP
+decision rules. RGAP additionally defines how authority is packaged, delegated,
+attenuated, revoked, and exercised by an agent chain.
+
+## OAuth building blocks
+
+RGAP aligns with OAuth where its standards provide suitable machinery.
+
+### Token Exchange
+
+[OAuth 2.0 Token Exchange](https://datatracker.ietf.org/doc/html/rfc8693)
+defines a security-token service for delegation and impersonation. Its
+`subject_token`, `actor_token`, `resource`, `audience`, and `scope` fields
+provide a familiar wire shape.
+
+RFC 8693 intentionally leaves token semantics to deployments. An RGAP profile
+adds:
+
+- A required parent-child grant link.
+- Strict capability-set attenuation.
+- Child lifetime bounded by the parent.
+- Cascading ancestor revocation.
+- Stable resource IDs and subtree semantics.
+- Auditable actor lineage.
+
+### Rich Authorization Requests
+
+[OAuth 2.0 Rich Authorization Requests](https://datatracker.ietf.org/doc/html/rfc9396)
+defines structured `authorization_details`. It can carry typed resource and
+action requests when flat scope strings are insufficient.
+
+### Proof of possession
+
+[OAuth 2.0 DPoP](https://datatracker.ietf.org/doc/html/rfc9449) binds a token to
+a public key. RGAP's base protocol uses opaque bearers, while deployments can
+sender-constrain credentials for agents that hold suitable keys.
+
+## Fit with agent tool runtimes
+
+Agent runtimes often hold broad user authorization while one execution needs a
+small subset:
+
+```text
+User provider credential
+          ↓ retained in a protected vault
+Tool gateway / MCP runtime
+          ↑ accepts a narrow RGAP capability
+Agent → sub-agent → sub-agent
+```
+
+The gateway checks the RGAP grant before retrieving the provider credential and
+invoking a tool. The agent never receives the upstream OAuth token or API key.
+
+## Design tradeoff
+
+RGAP deliberately chooses strongly current authorization over fully offline
+verification:
+
+```text
+online grant state + current resource state
+                    ↓
+immediate hierarchical revocation and move-aware decisions
+```
+
+This creates an availability dependency on the authorization service or a cache
+with an explicitly bounded freshness policy. It directly addresses urgent
+revocation, resource movement, grant amendment, and complete delegation-chain
+auditing.

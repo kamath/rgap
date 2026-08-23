@@ -1,0 +1,158 @@
+---
+title: MCP and agent examples
+description: Govern MCP servers, aggregate tools, and downscope authority for sub-agents.
+icon: Workflow
+---
+
+RGAP treats MCP servers and their exposed capabilities as resources. A
+deployment registers each trusted server beneath an administrative resource
+and assigns stable IDs to servers, tools, prompts, and MCP resources.
+
+## MCP server governance
+
+```text
+acme/
+└── mcp/
+    ├── google-drive/
+    │   └── tools/
+    │       ├── search_files
+    │       └── read_file
+    ├── slack/
+    │   └── tools/
+    │       ├── search_messages
+    │       └── post_message
+    └── github/
+        └── tools/
+            ├── read_issue
+            └── create_issue
+```
+
+The server resource is the high-level governance boundary. Granting `invoke`
+on one tool does not expose its siblings. Granting `invoke` on a server reaches
+its current and future tools because a capability covers the complete subtree.
+
+<Callout type="info">
+  Registering or discovering a tool does not grant access. A grant must contain
+  an entry that reaches it with `invoke`.
+</Callout>
+
+## Aggregate tools for a coordinator
+
+One coordinator grant can combine selected tools from several servers:
+
+```yaml
+name: Project coordinator
+capabilities:
+  - resourceId: tool_drive_search_files
+    permissions: [invoke]
+  - path: acme/mcp/slack/tools/search_messages
+    permissions: [invoke]
+  - resourceId: tool_github_create_issue
+    permissions: [invoke]
+expiresAt: 2026-08-20T23:00:00.000Z
+```
+
+The coordinator receives one opaque RGAP token. Provider OAuth tokens, API
+keys, and server credentials remain inside the MCP gateway.
+
+## Downscope to a research sub-agent
+
+The coordinator delegates only search tools:
+
+```yaml
+name: Research sub-agent
+parentId: grant_project_coordinator
+capabilities:
+  - resourceId: tool_drive_search_files
+    permissions: [invoke]
+  - path: acme/mcp/slack/tools/search_messages
+    permissions: [invoke]
+expiresAt: 2026-08-20T22:00:00.000Z
+```
+
+The child does not receive the GitHub issue tool and cannot delegate it further.
+Its expiration is earlier than the coordinator's expiration.
+
+To enforce application-specific argument restrictions—such as allowed Slack
+channels or Drive roots—register each protected scope as a resource and grant
+the applicable leaves. RGAP's core permission algebra remains a plain set.
+
+## Gateway request flow
+
+<Steps>
+  <Step>
+    ### Register trusted capabilities
+
+    Synchronize MCP servers and tools into the resource tree with stable IDs.
+  </Step>
+  <Step>
+    ### Issue selected authority
+
+    Create a grant with entries for only the coordinator's selected tools and
+    issue an opaque bearer.
+  </Step>
+  <Step>
+    ### Filter discovery
+
+    Build `tools/list` from the resources visible through the active grant.
+  </Step>
+  <Step>
+    ### Authorize invocation
+
+    Map the server and tool name to a stable resource ID and require `invoke`
+    before retrieving any provider credential.
+  </Step>
+  <Step>
+    ### Delegate with a new token
+
+    Give each sub-agent a child grant and a new bearer rather than sharing the
+    coordinator token.
+  </Step>
+  <Step>
+    ### Revoke the branch
+
+    Revoke the coordinator grant to disable it and every descendant agent on
+    the next authorization check.
+  </Step>
+</Steps>
+
+## Tool aggregation in TypeScript
+
+```ts
+const coordinator = await companyPlane.grants.create({
+  name: 'Project coordinator',
+  capabilities: [],
+  expiresAt: '2026-08-20T23:00:00.000Z',
+});
+
+await coordinator.capabilities.set([
+  { resourceId: driveSearch.id, permissions: ['invoke'] },
+  {
+    path: 'acme/mcp/slack/tools/search_messages',
+    permissions: ['invoke'],
+  },
+  { resourceId: githubCreateIssue.id, permissions: ['invoke'] },
+]);
+
+const coordinatorToken = await coordinator.tokens.create({
+  label: 'coordinator',
+});
+const coordinatorPlane = store.as(coordinatorToken.value);
+
+const researcher = await coordinatorPlane.grants.create({
+  name: 'Research sub-agent',
+  capabilities: [],
+  expiresAt: '2026-08-20T22:00:00.000Z',
+});
+
+await researcher.capabilities.set([
+  { resourceId: driveSearch.id, permissions: ['invoke'] },
+  {
+    path: 'acme/mcp/slack/tools/search_messages',
+    permissions: ['invoke'],
+  },
+]);
+```
+
+The gateway is the policy-enforcement point. The agent cannot bypass its narrow
+RGAP grant because it never receives the protected upstream credential.

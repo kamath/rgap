@@ -1,0 +1,89 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+:root {
+  --color-fd-background: oklch(98.7% 0.006 255);
+  --color-fd-foreground: oklch(20% 0.025 255);
+  --color-fd-muted: oklch(96.2% 0.01 255);
+  --color-fd-muted-foreground: oklch(50% 0.03 255);
+  --color-fd-popover: oklch(100% 0 0);
+  --color-fd-popover-foreground: oklch(20% 0.025 255);
+  --color-fd-card: oklch(97.5% 0.008 255);
+  --color-fd-card-foreground: oklch(20% 0.025 255);
+  --color-fd-border: oklch(88% 0.018 255 / 65%);
+  --color-fd-primary: oklch(52% 0.19 263);
+  --color-fd-primary-foreground: oklch(98% 0.01 255);
+  --color-fd-secondary: oklch(94% 0.02 255);
+  --color-fd-secondary-foreground: oklch(25% 0.04 255);
+  --color-fd-accent: oklch(92% 0.035 255 / 70%);
+  --color-fd-accent-foreground: oklch(25% 0.04 255);
+  --color-fd-ring: oklch(58% 0.18 263);
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+.dark {
+  --color-fd-background: oklch(14% 0.025 255);
+  --color-fd-foreground: oklch(94% 0.012 255);
+  --color-fd-muted: oklch(19% 0.025 255);
+  --color-fd-muted-foreground: oklch(70% 0.025 255);
+  --color-fd-popover: oklch(17% 0.026 255);
+  --color-fd-popover-foreground: oklch(94% 0.012 255);
+  --color-fd-card: oklch(17% 0.025 255);
+  --color-fd-card-foreground: oklch(94% 0.012 255);
+  --color-fd-border: oklch(35% 0.035 255 / 45%);
+  --color-fd-primary: oklch(72% 0.145 263);
+  --color-fd-primary-foreground: oklch(15% 0.03 255);
+  --color-fd-secondary: oklch(22% 0.03 255);
+  --color-fd-secondary-foreground: oklch(92% 0.015 255);
+  --color-fd-accent: oklch(30% 0.045 255 / 65%);
+  --color-fd-accent-foreground: oklch(94% 0.012 255);
+  --color-fd-ring: oklch(70% 0.14 263);
+}
+
+html {
+  scrollbar-gutter: stable;
+  scroll-behavior: smooth;
+}
+
+html > body[data-scroll-locked] {
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-image:
+    radial-gradient(circle at 20% -20%, color-mix(in oklab, var(--color-fd-primary) 5%, transparent), transparent 28rem);
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-fd-primary) 25%, transparent);
+}
+
+.rgap-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--color-fd-border) 45%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--color-fd-border) 45%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(to bottom, black, transparent 72%);
+}
+
+.rgap-gradient-text {
+  color: transparent;
+  background: linear-gradient(110deg, oklch(57% 0.2 263), oklch(67% 0.18 220));
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+
+.dark .rgap-gradient-text {
+  background-image: linear-gradient(110deg, oklch(77% 0.14 263), oklch(79% 0.13 210));
+}
+
+.rgap-code-string {
+  color: oklch(61% 0.16 155);
+}
+
+.dark .rgap-code-string {
+  color: oklch(78% 0.14 155);
+}

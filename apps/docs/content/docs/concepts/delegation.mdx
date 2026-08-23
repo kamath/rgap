@@ -1,0 +1,96 @@
+---
+title: Delegation and attenuation
+description: How child grants prove they never expand their parent's authority.
+icon: GitBranch
+---
+
+Delegation creates a child grant beneath the acting grant. Every child
+capability must be covered by a parent capability.
+
+```text
+Alice: read/write/delete projects/alpha
+└── Bob: read projects/alpha/docs
+    └── Carol: read projects/alpha/docs/design
+```
+
+Bob cannot grant write access, reach outside `projects/alpha/docs`, or create a
+child that outlives Bob's grant.
+
+## Capability entries
+
+A grant aggregates one or more capability entries:
+
+```ts
+type CapabilityConfig = {
+  permissions: Permission[];
+};
+
+type ResourceCapability = CapabilityConfig & {
+  resourceId: ResourceId;
+};
+
+type PathCapability = CapabilityConfig & {
+  path: string;
+};
+
+type Capability = ResourceCapability | PathCapability;
+```
+
+Each entry names exactly one target. Multiple entries let a grant combine
+authority from separate branches, such as selected tools from several MCP
+servers.
+
+## Coverage
+
+`covers(parent, child)` holds when the child's location is inside the parent's
+location and every child permission appears in the parent's permission set.
+
+```ts
+covers(parent, child, resources) =
+  locationContains(parent, child, resources) &&
+  child.permissions.every((permission) =>
+    parent.permissions.includes(permission),
+  );
+```
+
+Two path entries compare normalized locations lexically. Any comparison
+involving an ID resolves both targets against the current live resource tree.
+
+<Callout type="info" title="Permissions are plain sets">
+  No permission implies another. `write` does not imply `read`, and `read` is
+  not included by holding any other permission.
+</Callout>
+
+## The complete lineage matters
+
+Issue-time containment is necessary but not sufficient. Every authorization
+decision also checks each ancestor grant against the requested resource in the
+current tree.
+
+Suppose a descendant grant targets a resource by ID and that resource moves
+outside an ancestor's scope. The descendant entry follows the identity, but the
+ancestor no longer covers the requested location. Authorization denies until
+the complete lineage covers the resource again.
+
+## Amending a grant
+
+A grant's identity, parent, and expiration are fixed at creation. Its capability
+set may be replaced atomically.
+
+The replacement set must satisfy the same containment proof as a newly created
+grant. Any direct child no longer covered by the new set is revoked together
+with its descendants.
+
+```text
+Before                         After parent narrows
+
+Team: docs + tools             Team: docs
+├── Writer: docs               └── Writer: docs
+└── Runner: tools                  Runner: revoked
+```
+
+## Empty grants
+
+A grant may start with an empty capability set and authorize nothing. This lets
+an application record a delegation before deciding what authority it reaches.
+Setting capabilities later still requires the parent coverage proof.

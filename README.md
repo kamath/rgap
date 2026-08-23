@@ -10,10 +10,10 @@ The model separates three concerns:
 
 Additional documents:
 
-- [PROTOCOL.md](PROTOCOL.md) is the normative specification: records, permission algebra, delegation rules, and the decision procedure.
-- [EXAMPLES.md](EXAMPLES.md) shows MCP server governance, tool aggregation, and sub-agent downscoping.
-- [IMPLEMENTATION.md](IMPLEMENTATION.md) defines the repository contract and SQLite implementation.
-- [LANDSCAPE.md](LANDSCAPE.md) compares RGAP with existing capability, authorization, and agent-access systems.
+- [Protocol](apps/docs/content/docs/reference/protocol.mdx) is the normative specification: records, permission algebra, delegation rules, and the decision procedure.
+- [Examples](apps/docs/content/docs/examples.mdx) show MCP server governance, tool aggregation, and sub-agent downscoping.
+- [Repository implementation](apps/docs/content/docs/reference/implementation.mdx) defines the package boundaries and implementations.
+- [Authorization landscape](apps/docs/content/docs/landscape.mdx) compares RGAP with existing capability, authorization, and agent-access systems.
 
 ## Core model
 
@@ -63,7 +63,7 @@ Alice: read/write/delete projects/alpha
     └── Carol: read projects/alpha/docs/design
 ```
 
-Delegation may only downscope authority, entry by entry, as [PROTOCOL.md](PROTOCOL.md) defines. A child grant can have:
+Delegation may only downscope authority, entry by entry, as the [protocol](apps/docs/content/docs/reference/protocol.mdx) defines. A child grant can have:
 
 - Resource entries covered by entries in its parent
 - A root at or within the covering parent entry's authorized subtree
@@ -95,7 +95,7 @@ Resources, grants, and tokens each have their own identity. A grant's parent is 
 | `TokenValue` | The bearer secret returned once by `grant.tokens.create`. `store.as`, `authorize`, and `inspectToken` take this value. |
 | `TokenHash` | The hash stored on the token record. The bearer is never stored. |
 
-A branded value is still a string at runtime. Records serialize as JSON strings and SQLite text, and [PROTOCOL.md](PROTOCOL.md) states the wire types as `string`. TypeScript does not treat the brands as interchangeable: `grant.create({ name: 'Drive read' })` cannot take a `ResourceId` parent, and `store.as(grant.id)` is a type error.
+A branded value is still a string at runtime. Records serialize as JSON strings and SQLite text, and the [protocol](apps/docs/content/docs/reference/protocol.mdx) states the wire types as `string`. TypeScript does not treat the brands as interchangeable: `grant.create({ name: 'Drive read' })` cannot take a `ResourceId` parent, and `store.as(grant.id)` is a type error.
 
 A path remains an ordinary string. Targeting `acme/drive` when the resource is named `acme-company` is a wrong location, not a wrong kind of identity, so it type-checks. Callers that want a stable object rather than a location use a `ResourceId` target.
 
@@ -115,7 +115,7 @@ A resource entry carries a plain set of permissions:
 
 No permission implies another. `write` does not imply `read`, and `read` is not included by holding anything else. Implication would force delegation to compare closures rather than sets, which is where containment bugs hide, and it would make write-only authority — a drop box, an append-only sink — inexpressible. Callers that want familiar bundles offer presets when a grant is issued; the algebra underneath stays a set.
 
-[PROTOCOL.md](PROTOCOL.md) states the authority each operation requires, so that independent implementations agree. Two rulings there are worth repeating here. A move requires `move` on the resource **and** `write` on the destination parent, because relocation changes who reaches the resource: without authority at the destination, a move would place a resource inside a scope the mover does not hold. Creating a root resource, creating a root grant, and moving a resource to a root are administrative operations; no token authorizes them.
+The [protocol](apps/docs/content/docs/reference/protocol.mdx) states the authority each operation requires, so that independent implementations agree. Two rulings there are worth repeating here. A move requires `move` on the resource **and** `write` on the destination parent, because relocation changes who reaches the resource: without authority at the destination, a move would place a resource inside a scope the mover does not hold. Creating a root resource, creating a root grant, and moving a resource to a root are administrative operations; no token authorizes them.
 
 ## Generic invocation
 

@@ -1,0 +1,90 @@
+---
+title: Resources and paths
+description: Stable resource identities inside a mutable hierarchy.
+icon: FolderTree
+---
+
+Resources form a tree. Each record stores only a stable ID, parent ID, name,
+and deletion marker.
+
+```ts
+type Resource = {
+  id: ResourceId;
+  parentId: ResourceId | null;
+  name: string;
+  deletedAt: string | null;
+};
+```
+
+RGAP does not assign resource kinds. Applications decide whether a resource
+represents a server, folder, tool, prompt, or document.
+
+## Identity and location
+
+A resource's ID and path answer different questions:
+
+| Target | Meaning |
+| --- | --- |
+| `resourceId` | This exact object, wherever it moves. |
+| `path` | Whatever live object occupies this location. |
+
+An ID-targeted capability follows a resource and its subtree when they move. A
+path-targeted capability stays attached to its normalized location.
+
+```text
+projects/alpha/secret
+        ↓ move
+projects/private/secret
+```
+
+After this move:
+
+- An ID entry targeting `secret` follows it to `projects/private/secret`.
+- A path entry targeting `projects/alpha/secret` authorizes nothing while the
+  old path is empty.
+- The path entry applies again if another resource later occupies that path.
+
+## Subtree semantics
+
+Every capability reaches its target and all current descendants. A grant on a
+container therefore includes children created later.
+
+<Callout type="info">
+  Grant leaves instead of a container when future children must not inherit the
+  capability.
+</Callout>
+
+## Path normalization
+
+Paths are canonicalized by splitting on `/`, trimming segments, and discarding
+empty segments. `Acme`, `Acme/`, and `/Acme//` identify the same location.
+
+Operational commands use stable resource IDs. A caller resolves a presentation
+path before issuing a command. Capability path targets are different: their
+normalized path is stored and resolved against the current resource tree for
+every authorization decision.
+
+## Moves
+
+Moving a resource requires:
+
+1. `move` on the resource.
+2. `write` on the destination parent.
+
+Authority is required at both ends because relocation changes who can reach the
+resource. Moves update the tree and audit event atomically and never rewrite
+grants.
+
+## Deletion
+
+Deletion marks a resource and all descendants as deleted. Records remain as
+tombstones so IDs are never reused.
+
+- Deleted resources appear in no listing.
+- No path resolves to a deleted resource.
+- Commands and authorization cannot target a deleted resource.
+- A deleted name may be reused under the same parent by a new resource with a
+  new ID.
+
+This preserves the meaning of old capability entries and audit events without
+reserving names forever.
