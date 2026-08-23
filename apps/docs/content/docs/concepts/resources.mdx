@@ -95,10 +95,10 @@ a container therefore includes children created later.
 Paths are canonicalized by splitting on `/`, trimming segments, and discarding
 empty segments. `Acme`, `Acme/`, and `/Acme//` identify the same location.
 
-Create accepts a presentation path and materializes it. Other operational
-commands use stable resource IDs. Grant path targets store a normalized
-location and resolve it against the current resource tree for every
-authorization decision.
+Create accepts a presentation path and materializes it. Grant create uses the
+same path walk over the grant tree. Other operational commands use stable
+resource IDs. Grant path targets store a normalized location and resolve it
+against the current resource tree for every authorization decision.
 
 ## Moves
 

@@ -8,6 +8,61 @@ RGAP treats MCP servers and their exposed operations as resources. A
 deployment registers each trusted server beneath an administrative resource
 and assigns stable IDs to servers, tools, prompts, and MCP resources.
 
+## Invoke OpenAI through a resource
+
+Provider credentials stay in a deployment-owned runtime. The runtime reads
+`OPENAI_API_KEY`, uses AI SDK `generateText` with the OpenAI provider, and
+returns only generated text through RGAP:
+
+```ts
+import { createOpenAI } from '@ai-sdk/openai';
+import { generateText } from 'ai';
+
+const openai: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
+  inputSchema: OpenAIInputSchema,
+  outputSchema: OpenAIOutputSchema,
+  async invoke({ input, signal }) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error('OPENAI_API_KEY is required.');
+
+    const provider = createOpenAI({ apiKey });
+    const { text } = await generateText({
+      model: provider(process.env.OPENAI_MODEL ?? 'gpt-5-mini'),
+      prompt: input.prompt,
+      abortSignal: signal,
+    });
+    return { text };
+  },
+};
+```
+
+The deployment registers that runtime, associates it with a resource, and
+grants an agent `invoke` on that resource:
+
+```ts
+const model = await admin.resources.create({ name: 'acme/models/openai' });
+await model.executable.set({ runtime: 'openai' });
+
+const agentGrant = await admin.grants.create({
+  name: 'company/openai-agent',
+  resources: [{ id: model.id, permissions: ['invoke'] }],
+  expiresAt: null,
+});
+const agentToken = await agentGrant.tokens.create({ label: 'openai-agent' });
+const agent = store.as(agentToken.value);
+const authorizedModel = await agent.resources.get(model.id);
+
+for await (const event of authorizedModel.invoke({
+  input: { prompt: 'Summarize why capability attenuation matters.' },
+})) {
+  console.log(event);
+}
+```
+
+The agent receives the RGAP token and output events. It never receives
+`OPENAI_API_KEY`. The complete executable version lives in
+`examples/openai.ts`.
+
 ## MCP server governance
 
 ```text
@@ -41,7 +96,7 @@ its current and future tools because a resource entry covers the complete subtre
 One coordinator grant can combine selected tools from several servers:
 
 ```yaml
-name: Project coordinator
+name: company/project-coordinator
 resources:
   - id: tool_drive_search_files
     permissions: [invoke]
@@ -60,7 +115,7 @@ keys, and server credentials remain inside the MCP gateway.
 The coordinator delegates only search tools:
 
 ```yaml
-name: Research sub-agent
+name: research-sub-agent
 parentId: grant_project_coordinator
 resources:
   - id: tool_drive_search_files
@@ -120,7 +175,7 @@ the applicable leaves. RGAP's core permission algebra remains a plain set.
 
 ```ts
 const coordinator = await companyPlane.grants.create({
-  name: 'Project coordinator',
+  name: 'company/project-coordinator',
   resources: [],
   expiresAt: '2026-08-20T23:00:00.000Z',
 });
@@ -140,7 +195,7 @@ const coordinatorToken = await coordinator.tokens.create({
 const coordinatorPlane = store.as(coordinatorToken.value);
 
 const researcher = await coordinatorPlane.grants.create({
-  name: 'Research sub-agent',
+  name: 'company/project-coordinator/research-sub-agent',
   resources: [],
   expiresAt: '2026-08-20T22:00:00.000Z',
 });

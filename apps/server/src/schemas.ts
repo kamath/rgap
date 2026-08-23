@@ -151,7 +151,6 @@ export const MoveResourceSchema = z.object({
 
 export const GrantWriteSchema = z.object({
   name: z.string().min(1),
-  parentId: NullableIdSchema,
   resources: z.array(GrantResourceSchema),
   expiresAt: NullableTimestampSchema,
 }).strict();

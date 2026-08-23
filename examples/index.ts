@@ -2,8 +2,10 @@
  * A scratchpad. It is here to answer "what does the model do about this?", so edit it freely:
  * arrange resources, grants, and tokens, then print what authorization says about them.
  *
- * This file walks company → team → employee → agent → subagent. Each step issues a token,
- * selects that plane with `store.as`, and creates a narrower child grant.
+ * This file walks company → team → employee → agent → subagent. Company is created first so
+ * it can hold the broad `acme` grant. The rest of the chain is one create at
+ * `company/team/employee/agent/subagent`. Intermediate grants then receive narrower
+ * resource sets, and each step issues a token.
  *
  * `pnpm scratch` runs this file against examples/scratch.db. Replace the store-construction line
  * with `new HttpRgapStore(...)` to run the same walkthrough against the Hono API.
@@ -54,7 +56,7 @@ await root.reset();
 
 const acme = await root.resources.create({ name: 'acme' });
 const companyGrant = await root.grants.create({
-  name: 'Company',
+  name: 'company',
   resources: [{
     id: acme.id,
     permissions: ['read', 'write', 'delete', 'move', 'invoke'],
@@ -79,35 +81,20 @@ console.log("RESOURCE TREE");
 printPaths(companyResources);
 console.log('\n\n');
 
-const teamGrant = await company.grants.create({
-  name: 'Team',
-  resources: [{ id: platform.id, permissions: ['read', 'write', 'invoke'] }],
-  expiresAt: null,
-});
-const teamToken = await teamGrant.tokens.create({ label: 'team' });
-const team = store.as(teamToken.value);
-
-const employeeGrant = await team.grants.create({
-  name: 'Employee',
-  resources: [{ id: docs.id, permissions: ['read', 'write'] }],
-  expiresAt: null,
-});
-const employeeToken = await employeeGrant.tokens.create({ label: 'employee' });
-const employee = store.as(employeeToken.value);
-
-const agentGrant = await employee.grants.create({
-  name: 'Agent',
-  resources: [{ path: 'acme/platform/docs', permissions: ['read'] }],
-  expiresAt: null,
-});
-const agentToken = await agentGrant.tokens.create({ label: 'agent' });
-const agent = store.as(agentToken.value);
-
-const subagentGrant = await agent.grants.create({
-  name: 'Subagent',
+const subagentGrant = await company.grants.create({
+  name: 'company/team/employee/agent/subagent',
   resources: [{ path: 'acme/platform/docs/design', permissions: ['read'] }],
   expiresAt: null,
 });
+const agentGrant = await company.grants.get(subagentGrant.parentId!);
+const employeeGrant = await company.grants.get(agentGrant.parentId!);
+const teamGrant = await company.grants.get(employeeGrant.parentId!);
+await teamGrant.resources.set([{ id: platform.id, permissions: ['read', 'write', 'invoke'] }]);
+await employeeGrant.resources.set([{ id: docs.id, permissions: ['read', 'write'] }]);
+await agentGrant.resources.set([{ path: 'acme/platform/docs', permissions: ['read'] }]);
+const teamToken = await teamGrant.tokens.create({ label: 'team' });
+const employeeToken = await employeeGrant.tokens.create({ label: 'employee' });
+const agentToken = await agentGrant.tokens.create({ label: 'agent' });
 const subagentToken = await subagentGrant.tokens.create({ label: 'subagent' });
 
 const resources = await company.resources.list({ limit: 100 });

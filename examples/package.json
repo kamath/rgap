@@ -9,9 +9,11 @@
     "start": "tsx index.ts"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^4.0.46",
     "@rgap/core": "workspace:*",
     "@rgap/server": "workspace:*",
     "@rgap/sqlite": "workspace:*",
+    "ai": "^7.0.77",
     "zod": "^4.4.3"
   },
   "devDependencies": {

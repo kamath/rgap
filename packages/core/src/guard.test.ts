@@ -171,19 +171,37 @@ describe('command guard', () => {
     await expect(guard.resources.get(r('post-message'))).rejects.toThrow('outside this token');
   });
 
-  it('delegates from the acting grant, including via grants.create', async () => {
+  it('creates only on routes beneath the acting grant', async () => {
     const { guard, calls } = guarded();
-    const input = { name: 'Child', resources: [], expiresAt: null };
+    const child = { name: 'Child', resources: [], expiresAt: null };
+    const route = { ...child, name: 'Coordinator/Child' };
 
-    expect((await guard.grants.create(input)).id).toBe('created');
-    expect((await (await guard.grants.get(g('coordinator'))).create(input)).id).toBe('created');
+    expect((await guard.grants.create(route)).id).toBe('created');
+    expect((await (await guard.grants.get(g('coordinator'))).create(child)).id).toBe('created');
+    expect((await (await guard.grants.get(g('researcher'))).create(child)).id).toBe('created');
     expect(calls).toEqual([
-      { method: 'createGrant', args: [{ ...input, parentId: g('coordinator') }] },
-      { method: 'createGrant', args: [{ ...input, parentId: g('coordinator') }] },
+      { method: 'createGrant', args: [{ ...route, parentId: null }] },
+      { method: 'createGrant', args: [{ ...child, parentId: g('coordinator') }] },
+      { method: 'createGrant', args: [{ ...child, parentId: g('researcher') }] },
     ]);
 
-    await expect((await guard.grants.get(g('researcher'))).create(input))
-      .rejects.toThrow('A token may only delegate from the grant it references.');
+    await expect(guard.grants.create({ ...child, name: 'Other root/Child' }))
+      .rejects.toThrow('must follow existing ancestors to the acting grant');
+    await expect(guard.grants.create({ ...child, name: 'Coordinator peer/Child' }))
+      .rejects.toThrow('must follow existing ancestors to the acting grant');
+  });
+
+  it('does not let a delegated token create from an ancestor grant', async () => {
+    const { guard, calls } = guarded(subBearer);
+    const input = { name: 'Child', resources: [], expiresAt: null };
+
+    await expect((await guard.grants.get(g('coordinator'))).create(input))
+      .rejects.toThrow('neither this token\'s grant nor delegated from it');
+    expect((await guard.grants.create({ ...input, name: 'Coordinator/Researcher/Child' })).id)
+      .toBe('created');
+    expect(calls).toEqual([
+      { method: 'createGrant', args: [{ ...input, name: 'Coordinator/Researcher/Child', parentId: null }] },
+    ]);
   });
 
   it('sets resources below its own grant, never on its own grant or beside it', async () => {

@@ -146,7 +146,6 @@ describe('RGAP Hono API', () => {
     const root = await (await request('/resources', { name: 'acme' })).json() as { id: string };
     const grant = await (await request('/grants', {
       name: 'writer',
-      parentId: null,
       resources: [{ id: root.id, permissions: ['write'] }],
       expiresAt: null,
     })).json() as { id: string };
@@ -157,14 +156,12 @@ describe('RGAP Hono API', () => {
     expect((await request('/resources', { name: 'acme/docs' }, issued.value)).status).toBe(200);
     expect((await request('/resources', { name: 'other' }, issued.value)).status).toBe(403);
     expect((await request('/grants', {
-      name: 'child',
-      parentId: grant.id,
+      name: 'writer/child',
       resources: [],
       expiresAt: null,
     }, issued.value)).status).toBe(200);
     expect((await request('/grants', {
       name: 'root',
-      parentId: null,
       resources: [],
       expiresAt: null,
     }, issued.value)).status).toBe(403);
@@ -219,7 +216,6 @@ describe('RGAP Hono API', () => {
       .toEqual([{ type: 'done' }]);
     const readerGrant = await (await request('/grants', 'POST', {
       name: 'reader',
-      parentId: null,
       resources: [{ id: executable.id, permissions: ['read'] }],
       expiresAt: null,
     })).json() as { id: string };
@@ -309,7 +305,6 @@ describe('RGAP Hono API', () => {
       headers,
       body: {
         name: 'Acme admin',
-        parentId: null,
         resources: [{ id: root.data!.id, permissions: ['read', 'write', 'delete', 'move', 'invoke'] }],
         expiresAt: null,
       },
@@ -401,7 +396,7 @@ describe('RGAP Hono API', () => {
     const guarded = remote.as(issued.value);
     const child = await (await guarded.resources.get(root.id)).create({ name: 'docs' });
     const delegated = await guarded.grants.create({
-      name: 'reader',
+      name: 'writer/reader',
       resources: [{ id: root.id, permissions: ['read'] }],
       expiresAt: null,
     });

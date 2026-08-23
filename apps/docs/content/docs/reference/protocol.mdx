@@ -145,6 +145,7 @@ No permission implies another. Permissions form a plain set compared by subset.
 | Move a resource | `move` on the resource and `write` on the destination |
 | Delete a subtree | `delete` on its root |
 | Delegate a grant | The child downscopes the acting grant |
+| Create at a grant path | The parent of each created grant is the acting grant or a descendant of it |
 | Set a grant's resources | The new set downscopes the grant's parent |
 | Issue or revoke a token | The grant is acting or delegated from acting |
 | Revoke a grant | The grant is acting or delegated from acting |
@@ -200,15 +201,43 @@ current live tree and the child target must be within the parent target.
 
 A grant is created only when:
 
-1. Its name is non-empty.
+1. Its stored name is a single non-empty segment and contains no `/`.
 2. Every resource entry has at least one permission and exactly one target.
 3. Resource targets are live; path targets are non-empty after normalization
    and may currently be unresolved.
-4. Its parent exists and is active.
+4. Its parent exists and is active, or the grant is a root.
 5. It does not outlive its parent.
 6. Every child resource entry is covered by a parent resource entry.
+7. No other active grant has the same parent and name.
 
 The resource set may be empty and authorize nothing.
+
+### Create at a path
+
+Create accepts a slash-separated location. The write is the path; it does not
+include a parent ID. Collection create walks from the grant forest root. Handle
+create walks from that grant. The path is normalized by splitting on `/`,
+trimming segments, and discarding empty segments. After normalization the path
+must contain at least one segment.
+
+The command walks the path in one state transition. Each stored grant name is
+one segment and contains no `/`. Active prefixes are reused. Missing prefixes
+are created as ordinary grants with the submitted resource set and expiration.
+Each created record stores the parent ID derived from that walk. The leaf must
+not already exist; an occupied path is `duplicate_path`.
+
+Each newly created grant receives an unused ID minted from its segment name
+and is audited as `grant.create` or `grant.delegate`. Creating a new root is
+administrative.
+
+For a token-plane collection create, the walk must resolve existing active
+ancestors from the forest root until it reaches the acting grant's stable ID.
+No segment may be created before that ID is reached. After it is reached, every
+existing segment must remain within the acting grant's subtree and every
+created grant's parent must be the acting grant or a descendant of it. A handle
+create starts at that handle and requires the handle to be the acting grant or
+a descendant. Each created child independently satisfies the creation validity
+rules against its immediate parent.
 
 ### Setting resources
 
