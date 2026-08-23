@@ -293,6 +293,12 @@ Every command addresses resources by `ResourceId`. A resource path describes onl
 
 `@rgap/server` is a Node.js Hono application in `apps/server`. It opens a `SqliteRgapStore` at the path in `RGAP_DATABASE_URL` and serves every operation in `RgapCommands`. Every command route requires an `Authorization: Bearer <token>` header. An RGAP token selects `store.as(token)`. The bearer in `RGAP_ADMIN_TOKEN` selects `store.admin()` for trusted bootstrap and operational calls, including root creation and reset. The administrative bearer defaults to `test` when the environment variable is unset.
 
+### OpenAI LLM gateway runtime
+
+The server process registers one deployment-owned runtime named `openai`. Associating that runtime with a resource turns `resource.invoke` into an LLM gateway call: the runtime POSTs the entire invoke `input` as the JSON body to `process.env.OPENAI_BASE_URL`, authenticates with `Authorization: Bearer ${process.env.OPENAI_API_KEY}`, propagates the invocation abort signal, and yields the upstream JSON response as a single `data` event.
+
+The runtime declares no input or output schema and no bindings, so the invoke body is a transparent passthrough to the configured OpenAI-compatible URL. Both `OPENAI_BASE_URL` and `OPENAI_API_KEY` are required process configuration; a missing value refuses the invocation. A non-success upstream response fails the invocation with the response status and body. The HTTP API surface does not gain a separate OpenAI route — callers exercise the gateway only through ordinary executable association and `POST /resources/{id}/invoke`.
+
 The OpenAPI `operationId` in the right column is the generated HeyAPI function name. The mapping is exhaustive and one-to-one with `RgapCommands`:
 
 | Method and path | Input | Success | `operationId` |
