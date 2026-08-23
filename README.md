@@ -35,7 +35,7 @@ Renaming or moving a resource changes its position in the tree without changing 
 
 ### Grants
 
-A grant contains a set of resource entries. Each entry authorizes a set of operations over a resource and its subtree. The target is either a stable resource ID or a normalized path, distinguished by which field is present: `resourceId` names an object, `path` names a location. Both kinds share the same permission set. Multiple entries let one grant aggregate authority from several branches, such as tools exposed by different MCP servers. Grants may delegate authority to child grants.
+A grant contains a set of resource entries. Each entry authorizes a set of operations over a resource and its subtree. The target is either a stable resource ID or a normalized path, distinguished by which field is present: `id` names an object, `path` names a location. Both kinds share the same permission set. Multiple entries let one grant aggregate authority from several branches, such as tools exposed by different MCP servers. Grants may delegate authority to child grants.
 
 The tree record and the grant entry are different types. A `Resource` is an object in the tree. A `GrantResource` is one entry on a grant: the tree object or path it reaches, plus the permissions it carries.
 
@@ -44,7 +44,7 @@ type GrantResourceConfig = {
   permissions: Permission[];
 };
 
-type IdResource = GrantResourceConfig & { resourceId: ResourceId };
+type IdResource = GrantResourceConfig & { id: ResourceId };
 type PathResource = GrantResourceConfig & { path: string };
 type GrantResource = IdResource | PathResource;
 ```
@@ -89,7 +89,7 @@ Resources, grants, and tokens each have their own identity. A grant's parent is 
 
 | Type | Names |
 | --- | --- |
-| `ResourceId` | A resource's `id` and `parentId`, a grant resource's resource target, and `move`'s destination. |
+| `ResourceId` | A resource's `id` and `parentId`, a grant resource's `id`, and `move`'s destination. |
 | `GrantId` | A grant's `id` and `parentId`, and a token's `grantId`. |
 | `TokenId` | A token record's `id`. |
 | `TokenValue` | The bearer secret returned once by `grant.tokens.create`. `store.as`, `authorize`, and `inspectToken` take this value. |
@@ -183,7 +183,7 @@ Moves and renames change the current resource tree without rewriting or revoking
 
 | Target | Behavior when a resource moves |
 | --- | --- |
-| `resourceId` | The entry follows the resource and its subtree. |
+| `id` | The entry follows the resource and its subtree. |
 | `path` | The entry stays at the same path and applies to whatever live resource occupies it, including that resource's subtree. |
 
 For example, suppose `secret` moves:
@@ -234,7 +234,7 @@ const grant = await admin.grants.create({
   name: 'Acme admin', resources: [], expiresAt: null,
 });
 await grant.resources.set([
-  { resourceId: acme.id, permissions: ['read', 'write'] },
+  { id: acme.id, permissions: ['read', 'write'] },
 ]);
 const issued = await grant.tokens.create({ label: 'cli' });
 const alice = store.as(issued.value);
@@ -348,7 +348,7 @@ const grant = await admin.grants.create({
   name: 'Acme admin', resources: [], expiresAt: null,
 });
 await grant.resources.set([
-  { resourceId: acme.id, permissions: ['read', 'write'] },
+  { id: acme.id, permissions: ['read', 'write'] },
 ]);
 
 const { value } = await grant.tokens.create({ label: 'cli' });
