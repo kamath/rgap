@@ -306,7 +306,7 @@ The site provides a responsive documentation shell with:
 - Light and dark color schemes that follow the reader's system preference and can be selected manually.
 - Previous-page and next-page navigation generated from the content order.
 
-The visual design uses RGAP's own typography, color tokens, logo treatment, and component styling on top of Fumadocs rather than presenting an unmodified framework theme. Pages remain readable without custom MDX components, while components add structure where prose, tables, and code fences are insufficient.
+The visual design uses RGAP's own typography, color tokens, logo treatment, and component styling on top of Fumadocs rather than presenting an unmodified framework theme. Pages remain readable without custom MDX components, while components add structure where prose, tables, and code fences are insufficient. Callouts use an enclosed surface without a decorative vertical border or accent rail. Card icons render as recognizable graphical symbols; icon component names such as `Network` or `Terminal` never appear as visible labels. Code snippets have no nested horizontal or vertical scroll regions: long lines wrap, long blocks show a compact preview, and an explicit expand or collapse control reveals or hides the complete block inline.
 
 The documentation is organized into overview, concepts, guides, protocol reference, implementation reference, examples, and comparisons. The existing protocol and repository documentation lives in that hierarchy as MDX, so the published site and repository use one documentation source. The HTTP API reference links to the server's generated OpenAPI document and interactive Swagger UI rather than maintaining a second handwritten endpoint contract.
 

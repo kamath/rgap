@@ -14,6 +14,12 @@ Once the README change is approved, implement exactly the approved design. If im
 - Describe the system as it exists under the current design.
 - Do not discuss legacy behavior, historical behavior, migration from older designs, or backward compatibility.
 
+## Documentation visual rules
+
+- Never use a decorative vertical border or accent rail on callouts.
+- Render icon references as graphical symbols. Never expose an icon component name such as `Network` or `Terminal` as visible text.
+- Never put code snippets inside horizontal or vertical scroll regions. Wrap long lines and use an inline expand or collapse control for long blocks.
+
 ## Compatibility policy
 
 This project has no production users or production data. Do not preserve legacy APIs, formats, schemas, behavior, or implementation patterns unless the user explicitly changes this policy.
