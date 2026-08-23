@@ -366,10 +366,14 @@ describe('RGAP Hono API', () => {
     });
     const admin = remote.admin();
     const executable = await admin.resources.create({ name: 'remote-echo' });
+    const source = await admin.resources.create({ name: 'remote-source' });
     await executable.executable.set({ runtime: 'test' });
     expect((await executable.executable.get())?.runtime).toBe('test');
     const events = [];
-    for await (const event of executable.invoke({ input: { remote: true } })) {
+    for await (const event of executable.invoke({
+      input: { remote: true },
+      bindings: { source: source.id },
+    })) {
       events.push(event);
     }
     expect(events).toEqual([
