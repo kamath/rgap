@@ -41,17 +41,10 @@ export type Resource = {
   deletedAt: string | null;
 };
 
-export type GrantResourceConfig = {
+export type GrantResource = {
+  id: ResourceId;
   permissions: Permission[];
 };
-
-export type IdResource = GrantResourceConfig & { id: ResourceId };
-export type PathResource = GrantResourceConfig & { path: string };
-export type GrantResource = IdResource | PathResource;
-
-export function isPathResource(entry: GrantResource): entry is PathResource {
-  return 'path' in entry;
-}
 
 export type Grant = {
   id: GrantId;
@@ -184,7 +177,7 @@ export function stateIntegrity(state: State) {
       problems.push(`Grant ${grant.id} refers to missing parent ${grant.parentId}.`);
     }
     grant.resources.forEach((entry) => {
-      if (!isPathResource(entry) && !state.resources[entry.id]) {
+      if (!state.resources[entry.id]) {
         problems.push(`Grant ${grant.id} refers to missing resource ${entry.id}.`);
       }
     });
@@ -227,7 +220,6 @@ export function requireResourceId(resources: ResourceCollection, path: string) {
 export const normalizePath = (path: string) => pathParts(path).join('/');
 
 function targetResourceId(entry: GrantResource, resources: State['resources']) {
-  if (isPathResource(entry)) return resourceIdAtPath(resources, entry.path);
   return isLive(resources[entry.id]) ? entry.id : null;
 }
 
@@ -243,36 +235,18 @@ export function resourceAuthorizes(
   return Boolean(rootId && isWithin(resources, id, rootId));
 }
 
-function pathContains(parent: GrantResource, child: GrantResource) {
-  if (!isPathResource(parent) || !isPathResource(child)) return null;
-  const parentParts = pathParts(normalizePath(parent.path));
-  const childParts = pathParts(normalizePath(child.path));
-  return parentParts.every((part, index) => childParts[index] === part);
-}
-
 /** Whether every request the child entry currently authorizes is also authorized by the parent. */
 export function covers(parent: GrantResource, child: GrantResource, resources: State['resources']) {
-  const lexicalCoverage = pathContains(parent, child);
   const parentId = targetResourceId(parent, resources);
   const childId = targetResourceId(child, resources);
-  const locationCovered = lexicalCoverage ?? Boolean(parentId && childId && isWithin(resources, childId, parentId));
-  return locationCovered && child.permissions.every((permission) => parent.permissions.includes(permission));
+  return Boolean(parentId && childId && isWithin(resources, childId, parentId))
+    && child.permissions.every((permission) => parent.permissions.includes(permission));
 }
 
 function normalizeResources(entries: GrantResource[], resources: State['resources']) {
   return entries.map((entry) => {
     if (!entry.permissions.length) throw new RgapError('invalid_grant_resource', 'Select at least one permission.');
-    if (isPathResource(entry)) {
-      if ('id' in entry) {
-        throw new RgapError('invalid_grant_resource', 'Grant resource must name an id or a path.');
-      }
-      const path = normalizePath(entry.path);
-      if (!path) throw new RgapError('invalid_grant_resource', 'Grant resource path is required.');
-      return { ...structuredClone(entry), path };
-    }
-    if (!('id' in entry)) {
-      throw new RgapError('invalid_grant_resource', 'Grant resource must name an id or a path.');
-    }
+    if (!entry.id) throw new RgapError('invalid_grant_resource', 'Grant resource must name a live resource.');
     if (!isLive(resources[entry.id])) {
       throw new RgapError('missing_resource', 'Grant resource does not exist.');
     }

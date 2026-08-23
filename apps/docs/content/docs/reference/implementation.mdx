@@ -47,8 +47,8 @@ Handles combine record fields with applicable commands:
 
 Adapters implement an ID-based `RgapCommands` sink.
 `repositoryFrom(commands)` builds the handle surface. Create accepts a
-slash-separated location and materializes missing prefixes. Path rendering and
-grant-path resolution remain pure helpers.
+slash-separated location and materializes missing prefixes. Path rendering
+remains a pure helper.
 
 ### Repository planes
 
@@ -136,7 +136,7 @@ deletion. There is no executable tombstone or revision table.
 | --- | --- |
 | `resources` | Stable resource records and tombstones. |
 | `grants` | Grant identity, ancestry, expiration, and revocation. |
-| `grant_resources` | Ordered resource-ID or path targets for each grant. |
+| `grant_resources` | Ordered live resource-ID targets for each grant. |
 | `grant_resource_permissions` | Normalized permission sets for grant-resource entries. |
 | `tokens` | Token metadata and bearer hashes. |
 | `executables` | One resource-to-runtime association per executable resource. |

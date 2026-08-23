@@ -112,7 +112,7 @@ describe('SqliteRgapStore', () => {
     const grant = await rootGrant(repository);
     await grant.resources.set([
       { id: resourceId('acme'), permissions: ['read', 'write'] },
-      { path: 'acme/future-tool', permissions: ['invoke'] },
+      { id: resourceId('drive'), permissions: ['invoke'] },
     ]);
     const issued = await grant.tokens.create({ label: 'cli' });
 
@@ -120,7 +120,7 @@ describe('SqliteRgapStore', () => {
     expect(state.resources.drive.parentId).toBe('acme');
     expect(state.grants[grant.id].resources).toEqual([
       { id: resourceId('acme'), permissions: ['read', 'write'] },
-      { path: 'acme/future-tool', permissions: ['invoke'] },
+      { id: resourceId('drive'), permissions: ['invoke'] },
     ]);
     expect(state.tokens[issued.id]).toEqual(tokenRecord(issued));
   });
@@ -213,26 +213,23 @@ describe('SqliteRgapStore', () => {
     expect(amended.resources[0].permissions).toEqual(['read', 'invoke', 'delete']);
   });
 
-  it('stores path targets without a resource foreign key value', async () => {
+  it('stores grant resource IDs as a foreign key', async () => {
     const url = file();
     const store = open({ url, initialState: acme() });
     const repository = store.admin();
     const grant = await rootGrant(repository);
     await grant.resources.set([
-      { path: 'acme/not-created-yet', permissions: ['write'] },
+      { id: resourceId('drive'), permissions: ['write'] },
     ]);
     store.close();
 
     const connection = new Database(url, { readonly: true });
     const row = connection.prepare(
-      'select id, path from grant_resources where grant_id = ?',
+      'select id from grant_resources where grant_id = ?',
     ).get(grant.id);
     connection.close();
 
-    expect(row).toEqual({
-      id: null,
-      path: 'acme/not-created-yet',
-    });
+    expect(row).toEqual({ id: 'drive' });
   });
 
   it('keeps a file database across repositories and seeds only an empty one', async () => {
@@ -343,7 +340,6 @@ describe('SqliteRgapStore', () => {
     const grant = await rootGrant(repository);
     await grant.resources.set([
       { id: resourceId('drive'), permissions: ['read'] },
-      { path: 'acme/drive', permissions: ['read'] },
     ]);
 
     await (await repository.resources.get(resourceId('drive'))).move(null);

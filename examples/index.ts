@@ -97,7 +97,7 @@ const employee = store.as(employeeToken.value);
 
 const agentGrant = await employee.grants.create({
   name: 'Agent',
-  resources: [{ path: 'acme/platform/docs', permissions: ['read'] }],
+  resources: [{ id: docs.id, permissions: ['read'] }],
   expiresAt: null,
 });
 const agentToken = await agentGrant.tokens.create({ label: 'agent' });
@@ -105,7 +105,7 @@ const agent = store.as(agentToken.value);
 
 const subagentGrant = await agent.grants.create({
   name: 'Subagent',
-  resources: [{ path: 'acme/platform/docs/design', permissions: ['read'] }],
+  resources: [{ id: design.id, permissions: ['read'] }],
   expiresAt: null,
 });
 const subagentToken = await subagentGrant.tokens.create({ label: 'subagent' });
