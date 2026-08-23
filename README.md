@@ -406,7 +406,7 @@ The local scratchpad configures a typed `echo` runtime with Zod input/output sch
 ```ts
 const events = search.invoke({
   input: { query: 'design' },
-  bindings: { scope: docs.id },
+  bindings: { searchWithin: docs.id },
 });
 
 for await (const event of events) {
@@ -414,7 +414,7 @@ for await (const event of events) {
 }
 ```
 
-The company grant carries `invoke` on both `search` and `docs` through its existing `acme` subtree capability. The runtime receives validated input and `{ resourceId, kind }` for `scope`, emits a `data` event, and finishes with `done`. It never resolves or reads the bound resource, leaving secret resolution as a later binding-kind extension.
+The company grant carries `invoke` on both `search` and `docs` through its existing `acme` subtree capability. The runtime receives validated input and `{ resourceId, kind }` for `searchWithin`, emits a `data` event, and finishes with `done`. It never resolves or reads the bound resource, leaving secret resolution as a later binding-kind extension.
 
 The file currently walks a five-step delegation. Resources are the company's workspace. Grants are who holds authority over it. Each step issues a token for the current grant, selects that token's plane with `store.as`, and creates a narrower child grant:
 
