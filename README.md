@@ -117,47 +117,42 @@ No permission implies another. `write` does not imply `read`, and `read` is not 
 
 ## Generic invocation
 
-An executable definition attaches a runtime-owned program to an ordinary resource ID. Updating an executable publishes a new immutable revision and selects it as active; retained revisions make invocations reproducible and auditable.
+An executable definition attaches one deployment-configured runtime to an ordinary resource ID:
 
 ```ts
-type ExecutableRevision = {
-  id: ExecutableRevisionId;
+type ExecutableDefinition = {
   resourceId: ResourceId;
   runtime: string;
-  program: unknown;
-  inputSchema: JsonSchema | null;
-  outputSchema: JsonSchema | null;
-  bindingSchema: Record<string, {
-    kind: string;
-    required?: boolean;
-  }>;
-  limits: ExecutionLimits;
-  createdAt: string;
 };
 
 type RuntimeResult<T> = T | AsyncIterable<T>;
+type RuntimeSchema<T> = {
+  parse(value: unknown): T;
+};
 
 interface InvokeRuntime<
-  TProgram = unknown,
   TInput = unknown,
   TOutput = unknown,
 > {
-  validate(program: unknown): asserts program is TProgram;
+  inputSchema: RuntimeSchema<TInput> | null;
+  outputSchema: RuntimeSchema<TOutput> | null;
+  bindings?: Record<string, {
+    kind: string;
+    required?: boolean;
+  }>;
   invoke(
-    context: RuntimeInvocation<TProgram, TInput>,
+    context: RuntimeInvocation<TInput>,
   ): RuntimeResult<TOutput> | Promise<RuntimeResult<TOutput>>;
 }
 ```
 
-The deployment configures a runtime registry once. Grants and executable programs cannot modify it. The core package defines no runtime implementations.
+The deployment configures each runtime once, including trusted fetch destinations, protocol behavior, input/output schemas, and binding declarations. RGAP persists only the resource-to-runtime association. Changing runtime behavior or schemas is a host configuration change rather than executable data CRUD. The core package defines no runtime implementations.
 
-`resource.invoke({ input, bindings, revisionId })` authorizes `invoke` on the executable resource and every bound resource through the complete grant lineage. A binding is another resource exercised by the invocation; it need not be a tree child of the executable. The runtime receives only the typed program, input, limits, cancellation signal, and opaque `{ resourceId, kind }` bindings.
+`resource.invoke({ input, bindings })` authorizes `invoke` on the executable resource and every bound resource through the complete grant lineage. A binding is another resource exercised by the invocation; it need not be a tree child of the executable. Core validates exact binding names and required bindings against the runtime configuration.
 
-Core validates input when `inputSchema` is non-null, invokes the runtime, and normalizes its result. A single value or promise becomes one `data` event; an async iterable becomes one `data` event per yielded value. Core validates each value when `outputSchema` is non-null, emits `done` automatically, and returns the normalized `AsyncIterable<InvocationEvent>`. Runtime exceptions terminate the stream and are recorded as invocation errors.
+Core parses input when the runtime's `inputSchema` is non-null and passes the typed result, cancellation signal, and opaque `{ resourceId, kind }` bindings to the runtime. A single value or promise becomes one `data` event; an async iterable becomes one `data` event per yielded value. Core parses each value when `outputSchema` is non-null, emits `done` automatically, and returns the normalized `AsyncIterable<InvocationEvent>`. Runtime exceptions terminate the stream and are recorded as invocation errors.
 
-Executable revisions persist JSON Schema rather than library-specific schema objects. Callers may author schemas with Zod and publish `z.toJSONSchema(schema)`. A typed runtime may use the same Zod definitions for TypeScript inference and implement `validate(program)` with `ProgramSchema.parse(program)`. This keeps Zod at the application boundary while persisted executable records remain portable JSON.
-
-Binding kinds are runtime-defined strings. RGAP treats every supplied binding as an opaque resource reference.
+`RuntimeSchema` is structurally compatible with Zod, so runtimes may assign Zod schemas directly without adding Zod to core. Binding kinds remain runtime-defined strings, leaving room for a later `secret` binding extension.
 
 ## Enforcement boundary
 
@@ -308,11 +303,9 @@ The OpenAPI `operationId` in the right column is the generated HeyAPI function n
 | `POST /resources/{id}/move` | path `id`, body `{ parentId }` | `Resource` | `moveResource` |
 | `DELETE /resources/{id}` | path `id` | no body | `deleteResource` |
 | `GET /resources/{id}/executable` | path `id` | `ExecutableDefinition` | `getExecutable` |
-| `GET /resources/{id}/executable/revisions` | path `id` | `ExecutableRevision[]` | `listExecutableRevisions` |
-| `GET /executable-revisions/{id}` | path `id` | `ExecutableRevision` | `getExecutableRevision` |
-| `POST /resources/{id}/executable/revisions` | path `id`, revision body | `ExecutableRevision` | `publishExecutable` |
+| `PUT /resources/{id}/executable` | path `id`, `{ runtime }` | `ExecutableDefinition` | `setExecutable` |
 | `DELETE /resources/{id}/executable` | path `id` | no body | `deleteExecutable` |
-| `POST /resources/{id}/invoke` | path `id`, `{ input, bindings, revisionId }` | NDJSON `InvocationEvent` stream | `invoke` |
+| `POST /resources/{id}/invoke` | path `id`, `{ input, bindings }` | NDJSON `InvocationEvent` stream | `invoke` |
 | `GET /grants/{id}` | path `id` | `Grant` | `getGrant` |
 | `GET /grants` | query `parentId`, `cursor`, `limit` | `Grant[]` | `listGrants` |
 | `POST /grants` | `{ name, parentId, capabilities, expiresAt }` | `Grant` | `createGrant` |
@@ -345,7 +338,6 @@ import { SqliteRgapStore } from '@rgap/sqlite';
 const store = new SqliteRgapStore({
   url: 'rgap.db',
   runtimes: deploymentRuntimes,
-  validator: jsonSchemaValidator,
 });
 const admin = store.admin();
 
@@ -381,8 +373,7 @@ The store is normalized. Every record the protocol defines is a table, and every
 | `capabilities` | One row per capability entry, keyed by its grant and its position in that grant's set. |
 | `capability_permissions` | One row per permission an entry carries, so a permission set is a relation SQL can query rather than an encoded value. |
 | `tokens` | One row per issued token: stable ID, grant ID, label, hash, expiration, revocation. |
-| `executables` | One executable definition per resource, including its active revision. |
-| `executable_revisions` | Immutable runtime programs, schemas, binding declarations, limits, and creation times. |
+| `executables` | One resource-to-runtime association per executable resource. |
 | `audit` | One row per recorded event, ordered by an explicit sequence number so the log's order is stored rather than inferred. |
 
 Because an entry's permissions are a set, reading returns them in the protocol's canonical permission order rather than the order they were written in.
@@ -410,7 +401,7 @@ const store = new HttpRgapStore({
 
 Both implementations present the same `RgapStore` and `RgapRepository` interfaces and provide `close()`, which is a no-op for the HTTP store. The remote administrative bearer must match the running server because the walkthrough resets the store and creates root records. The example is a workspace package that consumes the packages the way any TypeScript caller does, and it is meant to be edited rather than preserved.
 
-The local scratchpad defines its echo program, input, and output with Zod, converts input/output schemas with `z.toJSONSchema`, configures Ajv as the persisted JSON Schema validator, and uses `ProgramSchema.parse` for runtime program validation. It publishes an executable revision on the existing `search` resource, declares one opaque resource binding, and invokes it through the company token:
+The local scratchpad configures a typed `echo` runtime with Zod input/output schemas, associates it with the existing `search` resource, declares one opaque resource binding in runtime configuration, and invokes it through the company token:
 
 ```ts
 const events = search.invoke({
