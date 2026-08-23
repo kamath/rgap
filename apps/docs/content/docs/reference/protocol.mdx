@@ -228,8 +228,16 @@ not already exist; an occupied path is `duplicate_path`.
 
 Each newly created grant receives an unused ID minted from its segment name
 and is audited as `grant.create` or `grant.delegate`. Creating a new root is
-administrative. Creating a child requires that the child's parent is the acting
-grant or a descendant of it.
+administrative.
+
+For a token-plane collection create, the walk must resolve existing active
+ancestors from the forest root until it reaches the acting grant's stable ID.
+No segment may be created before that ID is reached. After it is reached, every
+existing segment must remain within the acting grant's subtree and every
+created grant's parent must be the acting grant or a descendant of it. A handle
+create starts at that handle and requires the handle to be the acting grant or
+a descendant. Each created child independently satisfies the creation validity
+rules against its immediate parent.
 
 ### Setting resources
 

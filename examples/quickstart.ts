@@ -10,34 +10,20 @@ try {
     name: 'acme/platform/docs/design',
   });
 
-  const company = await admin.grants.create({
-    name: 'company',
-    resources: [],
+  const agent = await admin.grants.create({
+    name: 'company/documentation-agent',
+    resources: [{
+      path: 'acme/platform/docs',
+      permissions: ['read'],
+    }],
     expiresAt: null,
   });
 
+  const company = await admin.grants.get(agent.parentId!);
   await company.resources.set([
     {
       id: acme.id,
       permissions: ['read', 'write', 'invoke'],
-    },
-  ]);
-
-  const companyToken = await company.tokens.create({
-    label: 'platform-service',
-  });
-  const companyPlane = store.as(companyToken.value);
-
-  const agent = await companyPlane.grants.create({
-    name: 'company/documentation-agent',
-    resources: [],
-    expiresAt: null,
-  });
-
-  await agent.resources.set([
-    {
-      path: 'acme/platform/docs',
-      permissions: ['read'],
     },
   ]);
 

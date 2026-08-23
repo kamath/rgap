@@ -70,10 +70,37 @@ parent. When several grants are created in one walk, they share the submitted
 resource set, so each new child is covered by the new parent.
 
 Creating a new root grant is administrative. Creating a child requires that the
-child downscopes the acting grant. `store.as(token).grants.create` walks from
-the grant forest root: it refuses a path that would create a new root, and it
-requires the parent of every grant it creates to be the acting grant or a
-descendant of it. Existing prefixes need no additional permission.
+child downscopes its immediate parent.
+
+## Authorized create routes
+
+`store.as(token).grants.create` accepts a full path but may only create beneath
+the acting grant. The path walk must reach the acting grant through existing
+active ancestors before it encounters a missing segment. From that point,
+existing segments must remain descendants of the acting grant, and every
+created grant must have the acting grant or one of its descendants as its
+parent.
+
+For a token referencing `company`, this route is authorized:
+
+```ts
+await companyPlane.grants.create({
+  name: 'company/platform-team/employee',
+  resources: [{ path: 'acme/platform', permissions: ['read'] }],
+  expiresAt: null,
+});
+```
+
+The same token cannot create `other/employee`, `company-peer/employee`, or any
+path with a missing segment before `company`. It also cannot use a similarly
+named grant from another branch: authorization compares stable grant IDs while
+walking the route.
+
+A grant handle starts its route at that grant, so
+`company.create({ name: 'platform-team/employee', ... })` applies the same rule
+without restating the ancestors. Existing prefixes need no additional
+authority. Every missing child still proves resource coverage and expiration
+against its immediate parent before the complete transition commits.
 
 ## Resource entries
 
