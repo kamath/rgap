@@ -35,23 +35,25 @@ Renaming or moving a resource changes its position in the tree without changing 
 
 ### Grants
 
-A grant contains a set of capability entries. Each entry authorizes a set of operations over a resource and its subtree. The target is either a stable resource ID or a normalized path, distinguished by which field is present: `resourceId` names an object, `path` names a location. Both kinds share the same permission set. Multiple entries let one grant aggregate authority from several branches, such as tools exposed by different MCP servers. Grants may delegate authority to child grants.
+A grant contains a set of resource entries. Each entry authorizes a set of operations over a resource and its subtree. The target is either a stable resource ID or a normalized path, distinguished by which field is present: `resourceId` names an object, `path` names a location. Both kinds share the same permission set. Multiple entries let one grant aggregate authority from several branches, such as tools exposed by different MCP servers. Grants may delegate authority to child grants.
+
+The tree record and the grant entry are different types. A `Resource` is an object in the tree. A `GrantResource` is one entry on a grant: the tree object or path it reaches, plus the permissions it carries.
 
 ```ts
-type CapabilityConfig = {
+type GrantResourceConfig = {
   permissions: Permission[];
 };
 
-type ResourceCapability = CapabilityConfig & { resourceId: ResourceId };
-type PathCapability = CapabilityConfig & { path: string };
-type Capability = ResourceCapability | PathCapability;
+type IdResource = GrantResourceConfig & { resourceId: ResourceId };
+type PathResource = GrantResourceConfig & { path: string };
+type GrantResource = IdResource | PathResource;
 ```
 
 An ID entry follows that resource and its subtree when they move. A path entry remains attached to that path when the resource there moves or is deleted, authorizes nothing while the path is empty, and applies when a resource later occupies the path, including that resource's subtree. Deleting an ID-targeted resource makes that entry permanently ineffective because resource IDs are never reused. In every case, other entries in the same grant continue to work.
 
 A grant on a container therefore includes children that do not exist yet. Operators who do not want that expansion grant the leaves rather than the container. A grant on a leaf reaches only that resource until something is created under it.
 
-A grant's identity, parent, and expiry are fixed when it is created. Its capability set is not: entries are set afterwards, and the set may be empty, in which case the grant authorizes nothing yet. Creating a grant and deciding what it reaches are separate acts, so a delegation can be recorded before its authority is chosen.
+A grant's identity, parent, and expiry are fixed when it is created. Its resource set is not: entries are set afterwards, and the set may be empty, in which case the grant authorizes nothing yet. Creating a grant and deciding what it reaches are separate acts, so a delegation can be recorded before its authority is chosen.
 
 A child grant's parent must exist and be active. Creating or amending a grant under a missing, revoked, or expired parent throws `InvalidParentError`, which is an `RgapError`. A missing parent uses code `missing_parent`; a revoked or expired parent uses `inactive_parent`. Callers that care only that the parent is unusable catch `InvalidParentError`. Resource-parent refusals and a broken grant lineage stay ordinary `RgapError` values.
 
@@ -63,7 +65,7 @@ Alice: read/write/delete projects/alpha
 
 Delegation may only downscope authority, entry by entry, as [PROTOCOL.md](PROTOCOL.md) defines. A child grant can have:
 
-- Capability entries covered by entries in its parent
+- Resource entries covered by entries in its parent
 - A root at or within the covering parent entry's authorized subtree
 - The same or fewer permissions for each entry
 - The same or an earlier expiration time
@@ -83,11 +85,11 @@ RGAP does not assign a subject identity to a grant. Possession of a valid bearer
 
 ### Identities
 
-Resources, grants, and tokens each have their own identity. A grant's parent is a grant, a resource's parent is a resource, a capability ID target is a resource, `store.as` takes a bearer token, and a stored token record holds a hash of that bearer rather than the bearer itself. `@rgap/core` encodes those distinctions as branded strings:
+Resources, grants, and tokens each have their own identity. A grant's parent is a grant, a resource's parent is a resource, a grant resource's ID target is a resource, `store.as` takes a bearer token, and a stored token record holds a hash of that bearer rather than the bearer itself. `@rgap/core` encodes those distinctions as branded strings:
 
 | Type | Names |
 | --- | --- |
-| `ResourceId` | A resource's `id` and `parentId`, a capability's resource target, and `move`'s destination. |
+| `ResourceId` | A resource's `id` and `parentId`, a grant resource's resource target, and `move`'s destination. |
 | `GrantId` | A grant's `id` and `parentId`, and a token's `grantId`. |
 | `TokenId` | A token record's `id`. |
 | `TokenValue` | The bearer secret returned once by `grant.tokens.create`. `store.as`, `authorize`, and `inspectToken` take this value. |
@@ -101,7 +103,7 @@ The repository mints branded identities when it creates records and re-brands th
 
 ## Permissions
 
-A capability entry carries a plain set of permissions:
+A resource entry carries a plain set of permissions:
 
 | Permission | Authorizes |
 | --- | --- |
@@ -173,7 +175,7 @@ The store does not authenticate the process allowed to call `admin()`. A host pr
 
 > Authority may only stay the same or become narrower as it is delegated; it can never expand.
 
-Authorization checks the selected grant and every grant in its delegation ancestry against the requested live resource in the current tree. Each grant in the chain must contain a matching capability entry, so moving a target outside an ancestor's current scope makes the delegated authority ineffective without revoking the grant. Moving it back can make the authority effective again. If any ancestor is revoked, expired, or otherwise inactive, its descendants are inactive as well.
+Authorization checks the selected grant and every grant in its delegation ancestry against the requested live resource in the current tree. Each grant in the chain must contain a matching resource entry, so moving a target outside an ancestor's current scope makes the delegated authority ineffective without revoking the grant. Moving it back can make the authority effective again. If any ancestor is revoked, expired, or otherwise inactive, its descendants are inactive as well.
 
 ## Moves and renames
 
@@ -229,17 +231,17 @@ const drive = await acme.create({ name: 'drive' });
 const notes = await drive.create({ name: 'notes' });
 
 const grant = await admin.grants.create({
-  name: 'Acme admin', capabilities: [], expiresAt: null,
+  name: 'Acme admin', resources: [], expiresAt: null,
 });
-await grant.capabilities.set([
+await grant.resources.set([
   { resourceId: acme.id, permissions: ['read', 'write'] },
 ]);
 const issued = await grant.tokens.create({ label: 'cli' });
 const alice = store.as(issued.value);
 const reader = await alice.grants.create({
-  name: 'Drive read', capabilities: [], expiresAt: null,
+  name: 'Drive read', resources: [], expiresAt: null,
 });
-await reader.capabilities.set([
+await reader.resources.set([
   { path: 'acme/drive', permissions: ['read'] },
 ]);
 await issued.revoke();
@@ -251,20 +253,20 @@ await notes.delete();
 
 `resources.create` mints a root, which no token authorizes. `grants.create` mints a root on the administrative plane and a child of the acting grant on a token plane. `resource.create` and `grant.create` mint children of that handle. `grant.tokens.create` mints a token for that grant and returns the token handle together with the one-time bearer `value`. `resources.get(id)`, `grants.get(id)`, and `tokens.get(id)` return handles for records that already exist, and throw if the record is missing or, for a resource, deleted.
 
-A handle carries the record's fields plus the collections and methods that act on it: a resource `create`s children, `move`s, and `delete`s; a grant `create`s child grants, `capabilities.set`s, `tokens.create`s, and `revoke`s; a token `revoke`s.
+A handle carries the record's fields plus the collections and methods that act on it: a resource `create`s children, `move`s, and `delete`s; a grant `create`s child grants, `resources.set`s, `tokens.create`s, and `revoke`s; a token `revoke`s. `repository.resources` is the tree of objects; `grant.resources` is the set of entries that grant reaches. Both are named `resources` the way `repository.tokens` and `grant.tokens` both name tokens.
 
 An HTTP adapter is the same commands as paths. Creating a grant or a resource is always one collection:
 
 ```text
 POST /resources          { name, parentId }
-POST /grants             { name, parentId, capabilities, expiresAt }
+POST /grants             { name, parentId, resources, expiresAt }
 ```
 
 `parentId` is `null` for a root and the parent's id for a child. There is no `POST /grants/:id/grants` or `POST /resources/:id/resources`; those would be two routes for the same command. Nested paths are only for records that belong to another record, and for verbs:
 
 ```text
 POST /grants/:id/tokens
-PUT  /grants/:id/capabilities
+PUT  /grants/:id/resources
 POST /grants/:id/revoke
 POST /resources/:id/move
 DELETE /resources/:id
@@ -308,8 +310,8 @@ The OpenAPI `operationId` in the right column is the generated HeyAPI function n
 | `POST /resources/{id}/invoke` | path `id`, `{ input, bindings }` | NDJSON `InvocationEvent` stream | `invoke` |
 | `GET /grants/{id}` | path `id` | `Grant` | `getGrant` |
 | `GET /grants` | query `parentId`, `cursor`, `limit` | `Grant[]` | `listGrants` |
-| `POST /grants` | `{ name, parentId, capabilities, expiresAt }` | `Grant` | `createGrant` |
-| `PUT /grants/{id}/capabilities` | path `id`, body `{ capabilities }` | `Grant` | `setCapabilities` |
+| `POST /grants` | `{ name, parentId, resources, expiresAt }` | `Grant` | `createGrant` |
+| `PUT /grants/{id}/resources` | path `id`, body `{ resources }` | `Grant` | `setResources` |
 | `POST /grants/{id}/tokens` | path `id`, body `{ label }` | `{ record, value }` | `issueToken` |
 | `POST /grants/{id}/revoke` | path `id` | no body | `revokeGrant` |
 | `GET /tokens/{id}` | path `id` | `Token` | `getToken` |
@@ -343,9 +345,9 @@ const admin = store.admin();
 
 const acme = await admin.resources.create({ name: 'acme' });
 const grant = await admin.grants.create({
-  name: 'Acme admin', capabilities: [], expiresAt: null,
+  name: 'Acme admin', resources: [], expiresAt: null,
 });
-await grant.capabilities.set([
+await grant.resources.set([
   { resourceId: acme.id, permissions: ['read', 'write'] },
 ]);
 
@@ -370,8 +372,8 @@ The store is normalized. Every record the protocol defines is a table, and every
 | --- | --- |
 | `resources` | One row per resource: stable ID, parent ID, name, deletion marker. |
 | `grants` | One row per grant: stable ID, name, parent grant ID, expiration, revocation. |
-| `capabilities` | One row per capability entry, keyed by its grant and its position in that grant's set. |
-| `capability_permissions` | One row per permission an entry carries, so a permission set is a relation SQL can query rather than an encoded value. |
+| `grant_resources` | One row per resource entry, keyed by its grant and its position in that grant's set. |
+| `grant_resource_permissions` | One row per permission an entry carries, so a permission set is a relation SQL can query rather than an encoded value. |
 | `tokens` | One row per issued token: stable ID, grant ID, label, hash, expiration, revocation. |
 | `executables` | One resource-to-runtime association per executable resource. |
 | `audit` | One row per recorded event, ordered by an explicit sequence number so the log's order is stored rather than inferred. |
@@ -414,7 +416,7 @@ for await (const event of events) {
 }
 ```
 
-The company grant carries `invoke` on both `search` and `docs` through its existing `acme` subtree capability. The runtime receives validated input and `{ resourceId, kind }` for `searchWithin`, emits a `data` event, and finishes with `done`. It never resolves or reads the bound resource, leaving secret resolution as a later binding-kind extension.
+The company grant carries `invoke` on both `search` and `docs` through its existing `acme` subtree resource. The runtime receives validated input and `{ resourceId, kind }` for `searchWithin`, emits a `data` event, and finishes with `done`. It never resolves or reads the bound resource, leaving secret resolution as a later binding-kind extension.
 
 The file currently walks a five-step delegation. Resources are the company's workspace. Grants are who holds authority over it. Each step issues a token for the current grant, selects that token's plane with `store.as`, and creates a narrower child grant:
 
@@ -449,7 +451,7 @@ The package's own suite runs against a `:memory:` database, so the tests exercis
 
 The package is self-covering: everything the threshold measures is exercised by tests inside `@rgap/core`, so the gate never depends on a downstream package's suite. `domain.test.ts` covers the pure rules, which still take a state value and the record IDs those rules name. `guard.test.ts` covers the enforced path by wrapping a stub command sink that records the calls the guard forwards, including methods invoked on the handles that repository returns. The stub answers the guard's reads from a fixture state and returns a recorded result for each command, which isolates the guard's own decisions from any repository implementation.
 
-Reaching every path means the suite asserts each rejection, not only each success: an invalid name, a duplicate ID or path, a missing parent, an expiration or capability that expands past a parent, and an amendment to a grant that is not active. It also asserts ID and path target behavior across moves, deletion, empty paths, and replacement resources, plus the structural guards. A cycle in the resource tree, a cycle in the grant tree, and a reference to a grant that does not exist are unreachable from the commands, because the commands maintain those properties; tests reach them by constructing such a state directly and calling the readers, which is what those guards exist to catch.
+Reaching every path means the suite asserts each rejection, not only each success: an invalid name, a duplicate ID or path, a missing parent, an expiration or resource entry that expands past a parent, and an amendment to a grant that is not active. It also asserts ID and path target behavior across moves, deletion, empty paths, and replacement resources, plus the structural guards. A cycle in the resource tree, a cycle in the grant tree, and a reference to a grant that does not exist are unreachable from the commands, because the commands maintain those properties; tests reach them by constructing such a state directly and calling the readers, which is what those guards exist to catch.
 
 `fixture.ts` holds the shared fixture state and the stub command sink. It is test support rather than package surface, so the package entry point does not export it and coverage measurement excludes it along with the test files themselves.
 
@@ -458,7 +460,7 @@ Reaching every path means the suite asserts each rejection, not only each succes
 ```yaml
 id: grant_bob_docs
 parent_grant_id: grant_alice_alpha
-capabilities:
+resources:
   - path: projects/alpha/docs
     permissions: [read]
 expires_at: 2026-12-31T23:59:59Z
