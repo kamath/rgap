@@ -17,7 +17,7 @@ import {
   guardCommands,
   inspectAuthority,
   invokeExecutable,
-  isPathCapability,
+  isPathResource,
   moveResource as move,
   pageLimit,
   permissions as canonicalPermissions,
@@ -27,13 +27,13 @@ import {
   revokeGrant as revokeGrantBranch,
   revokeToken as revokeTokenRecord,
   RuntimeRegistry,
-  setCapabilities as amendCapabilities,
+  setResources as amendResources,
   tokenHash,
   tokenId,
   tokenValue,
   repositoryFrom,
   RgapError,
-  type Capability,
+  type GrantResource,
   type CreateGrantInput,
   type CreateResourceInput,
   type GrantId,
@@ -235,9 +235,9 @@ class SqliteBackingRepository implements RgapCommands {
     }));
   }
 
-  async setCapabilities(id: GrantId, capabilities: Capability[]) {
+  async setResources(id: GrantId, resources: GrantResource[]) {
     return this.commit((state) => ({
-      state: amendCapabilities(state, id, capabilities, now()),
+      state: amendResources(state, id, resources, now()),
       pick: (committed) => committed.grants[id],
     }));
   }
@@ -325,28 +325,28 @@ class SqliteBackingRepository implements RgapCommands {
   }
 
   private grantRecord(row: typeof schema.grants.$inferSelect) {
-    const permissionRows = this.db.select().from(schema.capabilityPermissions)
-      .where(eq(schema.capabilityPermissions.grantId, row.id)).all();
+    const permissionRows = this.db.select().from(schema.grantResourcePermissions)
+      .where(eq(schema.grantResourcePermissions.grantId, row.id)).all();
     const held = new Map<number, Set<Permission>>();
     permissionRows.forEach(({ position, permission }) => {
       const set = held.get(position) ?? new Set<Permission>();
       set.add(permission);
       held.set(position, set);
     });
-    const capabilities: Capability[] = this.db.select().from(schema.capabilities)
-      .where(eq(schema.capabilities.grantId, row.id))
-      .orderBy(asc(schema.capabilities.position)).all()
+    const resources: GrantResource[] = this.db.select().from(schema.grantResources)
+      .where(eq(schema.grantResources.grantId, row.id))
+      .orderBy(asc(schema.grantResources.position)).all()
       .map((entry) => {
         const permissions = canonicalPermissions.filter((permission) => held.get(entry.position)?.has(permission));
         return entry.path !== null
           ? { path: entry.path, permissions }
-          : { resourceId: resourceId(entry.resourceId!), permissions };
+          : { id: resourceId(entry.id!), permissions };
       });
     return {
       id: grantId(row.id),
       name: row.name,
       parentId: row.parentId ? grantId(row.parentId) : null,
-      capabilities,
+      resources,
       expiresAt: row.expiresAt,
       revokedAt: row.revokedAt,
     };
@@ -381,14 +381,14 @@ class SqliteBackingRepository implements RgapCommands {
         id: grantId(row.id),
         name: row.name,
         parentId: row.parentId ? grantId(row.parentId) : null,
-        capabilities: [],
+        resources: [],
         expiresAt: row.expiresAt,
         revokedAt: row.revokedAt,
       };
     });
 
     const held = new Map<string, Set<Permission>>();
-    this.db.select().from(schema.capabilityPermissions).all().forEach((row) => {
+    this.db.select().from(schema.grantResourcePermissions).all().forEach((row) => {
       const key = entryKey(row.grantId, row.position);
       const set = held.get(key) ?? new Set<Permission>();
       set.add(row.permission);
@@ -397,17 +397,17 @@ class SqliteBackingRepository implements RgapCommands {
 
     this.db
       .select()
-      .from(schema.capabilities)
-      .orderBy(asc(schema.capabilities.grantId), asc(schema.capabilities.position))
+      .from(schema.grantResources)
+      .orderBy(asc(schema.grantResources.grantId), asc(schema.grantResources.position))
       .all()
       .forEach((row) => {
         const carried = held.get(entryKey(row.grantId, row.position));
         // An entry's permissions are a set, so they are read in the protocol's canonical order.
         const permissions = canonicalPermissions.filter((permission) => carried?.has(permission));
-        state.grants[row.grantId].capabilities.push(
+        state.grants[row.grantId].resources.push(
           row.path !== null
             ? { path: row.path, permissions }
-            : { resourceId: resourceId(row.resourceId!), permissions },
+            : { id: resourceId(row.id!), permissions },
         );
       });
 
@@ -445,8 +445,8 @@ class SqliteBackingRepository implements RgapCommands {
 
   /** Replaces the stored rows with one complete state, writing parents before children. */
   private replace(state: State) {
-    this.db.delete(schema.capabilityPermissions).run();
-    this.db.delete(schema.capabilities).run();
+    this.db.delete(schema.grantResourcePermissions).run();
+    this.db.delete(schema.grantResources).run();
     this.db.delete(schema.tokens).run();
     this.db.delete(schema.executables).run();
     this.db.delete(schema.audit).run();
@@ -462,23 +462,23 @@ class SqliteBackingRepository implements RgapCommands {
       revokedAt: grant.revokedAt,
     })));
 
-    const entries: (typeof schema.capabilities)['$inferInsert'][] = [];
-    const carried: (typeof schema.capabilityPermissions)['$inferInsert'][] = [];
+    const entries: (typeof schema.grantResources)['$inferInsert'][] = [];
+    const carried: (typeof schema.grantResourcePermissions)['$inferInsert'][] = [];
     Object.values(state.grants).forEach((grant) => {
-      grant.capabilities.forEach((capability, position) => {
+      grant.resources.forEach((entry, position) => {
         entries.push({
           grantId: grant.id,
           position,
-          resourceId: isPathCapability(capability) ? null : capability.resourceId,
-          path: isPathCapability(capability) ? capability.path : null,
+          id: isPathResource(entry) ? null : entry.id,
+          path: isPathResource(entry) ? entry.path : null,
         });
-        capability.permissions.forEach((permission) => {
+        entry.permissions.forEach((permission) => {
           carried.push({ grantId: grant.id, position, permission });
         });
       });
     });
-    insert(this.db, schema.capabilities, entries);
-    insert(this.db, schema.capabilityPermissions, carried);
+    insert(this.db, schema.grantResources, entries);
+    insert(this.db, schema.grantResourcePermissions, carried);
 
     insert(this.db, schema.tokens, Object.values(state.tokens));
     insert(this.db, schema.executables, Object.values(state.executables));

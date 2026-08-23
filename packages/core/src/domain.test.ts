@@ -2,9 +2,9 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import {
   authorize, availableId, covers, createGrant, createResource, deleteResource, grantId, inspectAuthority,
   InvalidParentError, isLive, isWithin, liveResources, moveResource, normalizePath, permissions, recordToken,
-  requireResourceId, resourceId, resourceIdAtPath, resourcePath, revokeGrant, revokeToken, RgapError, setCapabilities,
-  stateIntegrity, tryResourcePath, tokenHash, tokenId, type Capability, type CapabilityConfig, type CreateGrantInput,
-  type GrantId, type PathCapability, type Resource, type ResourceCapability, type ResourceId, type State, type Token,
+  requireResourceId, resourceId, resourceIdAtPath, resourcePath, revokeGrant, revokeToken, RgapError, setResources,
+  stateIntegrity, tryResourcePath, tokenHash, tokenId, type GrantResource, type GrantResourceConfig, type CreateGrantInput,
+  type GrantId, type PathResource, type Resource, type IdResource, type ResourceId, type State, type Token,
 } from './domain';
 import { fixture } from './fixture';
 
@@ -14,23 +14,23 @@ const r = resourceId;
 const g = grantId;
 const cap = (
   id: string,
-  over: Partial<CapabilityConfig> = {},
-): Capability => ({
-  resourceId: r(id),
+  over: Partial<GrantResourceConfig> = {},
+): GrantResource => ({
+  id: r(id),
   permissions: ['invoke'],
   ...over,
 });
 const pathCap = (
   path: string,
-  over: Partial<CapabilityConfig> = {},
-): Capability => ({
+  over: Partial<GrantResourceConfig> = {},
+): GrantResource => ({
   path,
   permissions: ['invoke'],
   ...over,
 });
 
 describe('RGAP domain', () => {
-  it('authorizes only capabilities present in the complete grant chain', () => {
+  it('authorizes only resources present in the complete grant chain', () => {
     expect(authorize(fixture(), demo, r('create-issue'), 'invoke', at).allowed).toBe(true);
     expect(authorize(fixture(), demo, r('post-message'), 'invoke', at).allowed).toBe(false);
   });
@@ -79,43 +79,43 @@ describe('RGAP domain', () => {
 
   it('rejects delegation that expands permission', () => {
     const state = fixture();
-    state.grants.coordinator.capabilities = [cap('drive', { permissions: ['read'] })];
+    state.grants.coordinator.resources = [cap('drive', { permissions: ['read'] })];
 
     expect(() => createGrant(state, {
       name: 'Writer', parentId: g('coordinator'), expiresAt: '2027-01-01T00:00:00.000Z',
-      capabilities: [cap('read-file', { permissions: ['write'] })],
+      resources: [cap('read-file', { permissions: ['write'] })],
     }, g('writer'), at)).toThrow('not covered');
   });
 
-  it('creates a grant that reaches nothing until its capabilities are set', () => {
+  it('creates a grant that reaches nothing until its resources are set', () => {
     const created = createGrant(fixture(), {
       name: 'Empty', parentId: g('coordinator'),
-      expiresAt: '2027-01-01T00:00:00.000Z', capabilities: [],
+      expiresAt: '2027-01-01T00:00:00.000Z', resources: [],
     }, g('empty'), at);
 
-    expect(created.grants.empty.capabilities).toEqual([]);
+    expect(created.grants.empty.resources).toEqual([]);
 
-    const withEntry = setCapabilities(created, g('empty'), [
+    const withEntry = setResources(created, g('empty'), [
       cap('search-files'),
     ], at);
-    expect(withEntry.grants.empty.capabilities).toHaveLength(1);
+    expect(withEntry.grants.empty.resources).toHaveLength(1);
   });
 
   it('holds a set to the same downscoping proof as issue', () => {
     const state = createGrant(fixture(), {
       name: 'Empty', parentId: g('coordinator'),
-      expiresAt: '2027-01-01T00:00:00.000Z', capabilities: [],
+      expiresAt: '2027-01-01T00:00:00.000Z', resources: [],
     }, g('empty'), at);
 
     // The coordinator holds `invoke` on search-files, so neither a wider permission nor a
     // resource it does not reach may be set on a grant delegated from it.
-    expect(() => setCapabilities(state, g('empty'), [
+    expect(() => setResources(state, g('empty'), [
       cap('search-files', { permissions: ['write'] }),
     ], at)).toThrow('not covered by the parent');
-    expect(() => setCapabilities(state, g('empty'), [
+    expect(() => setResources(state, g('empty'), [
       cap('post-message'),
     ], at)).toThrow('not covered by the parent');
-    expect(() => setCapabilities(state, g('empty'), [
+    expect(() => setResources(state, g('empty'), [
       cap('search-files', { permissions: [] }),
     ], at)).toThrow('at least one permission');
   });
@@ -125,11 +125,11 @@ describe('RGAP domain', () => {
     state = createGrant(state, {
       name: 'Deeper', parentId: g('researcher'),
       expiresAt: '2027-01-01T00:00:00.000Z',
-      capabilities: [cap('search-files')],
+      resources: [cap('search-files')],
     }, g('deeper'), at);
 
     // The coordinator gives up search-files, which is all the researcher held.
-    const next = setCapabilities(state, g('coordinator'), [
+    const next = setResources(state, g('coordinator'), [
       cap('create-issue'),
     ], at);
 
@@ -141,13 +141,13 @@ describe('RGAP domain', () => {
 
   it('orphans a child by narrowing path coverage, not only by giving up a resource', () => {
     let state = fixture();
-    state.grants.coordinator.capabilities = [pathCap('acme/drive')];
+    state.grants.coordinator.resources = [pathCap('acme/drive')];
     state = createGrant(state, {
       name: 'Follower', parentId: g('coordinator'), expiresAt: '2027-01-01T00:00:00.000Z',
-      capabilities: [pathCap('acme/drive/search-files')],
+      resources: [pathCap('acme/drive/search-files')],
     }, g('follower'), at);
 
-    const next = setCapabilities(state, g('coordinator'), [pathCap('acme/slack')], at);
+    const next = setResources(state, g('coordinator'), [pathCap('acme/slack')], at);
 
     expect(next.grants.follower.revokedAt).toBe(at);
   });
@@ -155,13 +155,13 @@ describe('RGAP domain', () => {
   it('refuses to amend a grant that is not active', () => {
     const state = revokeGrant(fixture(), g('researcher'), at);
 
-    expect(() => setCapabilities(state, g('researcher'), [], at)).toThrow('revoked or expired grant is not amended');
+    expect(() => setResources(state, g('researcher'), [], at)).toThrow('revoked or expired grant is not amended');
   });
 
   it('makes delegated authority ineffective when its resource leaves parent scope without revoking it', () => {
     const state = fixture();
-    state.grants.coordinator.capabilities = [pathCap('acme/drive')];
-    state.grants.researcher.capabilities = [cap('search-files')];
+    state.grants.coordinator.resources = [pathCap('acme/drive')];
+    state.grants.researcher.resources = [cap('search-files')];
     state.tokens.demo.grantId = g('researcher');
 
     const moved = moveResource(state, r('search-files'), r('slack-tools'), at);
@@ -206,31 +206,31 @@ describe('RGAP domain', () => {
   it('refuses a child rooted outside its parent', () => {
     const state = fixture();
     const expiresAt = state.grants.coordinator.expiresAt;
-    state.grants.coordinator.capabilities = [cap('search-files')];
+    state.grants.coordinator.resources = [cap('search-files')];
 
     expect(() => createGrant(state, {
       name: 'Escalated', parentId: g('coordinator'), expiresAt,
-      capabilities: [cap('post-message')],
+      resources: [cap('post-message')],
     }, g('escalated'), at)).toThrow('not covered');
   });
 
   it('covers a child rooted at or under its parent', () => {
     const state = fixture();
     const expiresAt = state.grants.coordinator.expiresAt;
-    state.grants.coordinator.capabilities = [cap('drive')];
+    state.grants.coordinator.resources = [cap('drive')];
 
     expect(createGrant(state, {
       name: 'Nested', parentId: g('coordinator'), expiresAt,
-      capabilities: [cap('search-files')],
+      resources: [cap('search-files')],
     }, g('nested'), at).grants.nested.name).toBe('Nested');
   });
 
   it('never authorizes a descendant grant beyond the grant it was delegated from', () => {
     const state = fixture();
     const expiresAt = state.grants.coordinator.expiresAt;
-    state.grants.coordinator.capabilities = [cap('drive')];
-    // A capability that was never covered cannot appear through a stored grant either.
-    state.grants.researcher.capabilities = [cap('post-message')];
+    state.grants.coordinator.resources = [cap('drive')];
+    // A resource that was never covered cannot appear through a stored grant either.
+    state.grants.researcher.resources = [cap('post-message')];
     state.tokens.demo.grantId = g('researcher');
 
     expect(authorize(state, demo, r('post-message'), 'invoke', at).allowed).toBe(false);
@@ -312,7 +312,7 @@ describe('paths', () => {
   });
 });
 
-describe('coverage of one capability by another', () => {
+describe('coverage of one resource by another', () => {
   it('requires target containment and a permission subset', () => {
     const { resources } = fixture();
 
@@ -383,7 +383,7 @@ describe('moving a resource', () => {
 
   it('keeps ID targets on the resource and path targets at their location', () => {
     const state = fixture();
-    state.grants.coordinator.capabilities = [cap('drive')];
+    state.grants.coordinator.resources = [cap('drive')];
 
     const moved = moveResource(state, r('drive'), r('slack-tools'), at);
     expect(authorize(moved, demo, r('search-files'), 'invoke', at).allowed).toBe(true);
@@ -391,7 +391,7 @@ describe('moving a resource', () => {
     expect(moved.grants.coordinator.revokedAt).toBe(null);
 
     const pathState = fixture();
-    pathState.grants.coordinator.capabilities = [pathCap('acme/drive/search-files')];
+    pathState.grants.coordinator.resources = [pathCap('acme/drive/search-files')];
     const pathMoved = moveResource(pathState, r('search-files'), r('slack-tools'), at);
     expect(authorize(pathMoved, demo, r('search-files'), 'invoke', at).allowed).toBe(false);
   });
@@ -406,7 +406,7 @@ describe('deleting a resource', () => {
 
   it('leaves grants active and lets a path target apply to a replacement resource', () => {
     const state = fixture();
-    state.grants.coordinator.capabilities = [
+    state.grants.coordinator.resources = [
       cap('search-files'),
       pathCap('acme/drive/search-files'),
       cap('create-issue'),
@@ -424,7 +424,7 @@ describe('deleting a resource', () => {
 describe('creating a grant', () => {
   const input = {
     name: 'Child', parentId: g('coordinator'),
-    expiresAt: '2027-01-01T00:00:00.000Z', capabilities: [],
+    expiresAt: '2027-01-01T00:00:00.000Z', resources: [],
   };
 
   it('requires a name', () => {
@@ -432,13 +432,13 @@ describe('creating a grant', () => {
       .toThrow('Grant name is required.');
   });
 
-  it('requires resource targets to be live and every capability to carry a permission', () => {
+  it('requires resource targets to be live and every resource to carry a permission', () => {
     const entry = cap('ghost');
 
-    expect(() => createGrant(fixture(), { ...input, capabilities: [entry] }, g('child'), at))
-      .toThrow('Capability resource does not exist.');
+    expect(() => createGrant(fixture(), { ...input, resources: [entry] }, g('child'), at))
+      .toThrow('Grant resource does not exist.');
     expect(() => createGrant(fixture(), {
-      ...input, capabilities: [cap('search-files', { permissions: [] })],
+      ...input, resources: [cap('search-files', { permissions: [] })],
     }, g('child'), at)).toThrow('Select at least one permission.');
   });
 
@@ -446,20 +446,20 @@ describe('creating a grant', () => {
     const created = createGrant(fixture(), {
       ...input,
       parentId: null,
-      capabilities: [pathCap('/acme//future /')],
+      resources: [pathCap('/acme//future /')],
     }, g('path-root'), at);
 
-    expect(created.grants['path-root'].capabilities[0]).toEqual({ path: 'acme/future', permissions: ['invoke'] });
+    expect(created.grants['path-root'].resources[0]).toEqual({ path: 'acme/future', permissions: ['invoke'] });
     expect(() => createGrant(fixture(), {
-      ...input, parentId: null, capabilities: [pathCap(' / ')],
-    }, g('empty-path'), at)).toThrow('Capability path is required.');
+      ...input, parentId: null, resources: [pathCap(' / ')],
+    }, g('empty-path'), at)).toThrow('Grant resource path is required.');
     expect(() => createGrant(fixture(), {
-      ...input, parentId: null, capabilities: [{ permissions: ['invoke'] } as Capability],
-    }, g('neither'), at)).toThrow('Capability must name a resourceId or a path.');
+      ...input, parentId: null, resources: [{ permissions: ['invoke'] } as GrantResource],
+    }, g('neither'), at)).toThrow('Grant resource must name an id or a path.');
     expect(() => createGrant(fixture(), {
       ...input, parentId: null,
-      capabilities: [{ resourceId: r('search-files'), path: 'acme/drive', permissions: ['invoke'] } as Capability],
-    }, g('both'), at)).toThrow('Capability must name a resourceId or a path.');
+      resources: [{ id: r('search-files'), path: 'acme/drive', permissions: ['invoke'] } as GrantResource],
+    }, g('both'), at)).toThrow('Grant resource must name an id or a path.');
   });
 
   it('requires a parent that is present and active', () => {
@@ -496,26 +496,26 @@ describe('creating a grant', () => {
   });
 });
 
-describe('setting capabilities', () => {
+describe('setting resources', () => {
   it('requires a grant that exists', () => {
-    expect(() => setCapabilities(fixture(), g('ghost'), [], at)).toThrow('Grant does not exist.');
+    expect(() => setResources(fixture(), g('ghost'), [], at)).toThrow('Grant does not exist.');
   });
 
   it('requires each resource target to name a live resource while path targets may be empty', () => {
     const deleted = deleteResource(fixture(), r('slack'), at);
 
-    expect(() => setCapabilities(deleted, g('coordinator'), [cap('post-message')], at))
-      .toThrow('Capability resource does not exist.');
-    expect(setCapabilities(deleted, g('coordinator'), [pathCap('acme/slack/post-message')], at)
-      .grants.coordinator.capabilities[0]).toEqual({ path: 'acme/slack/post-message', permissions: ['invoke'] });
+    expect(() => setResources(deleted, g('coordinator'), [cap('post-message')], at))
+      .toThrow('Grant resource does not exist.');
+    expect(setResources(deleted, g('coordinator'), [pathCap('acme/slack/post-message')], at)
+      .grants.coordinator.resources[0]).toEqual({ path: 'acme/slack/post-message', permissions: ['invoke'] });
   });
 
   it('requires a parent that is present and active', () => {
     const state = fixture();
     state.grants.researcher.parentId = g('ghost');
 
-    expect(() => setCapabilities(state, g('researcher'), [], at)).toThrow(InvalidParentError);
-    expect(() => setCapabilities(state, g('researcher'), [], at)).toThrow('Parent grant does not exist.');
+    expect(() => setResources(state, g('researcher'), [], at)).toThrow(InvalidParentError);
+    expect(() => setResources(state, g('researcher'), [], at)).toThrow('Parent grant does not exist.');
   });
 });
 
@@ -563,7 +563,7 @@ describe('authorization decisions', () => {
 
   it('reaches a descendant resource through the target\'s subtree', () => {
     const state = fixture();
-    state.grants.coordinator.capabilities = [cap('drive')];
+    state.grants.coordinator.resources = [cap('drive')];
 
     expect(authorize(state, demo, r('read-file'), 'invoke', at).allowed).toBe(true);
     expect(authorize(state, demo, r('post-message'), 'invoke', at).allowed).toBe(false);
@@ -612,8 +612,8 @@ describe('identity brands', () => {
     expectTypeOf<CreateGrantInput['parentId']>().toEqualTypeOf<GrantId | null>();
     expectTypeOf<ResourceId>().not.toEqualTypeOf<GrantId>();
     expectTypeOf<Resource['id']>().not.toEqualTypeOf<GrantId>();
-    expectTypeOf<ResourceCapability>().toEqualTypeOf<CapabilityConfig & { resourceId: ResourceId }>();
-    expectTypeOf<PathCapability>().toEqualTypeOf<CapabilityConfig & { path: string }>();
-    expectTypeOf<Capability>().toEqualTypeOf<ResourceCapability | PathCapability>();
+    expectTypeOf<IdResource>().toEqualTypeOf<GrantResourceConfig & { id: ResourceId }>();
+    expectTypeOf<PathResource>().toEqualTypeOf<GrantResourceConfig & { path: string }>();
+    expectTypeOf<GrantResource>().toEqualTypeOf<IdResource | PathResource>();
   });
 });

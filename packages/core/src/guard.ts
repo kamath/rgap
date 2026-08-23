@@ -5,7 +5,7 @@ import {
   tokenId,
   type AuditEvent,
   type AuthorityView,
-  type Capability,
+  type GrantResource,
   type GrantId,
   type Permission,
   type ResourceId,
@@ -108,19 +108,19 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
   }
 
   const wrapGrant = (grant: GrantHandle): GrantHandle => {
-    const capabilities = Object.assign([...grant.capabilities], {
-      async set(entries: Capability[]) {
-        if (!grant.parentId) administrative("Setting a root grant's capabilities");
+    const resources = Object.assign([...grant.resources], {
+      async set(entries: GrantResource[]) {
+        if (!grant.parentId) administrative("Setting a root grant's resources");
         if (grant.id === (await actingGrantId())) {
-          throw new RgapError('unauthorized', 'A token may not set the capabilities of its own grant.');
+          throw new RgapError('unauthorized', 'A token may not set the resources of its own grant.');
         }
         await withinActingGrant(grant.id);
-        return wrapGrant(await grant.capabilities.set(entries));
+        return wrapGrant(await grant.resources.set(entries));
       },
     });
     return {
       ...grant,
-      capabilities,
+      resources,
       async create(input: GrantWrite) {
         if (grant.id !== (await actingGrantId())) {
           throw new RgapError('unauthorized', 'A token may only delegate from the grant it references.');

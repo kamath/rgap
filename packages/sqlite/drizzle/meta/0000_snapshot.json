@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "66e1de85-0d39-4286-bffe-04769ccf874d",
+  "id": "6a72e0b7-ec67-4781-9649-848d4654aaab",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "audit": {
@@ -71,56 +71,29 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "capabilities": {
-      "name": "capabilities",
+    "executables": {
+      "name": "executables",
       "columns": {
-        "grant_id": {
-          "name": "grant_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "position": {
-          "name": "position",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "resource_id": {
           "name": "resource_id",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false,
+          "primaryKey": true,
+          "notNull": true,
           "autoincrement": false
         },
-        "path": {
-          "name": "path",
+        "runtime": {
+          "name": "runtime",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
       "indexes": {},
       "foreignKeys": {
-        "capabilities_grant_id_grants_id_fk": {
-          "name": "capabilities_grant_id_grants_id_fk",
-          "tableFrom": "capabilities",
-          "tableTo": "grants",
-          "columnsFrom": [
-            "grant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "capabilities_resource_id_resources_id_fk": {
-          "name": "capabilities_resource_id_resources_id_fk",
-          "tableFrom": "capabilities",
+        "executables_resource_id_resources_id_fk": {
+          "name": "executables_resource_id_resources_id_fk",
+          "tableFrom": "executables",
           "tableTo": "resources",
           "columnsFrom": [
             "resource_id"
@@ -132,25 +105,12 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {
-        "capabilities_grant_id_position_pk": {
-          "columns": [
-            "grant_id",
-            "position"
-          ],
-          "name": "capabilities_grant_id_position_pk"
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {
-        "capabilities_target_check": {
-          "name": "capabilities_target_check",
-          "value": "(\"capabilities\".\"resource_id\" is not null and \"capabilities\".\"path\" is null)\n        or (\"capabilities\".\"resource_id\" is null and \"capabilities\".\"path\" is not null)"
-        }
-      }
+      "checkConstraints": {}
     },
-    "capability_permissions": {
-      "name": "capability_permissions",
+    "grant_resource_permissions": {
+      "name": "grant_resource_permissions",
       "columns": {
         "grant_id": {
           "name": "grant_id",
@@ -176,10 +136,10 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "capability_permissions_grant_id_position_capabilities_grant_id_position_fk": {
-          "name": "capability_permissions_grant_id_position_capabilities_grant_id_position_fk",
-          "tableFrom": "capability_permissions",
-          "tableTo": "capabilities",
+        "grant_resource_permissions_grant_id_position_grant_resources_grant_id_position_fk": {
+          "name": "grant_resource_permissions_grant_id_position_grant_resources_grant_id_position_fk",
+          "tableFrom": "grant_resource_permissions",
+          "tableTo": "grant_resources",
           "columnsFrom": [
             "grant_id",
             "position"
@@ -193,17 +153,95 @@
         }
       },
       "compositePrimaryKeys": {
-        "capability_permissions_grant_id_position_permission_pk": {
+        "grant_resource_permissions_grant_id_position_permission_pk": {
           "columns": [
             "grant_id",
             "position",
             "permission"
           ],
-          "name": "capability_permissions_grant_id_position_permission_pk"
+          "name": "grant_resource_permissions_grant_id_position_permission_pk"
         }
       },
       "uniqueConstraints": {},
       "checkConstraints": {}
+    },
+    "grant_resources": {
+      "name": "grant_resources",
+      "columns": {
+        "grant_id": {
+          "name": "grant_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "grant_resources_grant_id_grants_id_fk": {
+          "name": "grant_resources_grant_id_grants_id_fk",
+          "tableFrom": "grant_resources",
+          "tableTo": "grants",
+          "columnsFrom": [
+            "grant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "grant_resources_id_resources_id_fk": {
+          "name": "grant_resources_id_resources_id_fk",
+          "tableFrom": "grant_resources",
+          "tableTo": "resources",
+          "columnsFrom": [
+            "id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "grant_resources_grant_id_position_pk": {
+          "columns": [
+            "grant_id",
+            "position"
+          ],
+          "name": "grant_resources_grant_id_position_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "grant_resources_target_check": {
+          "name": "grant_resources_target_check",
+          "value": "(\"grant_resources\".\"id\" is not null and \"grant_resources\".\"path\" is null)\n        or (\"grant_resources\".\"id\" is null and \"grant_resources\".\"path\" is not null)"
+        }
+      }
     },
     "grants": {
       "name": "grants",

@@ -55,8 +55,8 @@ await root.reset();
 const acme = await root.resources.create({ name: 'acme' });
 const companyGrant = await root.grants.create({
   name: 'Company',
-  capabilities: [{
-    resourceId: acme.id,
+  resources: [{
+    id: acme.id,
     permissions: ['read', 'write', 'delete', 'move', 'invoke'],
   }],
   expiresAt: null,
@@ -84,7 +84,7 @@ console.log('\n\n');
 
 const teamGrant = await company.grants.create({
   name: 'Team',
-  capabilities: [{ resourceId: platform.id, permissions: ['read', 'write', 'invoke'] }],
+  resources: [{ id: platform.id, permissions: ['read', 'write', 'invoke'] }],
   expiresAt: null,
 });
 const teamToken = await teamGrant.tokens.create({ label: 'team' });
@@ -92,7 +92,7 @@ const team = store.as(teamToken.value);
 
 const employeeGrant = await team.grants.create({
   name: 'Employee',
-  capabilities: [{ resourceId: docs.id, permissions: ['read', 'write'] }],
+  resources: [{ id: docs.id, permissions: ['read', 'write'] }],
   expiresAt: null,
 });
 const employeeToken = await employeeGrant.tokens.create({ label: 'employee' });
@@ -100,7 +100,7 @@ const employee = store.as(employeeToken.value);
 
 const agentGrant = await employee.grants.create({
   name: 'Agent',
-  capabilities: [{ path: 'acme/platform/docs', permissions: ['read'] }],
+  resources: [{ path: 'acme/platform/docs', permissions: ['read'] }],
   expiresAt: null,
 });
 const agentToken = await agentGrant.tokens.create({ label: 'agent' });
@@ -108,7 +108,7 @@ const agent = store.as(agentToken.value);
 
 const subagentGrant = await agent.grants.create({
   name: 'Subagent',
-  capabilities: [{ path: 'acme/platform/docs/design', permissions: ['read'] }],
+  resources: [{ path: 'acme/platform/docs/design', permissions: ['read'] }],
   expiresAt: null,
 });
 const subagentToken = await subagentGrant.tokens.create({ label: 'subagent' });
