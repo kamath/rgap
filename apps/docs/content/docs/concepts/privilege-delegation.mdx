@@ -1,6 +1,6 @@
 ---
 title: Privilege delegation and escalation
-description: Distinguish intentional capability composition from unauthorized authority gain.
+description: Prevent confused-deputy attacks while composing and delegating capabilities.
 icon: ShieldCheck
 ---
 
@@ -109,14 +109,57 @@ Revoking the binding author's lineage disables the bound edge for every
 consumer. Revoking one consumer's lineage disables that consumer without
 affecting the wrapper or other consumers.
 
-## Confused deputies
+## Preventing confused deputy attacks
 
 A trusted runtime can hold stronger authority than its caller. It becomes a
 confused deputy when caller-controlled arguments make it apply that authority
-outside its intended scope.
+outside its intended scope. The caller does not need to obtain the credential:
+misusing the runtime's privileged behavior is enough.
 
-For example, an executable backed by an organization-wide GitHub token is too
-broad if any invoker can choose an arbitrary organization and destructive
+Preventing a confused deputy attack requires the privileged runtime to expose
+less authority than its credential carries. RGAP controls who can invoke the
+runtime and which RGAP resources it can invoke. The runtime controls how
+caller input becomes an upstream request. Both checks are required.
+
+### Credential exfiltration through a generic proxy
+
+A runtime must not attach a bound credential to a caller-selected destination:
+
+```ts
+async invoke({ input }) {
+  return fetch(input.url, {
+    headers: {
+      authorization: `Bearer ${input.credential}`,
+    },
+  });
+}
+```
+
+An invoker can supply `https://attacker.example/collect`. The runtime then
+sends the credential to the attacker even though RGAP never returns the bound
+field directly. Binding protects the credential from substitution and direct
+access; it cannot make an unrestricted authenticated proxy safe.
+
+A credential-backed runtime fixes the upstream origin and constructs the
+request itself:
+
+```ts
+async invoke({ input }) {
+  const url = new URL(
+    `/repos/acme/${encodeURIComponent(input.repository)}/issues`,
+    'https://api.github.com',
+  );
+  return githubFetch(url, input.credential);
+}
+```
+
+The runtime does not accept an origin, authorization header, HTTP method, or
+arbitrary path from its caller.
+
+### Applying authority outside the intended scope
+
+An executable backed by an organization-wide GitHub token is also too broad
+when any invoker can choose an arbitrary organization and destructive
 operation:
 
 ```ts
@@ -124,18 +167,34 @@ inputSchema: z.object({
   organization: z.string(),
   repository: z.string(),
   operation: z.enum(['delete']),
-})
+});
 ```
 
-RGAP correctly authorizes invocation of the executable, but the executable's
-interface delegates more power than intended. Prefer narrow runtimes, validate
-arguments, and represent protected scopes as resources when authorization
+The token remains secret, but the caller can still exercise all deletion
+authority exposed by the interface. RGAP correctly authorizes invocation of
+the executable; it cannot infer which provider arguments the administrator
+intends to permit.
+
+Prefer one narrow operation per executable. Fix trusted provider scope in
+sealed configuration, validate every caller-controlled argument, and represent
+protected organizations or repositories as RGAP resources when authorization
 must distinguish them.
 
 Combining caller authority with sealed authority is safe only when the runtime
 intentionally defines that composition. A runtime that invokes
 caller-supplied resource IDs still relies on RGAP to authorize each nested
-target.
+target. Provider operations that occur outside RGAP require equivalent checks
+inside the trusted runtime.
+
+Use these rules for every credential-backed runtime:
+
+1. Fix the upstream origin and construct paths in trusted code.
+2. Expose specific operations instead of arbitrary methods, URLs, or headers.
+3. Validate caller-controlled identifiers against the intended provider scope.
+4. Model separately authorized scopes as RGAP resources and check them before
+   the provider call.
+5. Return operation results rather than credentials, authenticated clients, or
+   raw upstream responses containing sensitive headers.
 
 ## Live references
 
