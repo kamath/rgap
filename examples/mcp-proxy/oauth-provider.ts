@@ -6,7 +6,7 @@ import {
   type StoredOAuthClientInformation,
   type StoredOAuthTokens,
 } from '@modelcontextprotocol/client';
-import type { CredentialStore } from './credential-store';
+import type { CredentialStore } from '@rgap/credential-store';
 
 export type PendingAuthorization = {
   flowId: string;
@@ -52,12 +52,12 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
     };
   }
 
-  state() {
-    return this.#pending().state;
+  async state() {
+    return (await this.#pending()).state;
   }
 
-  clientInformation(_context?: OAuthClientInformationContext) {
-    return this.#record().clientInformation;
+  async clientInformation(_context?: OAuthClientInformationContext) {
+    return (await this.#record()).clientInformation;
   }
 
   saveClientInformation(
@@ -67,8 +67,8 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
     this.#patch((record) => ({ ...record, clientInformation }));
   }
 
-  tokens(_context?: OAuthClientInformationContext) {
-    return this.#record().tokens;
+  async tokens(_context?: OAuthClientInformationContext) {
+    return (await this.#record()).tokens;
   }
 
   saveTokens(tokens: StoredOAuthTokens, _context?: OAuthClientInformationContext) {
@@ -95,8 +95,8 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
     }));
   }
 
-  codeVerifier() {
-    const verifier = this.#pending().codeVerifier;
+  async codeVerifier() {
+    const verifier = (await this.#pending()).codeVerifier;
     if (!verifier) throw new Error('The OAuth PKCE verifier is unavailable.');
     return verifier;
   }
@@ -105,8 +105,8 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
     this.#patch((record) => ({ ...record, discoveryState }));
   }
 
-  discoveryState() {
-    return this.#record().discoveryState;
+  async discoveryState() {
+    return (await this.#record()).discoveryState;
   }
 
   invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery') {
@@ -133,11 +133,11 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
   }
 
   begin(pendingAuthorization: PendingAuthorization) {
-    this.#patch((record) => ({ ...record, pendingAuthorization }));
+    return this.#patch((record) => ({ ...record, pendingAuthorization }));
   }
 
   claim(flowId: string, state: string, now = new Date()) {
-    this.#patch((record) => {
+    return this.#patch((record) => {
       const pending = this.#requiredPending(record);
       if (pending.flowId !== flowId || pending.state !== state) {
         throw new Error('The OAuth callback state is invalid.');
@@ -157,22 +157,22 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
   }
 
   complete() {
-    this.#patch((record) => {
+    return this.#patch((record) => {
       const { pendingAuthorization: _, ...complete } = record;
       return complete;
     });
   }
 
-  pending() {
-    return this.#record().pendingAuthorization;
+  async pending() {
+    return (await this.#record()).pendingAuthorization;
   }
 
-  #record() {
-    return this.#store.get(this.#credentialId) ?? {};
+  async #record() {
+    return await this.#store.get(this.#credentialId) ?? {};
   }
 
-  #pending() {
-    return this.#requiredPending(this.#record());
+  async #pending() {
+    return this.#requiredPending(await this.#record());
   }
 
   #requiredPending(record: McpCredential) {

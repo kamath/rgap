@@ -182,9 +182,10 @@ capability and publish her wrapper's interface. Revoking or narrowing
 therefore disables it for every consumer.
 
 The complete Hono app lives in `examples/secret-store`. It uses one SQLite
-database for RGAP state and initializes `SqliteSecretStore` with another
-SQLite database for secret values. Inputs, outputs, and secret values stay out
-of invocation audit records, logs, and errors.
+database for RGAP state and initializes `SqliteCredentialStore` from
+`@rgap/credential-store` with another SQLite database for secret values.
+Inputs, outputs, and secret values stay out of invocation audit records, logs,
+and errors.
 
 ## Invoke an OAuth-protected MCP server
 
@@ -262,9 +263,10 @@ type McpInvokeInput = {
 ```
 
 The MCP SDK owns connection setup, protocol negotiation, and session lifecycle.
-The proxy registers handlers for server-to-client interactions and forwards
-caller-selected requests only after RGAP authorizes `invoke` on the connection.
-Cancellation of the RGAP invocation cancels the upstream request.
+The proxy forwards caller-selected client-to-server requests only after RGAP
+authorizes `invoke` on the connection. A deployment configures any
+server-to-client behavior required by its upstream servers. Cancellation of the
+RGAP invocation cancels the upstream request.
 
 An `invoke` grant on the connection intentionally reaches the complete
 capability surface of that authenticated MCP server.

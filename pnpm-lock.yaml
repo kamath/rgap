@@ -120,6 +120,9 @@ importers:
       '@rgap/core':
         specifier: workspace:*
         version: link:../packages/core
+      '@rgap/credential-store':
+        specifier: workspace:*
+        version: link:../packages/credential-store
       '@rgap/server':
         specifier: workspace:*
         version: link:../apps/server
@@ -129,9 +132,6 @@ importers:
       ai:
         specifier: ^7.0.77
         version: 7.0.77(zod@4.4.3)
-      better-sqlite3:
-        specifier: ^13.0.3
-        version: 13.0.3
       hono:
         specifier: ^4.13.3
         version: 4.13.3
@@ -139,9 +139,6 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@types/better-sqlite3':
-        specifier: ^9.6.0
-        version: 9.6.0
       '@types/node':
         specifier: latest
         version: 26.2.0
@@ -157,6 +154,25 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^4.1.11
         version: 4.1.11(vitest@4.1.11)
+      typescript:
+        specifier: latest
+        version: 7.0.2
+      vitest:
+        specifier: latest
+        version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.11)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/credential-store:
+    dependencies:
+      better-sqlite3:
+        specifier: latest
+        version: 13.0.3
+    devDependencies:
+      '@types/better-sqlite3':
+        specifier: latest
+        version: 9.6.0
+      '@types/node':
+        specifier: latest
+        version: 26.2.0
       typescript:
         specifier: latest
         version: 7.0.2

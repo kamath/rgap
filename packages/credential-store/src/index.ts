@@ -1,11 +1,16 @@
 import Database from 'better-sqlite3';
 
+export type Awaitable<T> = T | Promise<T>;
+
 export interface CredentialStore<T> {
-  get(resourceId: string): T | undefined;
-  set(resourceId: string, value: T): void;
-  update(resourceId: string, update: (current: T | undefined) => T): T;
-  delete(resourceId: string): void;
-  close(): void;
+  get(resourceId: string): Awaitable<T | undefined>;
+  set(resourceId: string, value: T): Awaitable<void>;
+  update(
+    resourceId: string,
+    update: (current: T | undefined) => T,
+  ): Awaitable<T>;
+  delete(resourceId: string): Awaitable<void>;
+  close(): Awaitable<void>;
 }
 
 export class SqliteCredentialStore<T> implements CredentialStore<T> {
@@ -18,7 +23,7 @@ export class SqliteCredentialStore<T> implements CredentialStore<T> {
     update: (current: T | undefined) => T,
   ) => T;
 
-  constructor(url: string) {
+  constructor(url = ':memory:') {
     this.#database = new Database(url);
     this.#database.exec(`
       CREATE TABLE IF NOT EXISTS credentials (
@@ -49,7 +54,11 @@ export class SqliteCredentialStore<T> implements CredentialStore<T> {
   }
 
   set(resourceId: string, value: T) {
-    this.#set.run(resourceId, JSON.stringify(value));
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) {
+      throw new TypeError('Credential values must be JSON-serializable.');
+    }
+    this.#set.run(resourceId, serialized);
   }
 
   update(resourceId: string, update: (current: T | undefined) => T) {

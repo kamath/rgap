@@ -17,9 +17,10 @@ MCP request supported by the negotiated protocol. The MCP SDK manages
 connection setup and protocol negotiation.
 
 OAuth tokens, registered client information, discovery state, PKCE data, and
-pending callback state are stored in `credentials.db` under the credential
-resource ID. The browser callback validates state and expiry before asking the
-MCP SDK to validate the issuer and exchange the authorization code.
+pending callback state are stored through `@rgap/credential-store` in
+`credentials.db` under the credential resource ID. The browser callback
+validates state and expiry before asking the MCP SDK to validate the issuer and
+exchange the authorization code.
 
 Start the proxy:
 

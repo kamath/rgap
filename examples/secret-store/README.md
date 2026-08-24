@@ -1,11 +1,12 @@
 # Secret-store Hono app
 
 This app demonstrates sealed resource bindings. An administrator creates a
-GitHub credential resource, stores its value in `secrets.db`, and binds it to a
-trusted `githubProfile` executable. A user receives `bind` on that safe
-function without receiving any permission on its credential. The user then
-creates a `profile-summary` executable resource that binds and invokes the
-safe function and delegates `invoke` on that wrapper to a consumer.
+GitHub credential resource, stores its value in `secrets.db` through
+`@rgap/credential-store`, and binds it to a trusted `githubProfile` executable.
+A user receives `bind` on that safe function without receiving any permission
+on its credential. The user then creates a `profile-summary` executable
+resource that binds and invokes the safe function and delegates `invoke` on
+that wrapper to a consumer.
 Each resource create stores its executable and sealed bindings atomically.
 
 Both bindings contain ordinary RGAP resource IDs:

@@ -8,11 +8,11 @@ import {
   type ResourceId,
   type RgapRepository,
 } from '@rgap/core';
+import { SqliteCredentialStore } from '@rgap/credential-store';
 import { createApp as createRgapApp } from '@rgap/server';
 import { SqliteRgapStore } from '@rgap/sqlite';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { SqliteCredentialStore } from './credential-store';
 import {
   McpConnection,
   McpInvokeInputSchema,
@@ -47,7 +47,7 @@ const mcpRuntime: InvokeRuntime<
     );
     if (!connection.isConnected()) {
       const status = await connection.connect();
-      registerFlow(connection, status);
+      await registerFlow(connection, status);
       if (status.status === 'authorization_required') {
         throw new Error(`MCP OAuth authorization is required: ${status.authorizationUrl}`);
       }
@@ -70,7 +70,9 @@ const credential = await ensureResource(
   admin,
   `acme/mcp/credentials/${serverName}-default`,
 );
-if (!credentialStore.get(credential.id)) credentialStore.set(credential.id, {});
+if (!await credentialStore.get(credential.id)) {
+  await credentialStore.set(credential.id, {});
+}
 const connectionResource = await ensureResource(
   admin,
   `acme/mcp/connections/${serverName}-default`,
@@ -95,7 +97,7 @@ const initialStatus = await connection.connect().catch((error: unknown) => {
   console.error(`Initial MCP connection failed: ${message(error)}`);
   return undefined;
 });
-if (initialStatus) registerFlow(connection, initialStatus);
+if (initialStatus) await registerFlow(connection, initialStatus);
 
 const app = new Hono();
 app.get('/oauth/callback/:flowId', async (context) => {
@@ -105,7 +107,7 @@ app.get('/oauth/callback/:flowId', async (context) => {
   try {
     const status = await connection.finishAuthorization(flowId, new URL(context.req.url));
     flows.delete(flowId);
-    registerFlow(connection, status);
+    await registerFlow(connection, status);
     if (status.status !== 'connected') {
       return context.text('OAuth authorization did not complete.', 409);
     }
@@ -131,7 +133,8 @@ const server = serve({ fetch: app.fetch, port }, ({ port: listeningPort }) => {
 });
 
 function connectionFor(upstream: URL, credentialId: string) {
-  const existing = connections.get(credentialId);
+  const key = `${credentialId}\0${upstream}`;
+  const existing = connections.get(key);
   if (existing) return existing;
   const connection = new McpConnection({
     serverUrl: upstream,
@@ -139,17 +142,21 @@ function connectionFor(upstream: URL, credentialId: string) {
     publicBaseUrl,
     credentialStore,
   });
-  connections.set(credentialId, connection);
+  connections.set(key, connection);
   return connection;
 }
 
-function registerFlow(
+async function registerFlow(
   connection: McpConnection,
   status: Awaited<ReturnType<McpConnection['connect']>>,
 ) {
-  if (status.status === 'authorization_required') {
-    flows.set(status.flowId, connection);
+  for (const [flowId, registered] of flows) {
+    if (registered === connection) flows.delete(flowId);
   }
+  const flowId = status.status === 'authorization_required'
+    ? status.flowId
+    : await connection.pendingFlowId();
+  if (flowId) flows.set(flowId, connection);
 }
 
 async function ensureResource(repository: RgapRepository, path: string) {
@@ -193,7 +200,7 @@ async function close() {
   server.close(async () => {
     await Promise.all([...connections.values()].map((connection) => connection.close()));
     store.close();
-    credentialStore.close();
+    await credentialStore.close();
   });
 }
 
