@@ -1,7 +1,7 @@
 import {
   authorize,
+  bindingAuthorizes,
   permissions,
-  resourceAuthorizes,
   stateIntegrity,
   tokenHash,
   tokenId,
@@ -130,9 +130,9 @@ export function assertStateInvariants(state: State) {
           if (decision.allowed) {
             for (const member of chain) {
               if (
-                !member.resources.some((entry) =>
-                  resourceAuthorizes(
-                    entry,
+                !member.bindings.some((binding) =>
+                  bindingAuthorizes(
+                    binding,
                     state.resources,
                     resource.id,
                     permission,

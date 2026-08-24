@@ -1,16 +1,16 @@
-import { covers, permissions, resourceAuthorizes } from '@rgap/core';
+import { bindingAuthorizes, covers, permissions } from '@rgap/core';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { entryFromSeed, entrySeeds, resourceTrees } from './generators';
+import { bindingFromSeed, bindingSeeds, resourceTrees } from './generators';
 
-describe('grant-resource containment algebra', () => {
-  it('is reflexive for every valid entry', () => {
+describe('grant-binding containment algebra', () => {
+  it('is reflexive for every valid binding', () => {
     fc.assert(fc.property(
       resourceTrees,
-      entrySeeds,
+      bindingSeeds,
       (resources, seed) => {
-        const entry = entryFromSeed(resources, seed);
-        expect(covers(entry, entry, resources)).toBe(true);
+        const binding = bindingFromSeed(resources, seed);
+        expect(covers(binding, binding, resources)).toBe(true);
       },
     ));
   });
@@ -18,13 +18,13 @@ describe('grant-resource containment algebra', () => {
   it('is transitive', () => {
     fc.assert(fc.property(
       resourceTrees,
-      entrySeeds,
-      entrySeeds,
-      entrySeeds,
+      bindingSeeds,
+      bindingSeeds,
+      bindingSeeds,
       (resources, firstSeed, secondSeed, thirdSeed) => {
-        const first = entryFromSeed(resources, firstSeed);
-        const second = entryFromSeed(resources, secondSeed);
-        const third = entryFromSeed(resources, thirdSeed);
+        const first = bindingFromSeed(resources, firstSeed);
+        const second = bindingFromSeed(resources, secondSeed);
+        const third = bindingFromSeed(resources, thirdSeed);
 
         if (
           covers(first, second, resources) &&
@@ -39,17 +39,17 @@ describe('grant-resource containment algebra', () => {
   it('means every child request is also a parent request', () => {
     fc.assert(fc.property(
       resourceTrees,
-      entrySeeds,
-      entrySeeds,
+      bindingSeeds,
+      bindingSeeds,
       (resources, parentSeed, childSeed) => {
-        const parent = entryFromSeed(resources, parentSeed);
-        const child = entryFromSeed(resources, childSeed);
+        const parent = bindingFromSeed(resources, parentSeed);
+        const child = bindingFromSeed(resources, childSeed);
         if (!covers(parent, child, resources)) return;
 
         for (const resource of Object.values(resources)) {
           for (const permission of permissions) {
             if (
-              resourceAuthorizes(
+              bindingAuthorizes(
                 child,
                 resources,
                 resource.id,
@@ -57,7 +57,7 @@ describe('grant-resource containment algebra', () => {
               )
             ) {
               expect(
-                resourceAuthorizes(
+                bindingAuthorizes(
                   parent,
                   resources,
                   resource.id,
