@@ -41,14 +41,14 @@ try {
   const model = await admin.resources.create({ name: 'acme/models/openai' });
   await model.executable.set({ runtime: 'openai' });
 
-  const agentGrant = await admin.grants.create({
-    name: 'company/openai-agent',
+  const employeeGrant = await admin.grants.create({
+    name: 'company/platform-team/employee',
     resources: [{ id: model.id, permissions: ['invoke'] }],
     expiresAt: null,
   });
-  const agentToken = await agentGrant.tokens.create({ label: 'openai-agent' });
-  const agent = store.as(agentToken.value);
-  const authorizedModel = await agent.resources.get(model.id);
+  const employeeToken = await employeeGrant.tokens.create({ label: 'employee' });
+  const employee = store.as(employeeToken.value);
+  const authorizedModel = await employee.resources.get(model.id);
 
   for await (const event of authorizedModel.invoke({
     input: { prompt: 'Summarize why capability attenuation matters.' },

@@ -37,21 +37,22 @@ const openai: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
 ```
 
 The deployment registers that runtime, associates it with a resource, and
-grants an agent `invoke` on that resource. The stored entry also includes
-`read`, so the agent can look up the model before calling it:
+creates an employee grant beneath a team and company with `invoke` on that
+resource. The stored entry also includes `read`, so the employee can look up
+the model before calling it:
 
 ```ts
 const model = await admin.resources.create({ name: 'acme/models/openai' });
 await model.executable.set({ runtime: 'openai' });
 
-const agentGrant = await admin.grants.create({
-  name: 'company/openai-agent',
+const employeeGrant = await admin.grants.create({
+  name: 'company/platform-team/employee',
   resources: [{ id: model.id, permissions: ['invoke'] }],
   expiresAt: null,
 });
-const agentToken = await agentGrant.tokens.create({ label: 'openai-agent' });
-const agent = store.as(agentToken.value);
-const authorizedModel = await agent.resources.get(model.id);
+const employeeToken = await employeeGrant.tokens.create({ label: 'employee' });
+const employee = store.as(employeeToken.value);
+const authorizedModel = await employee.resources.get(model.id);
 
 for await (const event of authorizedModel.invoke({
   input: { prompt: 'Summarize why capability attenuation matters.' },
@@ -60,9 +61,9 @@ for await (const event of authorizedModel.invoke({
 }
 ```
 
-The guarded repository exposes the model because the agent holds `read` and
-`invoke`. The agent receives the RGAP token and output events. It never receives
-`OPENAI_API_KEY`. The complete executable version lives in
+The guarded repository exposes the model because the employee grant holds
+`read` and `invoke`. The employee receives the RGAP token and output events. It
+never receives `OPENAI_API_KEY`. The complete executable version lives in
 `examples/openai.ts`.
 
 ## Compose a secret-backed resource
