@@ -271,7 +271,7 @@ describe('SqliteRgapStore', () => {
       name: 'missing/runtime',
       executable: { runtime: 'unknown' },
     })).rejects.toMatchObject({ code: 'unknown_runtime' });
-    expect(await failed.resources.list()).toEqual([]);
+    expect(await failed.resources.list({ parentId: null })).toEqual([]);
   });
 
   it('fails clearly when executable setting names an unknown runtime', async () => {
