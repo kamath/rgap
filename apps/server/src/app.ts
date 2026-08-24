@@ -528,11 +528,9 @@ function tokenRecord(record: TokenHandle) {
 }
 
 function brandedResources(
-  entries: Array<{ permissions: GrantResource['permissions']; id: string } | { permissions: GrantResource['permissions']; path: string }>,
+  entries: Array<{ permissions: GrantResource['permissions']; id: string }>,
 ): GrantResource[] {
-  return entries.map((entry) => 'id' in entry
-    ? { ...entry, id: resourceId(entry.id) }
-    : entry);
+  return entries.map((entry) => ({ ...entry, id: resourceId(entry.id) }));
 }
 
 function secretsEqual(left: string, right: string) {

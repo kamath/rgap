@@ -83,7 +83,7 @@ console.log('\n\n');
 
 const subagentGrant = await company.grants.create({
   name: 'company/team/employee/agent/subagent',
-  resources: [{ path: 'acme/platform/docs/design', permissions: ['read'] }],
+  resources: [{ id: design.id, permissions: ['read'] }],
   expiresAt: null,
 });
 const agentGrant = await company.grants.get(subagentGrant.parentId!);
@@ -91,7 +91,7 @@ const employeeGrant = await company.grants.get(agentGrant.parentId!);
 const teamGrant = await company.grants.get(employeeGrant.parentId!);
 await teamGrant.resources.set([{ id: platform.id, permissions: ['read', 'write', 'invoke'] }]);
 await employeeGrant.resources.set([{ id: docs.id, permissions: ['read', 'write'] }]);
-await agentGrant.resources.set([{ path: 'acme/platform/docs', permissions: ['read'] }]);
+await agentGrant.resources.set([{ id: docs.id, permissions: ['read'] }]);
 const teamToken = await teamGrant.tokens.create({ label: 'team' });
 const employeeToken = await employeeGrant.tokens.create({ label: 'employee' });
 const agentToken = await agentGrant.tokens.create({ label: 'agent' });

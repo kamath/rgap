@@ -367,9 +367,7 @@ function asGrant(record: HttpGrant): Grant {
 }
 
 function asGrantResource(entry: HttpGrantResource): GrantResource {
-  return 'id' in entry
-    ? { ...entry, id: resourceId(entry.id) }
-    : entry;
+  return { ...entry, id: resourceId(entry.id) };
 }
 
 function asHttpGrantResource(entry: GrantResource): HttpGrantResource {

@@ -48,7 +48,7 @@ Handles combine record fields with applicable commands:
 Adapters implement an ID-based `RgapCommands` sink.
 `repositoryFrom(commands)` builds the handle surface. Resource and grant create
 accept a slash-separated location and materialize missing prefixes. Path
-rendering and grant-path resolution remain pure helpers.
+rendering and normalization remain pure helpers.
 
 ### Repository planes
 
@@ -93,8 +93,8 @@ runtime and on the wire:
 
 Repository reads return branded values. Seed data and tests that construct
 records directly use `resourceId`, `grantId`, `tokenId`, `tokenValue`, and
-`tokenHash`. A path remains an ordinary string because it names a location
-rather than a stable identity.
+`tokenHash`. Paths remain ordinary strings for resource creation and rendering;
+grant-resource entries use `ResourceId`.
 
 ## Deployment-owned runtimes
 
@@ -162,7 +162,7 @@ deletion. There is no executable tombstone or revision table.
 | --- | --- |
 | `resources` | Stable resource records and tombstones. |
 | `grants` | Grant identity, ancestry, expiration, and revocation. |
-| `grant_resources` | Ordered resource-ID or path targets for each grant. |
+| `grant_resources` | Ordered resource-ID targets for each grant. |
 | `grant_resource_permissions` | Normalized permission sets for grant-resource entries. |
 | `tokens` | Token metadata and bearer hashes. |
 | `executables` | One resource-to-runtime association per executable resource. |
