@@ -42,7 +42,7 @@ Handles combine record fields with applicable commands:
 
 - A resource creates descendants at a relative path, moves, deletes, manages
   its executable association, and invokes it.
-- A grant creates descendants at a relative path, replaces resource entries,
+- A grant creates descendants at a relative path, replaces bindings,
   issues tokens, and revokes.
 - A token revokes.
 
@@ -86,7 +86,7 @@ runtime and on the wire:
 
 | Type | Used for |
 | --- | --- |
-| `ResourceId` | Resource records, grant-resource ID targets, and move destinations. |
+| `ResourceId` | Resource records, binding targets, and move destinations. |
 | `GrantId` | Grant records, grant ancestry, and token grant references. |
 | `TokenId` | Stored token-record identity. |
 | `TokenValue` | The one-time bearer accepted by `store.as` and `authorize`. |
@@ -95,7 +95,7 @@ runtime and on the wire:
 Repository reads return branded values. Seed data and tests that construct
 records directly use `resourceId`, `grantId`, `tokenId`, `tokenValue`, and
 `tokenHash`. Paths remain ordinary strings for resource creation and rendering;
-grant-resource entries use `ResourceId`.
+grant bindings use `ResourceId`.
 
 ## Deployment-owned runtimes
 
@@ -134,7 +134,7 @@ The working set and write plan are specific to each command:
 | Create resource path | Starting parent, occupied path prefixes, and candidate IDs. | Insert each missing prefix and one audit event per inserted resource. |
 | Move resource | Resource, destination parent, and destination ancestry. | Update one parent reference and insert one audit event. |
 | Delete resource | Resource and its descendant subtree. | Tombstone the subtree and insert one audit event. |
-| Create or amend grant | Relevant parent and child grants, their resource entries, and resources needed for containment. | Insert or replace the affected grant entries, revoke uncovered descendant branches, and insert one audit event. |
+| Create or amend grant | Relevant parent and child grants, their bindings, and resources needed for containment. | Insert or replace the affected grant bindings, revoke uncovered descendant branches, and insert one audit event. |
 | Issue or revoke | The affected grant, token, or grant branch. | Insert or update affected rows and insert one audit event. |
 | Set or delete executable | Resource and its executable association. | Upsert or delete one association and insert one audit event. |
 | Authorize | Token selected by hash, grant lineage, requested resource ancestry, and path prefixes required by lineage entries. | Insert one audit event. |
@@ -165,8 +165,8 @@ executable tombstone or revision table.
 | --- | --- |
 | `resources` | Stable resource records and tombstones. |
 | `grants` | Grant identity, ancestry, expiration, and revocation. |
-| `grant_resources` | Ordered resource-ID targets for each grant. |
-| `grant_resource_permissions` | Normalized permission sets for grant-resource entries. |
+| `grant_bindings` | Ordered resource-ID targets for each grant. |
+| `grant_binding_permissions` | Normalized permission sets for grant bindings. |
 | `tokens` | Token metadata and bearer hashes. |
 | `executables` | One resource-to-runtime association per executable resource. |
 | `executable_bindings` | Resource IDs and authority lineages sealed into top-level input fields. |

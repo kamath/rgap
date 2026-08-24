@@ -4,8 +4,8 @@ description: How child grants prove they never expand their parent's authority.
 icon: GitBranch
 ---
 
-Delegation creates a child grant beneath the acting grant. Every child resource
-entry must be covered by a parent resource entry.
+Delegation creates a child grant beneath the acting grant. Every child binding
+must be covered by a parent binding.
 
 ```text
 Alice: read/write/delete projects/alpha
@@ -26,7 +26,7 @@ are created, and the command returns the leaf.
 ```ts
 const subagent = await admin.grants.create({
   name: 'company/team/employee/agent/subagent',
-  resources: [{
+  bindings: [{
     id: design.id,
     permissions: ['read'],
   }],
@@ -42,12 +42,12 @@ The same command creates a relative path under an existing grant:
 ```ts
 const company = await admin.grants.create({
   name: 'company',
-  resources: [{ id: acme.id, permissions: ['read', 'write', 'invoke'] }],
+  bindings: [{ id: acme.id, permissions: ['read', 'write', 'invoke'] }],
   expiresAt: null,
 });
 const subagent = await company.create({
   name: 'team/employee/agent/subagent',
-  resources: [{
+  bindings: [{
     id: design.id,
     permissions: ['read'],
   }],
@@ -56,7 +56,7 @@ const subagent = await company.create({
 ```
 
 Each stored grant name is one segment. Missing prefixes become ordinary grants
-and receive the submitted resource set and expiration. Active prefixes are
+and receive the submitted bindings and expiration. Active prefixes are
 reused and keep their current records. The leaf must be absent: a second create
 at an occupied path fails with `duplicate_path`.
 
@@ -67,7 +67,7 @@ Create is one state transition. Each newly created grant is audited as
 `grant.create` or `grant.delegate` and receives a stable ID minted from its
 segment name. Each new child still proves coverage and expiration against its
 parent. When several grants are created in one walk, they share the submitted
-resource set, so each new child is covered by the new parent.
+bindings, so each new child is covered by the new parent.
 
 Creating a new root grant is administrative. Creating a child requires that the
 child downscopes its immediate parent.
@@ -86,7 +86,7 @@ For a token referencing `company`, this route is authorized:
 ```ts
 await companyPlane.grants.create({
   name: 'company/platform-team/employee',
-  resources: [{ id: platform.id, permissions: ['read'] }],
+  bindings: [{ id: platform.id, permissions: ['read'] }],
   expiresAt: null,
 });
 ```
@@ -99,21 +99,21 @@ walking the route.
 A grant handle starts its route at that grant, so
 `company.create({ name: 'platform-team/employee', ... })` applies the same rule
 without restating the ancestors. Existing prefixes need no additional
-authority. Every missing child still proves resource coverage and expiration
+authority. Every missing child still proves binding coverage and expiration
 against its immediate parent before the complete transition commits.
 
-## Resource entries
+## Bindings
 
-A grant aggregates one or more resource entries:
+A grant is bound to one or more resources:
 
 ```ts
-type GrantResource = {
+type Binding = {
   id: ResourceId;
   permissions: Permission[];
 };
 ```
 
-Each entry names exactly one target. Multiple entries let a grant combine
+Each binding names exactly one target. Multiple bindings let a grant combine
 authority from separate branches, such as selected tools from several MCP
 servers.
 
@@ -134,7 +134,7 @@ Both entries target live resources by stable ID. Coverage compares their
 current ancestry in the resource tree.
 
 <Callout type="info" title="Every entry includes read">
-  A resource entry always includes `read`. Submitting `['invoke']` stores
+  A binding always includes `read`. Submitting `['invoke']` stores
   `['read', 'invoke']`. `write`, `invoke`, `bind`, `move`, and `delete` remain
   independent of each other.
 </Callout>
@@ -152,8 +152,8 @@ the complete lineage covers the resource again.
 
 ## Amending a grant
 
-A grant's identity, parent, and expiration are fixed at creation. Its resource
-set may be replaced atomically.
+A grant's identity, parent, and expiration are fixed at creation. Its bindings
+may be replaced atomically.
 
 The replacement set must satisfy the same containment proof as a newly created
 grant. Any direct child no longer covered by the new set is revoked together
@@ -169,6 +169,6 @@ team: docs + tools             team: docs
 
 ## Empty grants
 
-A grant may start with an empty resource set and authorize nothing. This lets
+A grant may start with no bindings and authorize nothing. This lets
 an application record a delegation before deciding what authority it reaches.
-Setting resources later still requires the parent coverage proof.
+Setting bindings later still requires the parent coverage proof.

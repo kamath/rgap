@@ -54,7 +54,7 @@ const model = await admin.resources.create({
 
 const employeeGrant = await admin.grants.create({
   name: 'company/platform-team/employee',
-  resources: [{ id: model.id, permissions: ['invoke'] }],
+  bindings: [{ id: model.id, permissions: ['invoke'] }],
   expiresAt: null,
 });
 const employeeToken = await employeeGrant.tokens.create({ label: 'employee' });
@@ -121,7 +121,7 @@ the credential:
 const scripts = await admin.resources.create({ name: 'users/alice/scripts' });
 const author = await admin.grants.create({
   name: 'users/alice/script-author',
-  resources: [
+  bindings: [
     { id: scripts.id, permissions: ['write', 'invoke'] },
     { id: githubProfile.id, permissions: ['bind'] },
   ],
@@ -146,7 +146,7 @@ const script = await (await alice.resources.get(scripts.id)).create({
 const actingAuthor = await alice.grants.get(author.id);
 const consumer = await actingAuthor.create({
   name: 'profile-consumer',
-  resources: [{ id: script.id, permissions: ['invoke'] }],
+  bindings: [{ id: script.id, permissions: ['invoke'] }],
   expiresAt: null,
 });
 const consumerToken = await consumer.tokens.create({ label: 'consumer' });
@@ -207,11 +207,11 @@ acme/
 
 The server resource is the high-level governance boundary. Granting `invoke`
 on one tool does not expose its siblings. Granting `invoke` on a server reaches
-its current and future tools because a resource entry covers the complete subtree.
+its current and future tools because a binding covers the complete subtree.
 
 <Callout type="info">
   Registering or discovering a tool does not grant access. A grant must contain
-  an entry that reaches it with `invoke`.
+  a binding that reaches it with `invoke`.
 </Callout>
 
 ## Aggregate tools for a coordinator
@@ -220,7 +220,7 @@ One coordinator grant can combine selected tools from several servers:
 
 ```yaml
 name: company/project-coordinator
-resources:
+bindings:
   - id: tool_drive_search_files
     permissions: [invoke]
   - id: tool_slack_search_messages
@@ -240,7 +240,7 @@ The coordinator delegates only search tools:
 ```yaml
 name: research-sub-agent
 parentId: grant_project_coordinator
-resources:
+bindings:
   - id: tool_drive_search_files
     permissions: [invoke]
   - id: tool_slack_search_messages
@@ -267,7 +267,7 @@ the applicable leaves. Submitted `invoke` entries store `read` as well.
   <Step>
     ### Issue selected authority
 
-    Create a grant with entries for only the coordinator's selected tools and
+    Create a grant with bindings for only the coordinator's selected tools and
     issue an opaque bearer.
   </Step>
   <Step>
@@ -300,11 +300,11 @@ the applicable leaves. Submitted `invoke` entries store `read` as well.
 ```ts
 const coordinator = await companyPlane.grants.create({
   name: 'company/project-coordinator',
-  resources: [],
+  bindings: [],
   expiresAt: '2026-08-20T23:00:00.000Z',
 });
 
-await coordinator.resources.set([
+await coordinator.bindings.set([
   { id: driveSearch.id, permissions: ['invoke'] },
   { id: slackSearch.id, permissions: ['invoke'] },
   { id: githubCreateIssue.id, permissions: ['invoke'] },
@@ -317,11 +317,11 @@ const coordinatorPlane = store.as(coordinatorToken.value);
 
 const researcher = await coordinatorPlane.grants.create({
   name: 'company/project-coordinator/research-sub-agent',
-  resources: [],
+  bindings: [],
   expiresAt: '2026-08-20T22:00:00.000Z',
 });
 
-await researcher.resources.set([
+await researcher.bindings.set([
   { id: driveSearch.id, permissions: ['invoke'] },
   { id: slackSearch.id, permissions: ['invoke'] },
 ]);
