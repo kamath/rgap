@@ -1,0 +1,189 @@
+---
+title: Privilege delegation and escalation
+description: Distinguish intentional capability composition from unauthorized authority gain.
+icon: ShieldCheck
+---
+
+RGAP treats authority as an explicit capability that can be narrowed,
+composed, and delegated. A principal escalates privilege only when it can
+perform an operation that is not covered by its own authority or by a valid
+capability deliberately delegated to the resource it invokes.
+
+## Delegation is not escalation
+
+An administrator can bind a credential resource into a narrow executable and
+grant another principal `invoke` on that executable:
+
+```text
+GitHub profile executable
+└── credential → GitHub token resource
+```
+
+The invoker can perform the profile operation but cannot read, replace, or
+bind the token. The administrator deliberately delegates one interface backed
+by stronger authority. Exercising that interface is delegation, not
+escalation.
+
+The holder of `bind` can encapsulate a resource in another executable:
+
+```ts
+await summary.executable.set({
+  runtime: 'profileSummary',
+  bind: { profile: githubProfile.id },
+});
+```
+
+This operation records the grant lineage that authorizes `bind`. Anyone who
+later receives `invoke` on `summary` can use its interface while that recorded
+lineage remains valid. Granting `bind` therefore includes the authority to
+publish a wrapper around the bound resource. Administrators grant `bind` only
+when that delegation is intended.
+
+## Runtime authorization
+
+Configuration checks make errors fail early, but invocation is the security
+boundary. Each invocation frame:
+
+1. Authorizes `invoke` on its executable resource.
+2. Revalidates every direct binding target and its recorded `bind` lineage.
+3. Rejects caller input containing a sealed field.
+4. Inserts the bound resource ID strings and parses the complete input.
+5. Authorizes every nested resource ID before invoking it.
+
+Grant expiration, revocation, narrowing, or loss of coverage disables the
+binding on its next use. An invocation that has already started uses its
+authorization decision until that frame finishes. Every nested frame makes a
+new decision.
+
+Administrative bindings carry administrative provenance. They remain valid
+until an administrator changes the executable or the target resource ceases
+to be live.
+
+## Transitive execution
+
+Authority composes across frames:
+
+```text
+A binds B
+B binds C
+
+invoke A
+└── A frame validates A → B
+    └── invoke B
+        └── B frame validates B → C
+```
+
+A can cause B to use C through B's interface. A does not receive C as a direct
+binding and cannot reuse C in another executable without independent `bind`
+authority.
+
+Nested invocation accepts an arbitrary resource ID. RGAP authorizes that ID
+from either:
+
+- the initiating caller's direct `invoke` authority; or
+- a valid direct binding edge on the current frame.
+
+Resource IDs are identifiers, not bearer secrets. Knowing or guessing an ID
+does not provide authority.
+
+## Wrapper publication
+
+Publishing a wrapper is an intentional capability transfer:
+
+```ts
+const actingAuthor = await authorPlane.grants.get(authorGrant.id);
+const consumer = await actingAuthor.create({
+  name: 'consumer',
+  resources: [
+    { id: summary.id, permissions: ['invoke'] },
+  ],
+  expiresAt: null,
+});
+```
+
+The consumer can invoke `summary` without receiving `bind` on
+`githubProfile` or any permission on the credential. The wrapper's input and
+output interface defines the authority being published.
+
+Revoking the binding author's lineage disables the bound edge for every
+consumer. Revoking one consumer's lineage disables that consumer without
+affecting the wrapper or other consumers.
+
+## Confused deputies
+
+A trusted runtime can hold stronger authority than its caller. It becomes a
+confused deputy when caller-controlled arguments make it apply that authority
+outside its intended scope.
+
+For example, an executable backed by an organization-wide GitHub token is too
+broad if any invoker can choose an arbitrary organization and destructive
+operation:
+
+```ts
+inputSchema: z.object({
+  organization: z.string(),
+  repository: z.string(),
+  operation: z.enum(['delete']),
+})
+```
+
+RGAP correctly authorizes invocation of the executable, but the executable's
+interface delegates more power than intended. Prefer narrow runtimes, validate
+arguments, and represent protected scopes as resources when authorization
+must distinguish them.
+
+Combining caller authority with sealed authority is safe only when the runtime
+intentionally defines that composition. A runtime that invokes
+caller-supplied resource IDs still relies on RGAP to authorize each nested
+target.
+
+## Live references
+
+A binding follows the current executable attached to its resource. Replacing
+B's runtime changes the behavior observed by every A that binds B. This live
+reference is deliberate and allows centrally managed functions to update
+without rewriting their consumers.
+
+Only principals with `write` on B can change its executable association.
+Administrators review that authority as carefully as authority over B's
+implementation.
+
+## Configuration and execution safety
+
+Bound fields are ordinary top-level string fields in the runtime's input
+schema. RGAP rejects a binding name that can mutate object structure and
+rejects invocation input that supplies any sealed name. It constructs merged
+input without prototype inheritance.
+
+Binding a resource ID into the wrong string field is a configuration error,
+not an authorization bypass. The complete runtime schema rejects incompatible
+values during invocation. Runtime authors use descriptive field names so
+same-type mistakes remain visible.
+
+Nested execution rejects a resource already present in the active call stack
+and enforces a maximum depth of 32 frames. Cancellation propagates through the
+complete chain. Implementations can cache repeated authorization decisions
+within one root invocation, but never across authorization-state changes.
+
+## Trust boundary
+
+Runtime implementations and deployment-owned adapters are trusted code. A
+runtime that receives a credential-backed input can intentionally return or
+log the credential. RGAP prevents callers from obtaining authority through
+binding substitution; it does not sandbox trusted runtime code.
+
+Framework audit records, validation errors, and transport errors exclude
+merged input and external secret values. Applications apply the same rule to
+runtime logs, provider errors, traces, caches, and model context.
+
+## Review checklist
+
+Before granting `bind` or publishing an executable:
+
+- Confirm that the executable exposes only intended operations and scopes.
+- Treat `bind` as authority to create and publish wrappers.
+- Limit `write` on live bound executables.
+- Validate all caller-controlled arguments used with privileged adapters.
+- Keep credential values outside inputs, outputs, logs, and errors.
+- Verify that revoking the recorded binding lineage disables future use.
+- Test caller attempts to override sealed fields and invoke unrelated IDs.

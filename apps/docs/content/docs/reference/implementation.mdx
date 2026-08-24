@@ -153,23 +153,31 @@ orchestrator then:
 
 1. Resolves the executable association and registered runtime.
 2. Revalidates every bound target and its recorded `bind` lineage.
-3. Rejects caller values for sealed fields, inserts the bound resource ID
-   strings, and parses the complete input when `inputSchema` is not null.
+3. Rejects caller values for sealed fields, constructs input without prototype
+   inheritance, inserts the bound resource ID strings, and parses the complete
+   input when `inputSchema` is not null.
 4. Calls the runtime with typed input, an `AbortSignal`, and nested invocation
    methods that accept arbitrary resource IDs.
 5. Authorizes each nested ID through the initiating caller or a valid direct
    edge on the current frame. A nested target begins a new frame with its own
    independently revalidated edges.
-6. Normalizes a single value, promise, async iterable, or `undefined`.
-7. Parses every output when `outputSchema` is not null, emits `data`, and emits
+6. Resolves each nested target's current executable, rejects active-stack
+   cycles, and enforces a maximum depth of 32 frames.
+7. Normalizes a single value, promise, async iterable, or `undefined`.
+8. Parses every output when `outputSchema` is not null, emits `data`, and emits
    `done` automatically.
-8. Records redacted facts as `done`, `error`, or `cancelled` in a `finally`
+9. Records redacted facts as `done`, `error`, or `cancelled` in a `finally`
    block.
 
 The audit detail contains resource ID, runtime, grant-lineage IDs, parent
 invocation ID, binding resource IDs, timing, and result. It excludes input,
 output, and external secret values. Caller cancellation and early iterator
 return abort the complete nested call chain.
+
+One root invocation memoizes repeated authorization decisions only for the
+authorization-state snapshot that produced them. A nested frame reads
+authorization state again before it starts, so revocation affects subsequent
+calls without interrupting work already running in a frame.
 
 ## HTTP server
 

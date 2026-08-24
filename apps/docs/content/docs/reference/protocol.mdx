@@ -390,16 +390,27 @@ atomically creates or replaces the association together with its audit event.
 Setting requires `write` on the executable resource and `bind` on every
 directly bound resource. Each binding records the complete grant lineage that
 authorized it. Administrative bindings record administrative provenance.
+Binding names are top-level input property names. `__proto__`, `prototype`,
+and `constructor` are invalid binding names.
 
 Binding creation validates authority immediately, and every invocation
 revalidates that the bound resource is live and its recorded lineage remains
 active and still covers `bind`. Revoking or narrowing any grant in that
 lineage disables the edge.
 
+A valid binding is deliberately delegable through its executable. Any
+principal with `invoke` on that executable can exercise its interface without
+holding `bind` on the direct target. Granting `bind` therefore authorizes the
+holder to create a wrapper and publish that wrapper by delegating `invoke`.
+
 Authority composes through nested invocation frames. If A binds B and B binds
 C, invoking A can invoke B, whose own frame can then use C. Authority is not
 flattened: A's frame does not gain a direct edge to C. Every hop is revalidated
 when the call chain runs.
+
+Bindings are live references to resource identity. A frame resolves the
+target's current executable definition. Replacing that definition changes the
+behavior observed through every binding to the resource.
 
 Deleting an executable removes its association and records the deletion
 atomically. It leaves resource and audit records intact, and a later set may
@@ -452,16 +463,19 @@ Invocation is one ordered decision and lifecycle:
 3. Revalidate every sealed binding's live target and recorded `bind` lineage.
 4. Require object input when bindings exist and reject any caller-supplied
    property whose name is sealed.
-5. Insert the bound resource ID strings, then parse the complete input when the
-   runtime's `inputSchema` is not null.
+5. Create input without prototype inheritance, insert the bound resource ID
+   strings, then parse the complete input when the runtime's `inputSchema` is
+   not null.
 6. Invoke the runtime with typed input, an abort signal, and nested invocation
    methods that accept resource IDs.
 7. Authorize each nested target from either the initiating caller's direct
    `invoke` authority or a valid direct binding edge on the current frame.
-8. Normalize one value, a promise, an async iterable, or `undefined`.
-9. Parse each output when `outputSchema` is not null, emit a `data` event for
+8. Reject a resource already present in the active invocation stack and reject
+   a call deeper than 32 frames.
+9. Normalize one value, a promise, an async iterable, or `undefined`.
+10. Parse each output when `outputSchema` is not null, emit a `data` event for
    each defined value, and emit `done` automatically.
-10. Let runtime failures terminate the stream. Record normal exhaustion as
+11. Let runtime failures terminate the stream. Record normal exhaustion as
    `done`, runtime failure as `error`, and caller abort or early iterator return
    as `cancelled`.
 
@@ -470,6 +484,13 @@ accepts heterogeneous generic runtimes; type erasure is confined to registry
 lookup. Cancellation propagates through nested calls and reaches each runtime
 through `AbortSignal`. Every nested invocation produces its own audit record,
 linked to the parent invocation without recording inputs or outputs.
+Authorization is fixed for the lifetime of one frame. Authorization state is
+read again when a nested frame starts.
+
+A schema can accept a bound ID in any string field. Binding a resource to the
+wrong same-type field is a configuration error rather than an authorization
+failure; the runtime's complete schema and behavior determine whether it
+fails. RGAP assigns resource semantics only to fields named in `bind`.
 
 ## Invocation auditing and redaction
 
@@ -511,12 +532,16 @@ An implementation conforms when:
     inserting sealed resource ID strings into runtime input.
 13. An executable persists one resource-to-runtime association and its sealed
     direct bindings; deletion removes the association and bindings.
-14. Runtime registration, schemas, and behavior are deployment configuration
+14. Binding authority is delegable through `invoke`, follows the target's live
+    executable definition, and never flattens transitive edges into a caller.
+15. Runtime registration, schemas, and behavior are deployment configuration
     that repository commands cannot mutate.
-15. Invocation resolves one runtime, parses input after inserting bound fields,
+16. Invocation resolves one runtime, rejects sealed input collisions, parses
+    input after safely inserting bound fields,
     authorizes arbitrary nested resource IDs against caller authority or the
     current frame's direct edges, follows valid edges transitively across
-    frames, normalizes results into `data` and automatic `done` events,
-    propagates cancellation, and records each call in the chain.
-16. Audit records, errors, and logs exclude inputs and outputs while retaining
+    frames, rejects active cycles and depths above 32, normalizes results into
+    `data` and automatic `done` events, propagates cancellation, and records
+    each call in the chain.
+17. Audit records, errors, and logs exclude inputs and outputs while retaining
     the IDs, runtime, timing, and result needed for accountability.

@@ -67,11 +67,9 @@ const author = await admin.grants.create({
   ],
   expiresAt: null,
 });
-const token = await author.tokens.create({ label: 'script-author' });
-const tokenPath = `${directory}/script-author.token`;
-writeFileSync(tokenPath, token.value, { mode: 0o600 });
+const authorToken = await author.tokens.create({ label: 'script-author' });
 
-const alice = store.as(token.value);
+const alice = store.as(authorToken.value);
 const script = await (await alice.resources.get(scripts.id)).create({
   name: 'profile-summary',
 });
@@ -79,6 +77,16 @@ await script.executable.set({
   runtime: 'profileSummary',
   bind: { profile: profile.id },
 });
+
+const actingAuthor = await alice.grants.get(author.id);
+const consumer = await actingAuthor.create({
+  name: 'profile-consumer',
+  resources: [{ id: script.id, permissions: ['invoke'] }],
+  expiresAt: null,
+});
+const consumerToken = await consumer.tokens.create({ label: 'consumer' });
+const tokenPath = `${directory}/script-invoker.token`;
+writeFileSync(tokenPath, consumerToken.value, { mode: 0o600 });
 
 const app = createApp({
   store,

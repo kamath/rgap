@@ -5,7 +5,7 @@ GitHub credential resource, stores its value in `secrets.db`, and binds it to a
 trusted `githubProfile` executable. A user receives `bind` on that safe
 function without receiving any permission on its credential. The user then
 creates a `profile-summary` executable resource that binds and invokes the
-safe function.
+safe function and delegates `invoke` on that wrapper to a consumer.
 
 Both bindings contain ordinary RGAP resource IDs:
 
@@ -22,6 +22,11 @@ flattened into the outer frame, so the user cannot bind or read
 `github-token`, even if its resource ID is known. Invocation input cannot
 replace either sealed field.
 
+The consumer needs only `invoke` on `profile-summary`. This deliberately
+publishes the wrapper's narrow interface without delegating either binding.
+Revoking the script author's lineage disables the wrapper's `profile` edge on
+its next invocation.
+
 Start the app:
 
 ```sh
@@ -29,10 +34,10 @@ pnpm --filter @rgap/examples secret-store
 ```
 
 The app prints the user-created script resource ID and writes its bearer to
-`script-author.token` with owner-only permissions. Invoke that resource:
+`script-invoker.token` with owner-only permissions. Invoke that resource:
 
 ```sh
-TOKEN=$(<examples/secret-store/script-author.token)
+TOKEN=$(<examples/secret-store/script-invoker.token)
 
 curl --no-buffer \
   -H "Authorization: Bearer $TOKEN" \

@@ -1,5 +1,11 @@
 {
   "title": "Concepts",
   "icon": "Network",
-  "pages": ["index", "resources", "delegation", "tokens"]
+  "pages": [
+    "index",
+    "resources",
+    "delegation",
+    "privilege-delegation",
+    "tokens"
+  ]
 }

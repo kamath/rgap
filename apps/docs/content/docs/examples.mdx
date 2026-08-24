@@ -104,7 +104,7 @@ const githubProfileRuntime = {
     if (token === undefined) throw new Error('Credential is unavailable.');
     return fetchGithubProfile(token);
   },
-} satisfies InvokeRuntime<null, { login: string }>;
+} satisfies InvokeRuntime<{ credential: string }, { login: string }>;
 ```
 
 The administrator gives Alice authority to compose the safe function and to
@@ -136,6 +136,14 @@ await script.executable.set({
   runtime: 'profileSummary',
   bind: { profile: githubProfile.id },
 });
+
+const actingAuthor = await alice.grants.get(author.id);
+const consumer = await actingAuthor.create({
+  name: 'profile-consumer',
+  resources: [{ id: script.id, permissions: ['invoke'] }],
+  expiresAt: null,
+});
+const consumerToken = await consumer.tokens.create({ label: 'consumer' });
 ```
 
 The composition runtime invokes that named binding. It receives the profile
@@ -152,7 +160,7 @@ const profileSummaryRuntime = {
     );
     return `GitHub user: ${profile.login}`;
   },
-} satisfies InvokeRuntime<null, string>;
+} satisfies InvokeRuntime<{ profile: string }, string>;
 ```
 
 Creating the `profile` edge requires `bind` on `githubProfile`. When the script
@@ -160,6 +168,12 @@ runs, RGAP revalidates that edge and invokes the arbitrary resource ID in
 `input.profile`. The profile's frame then revalidates its own credential edge.
 This transitive call chain never grants the script's frame direct authority to
 bind or read `githubToken`.
+
+The consumer can invoke `script` without receiving `bind` on `githubProfile`.
+This is the intended meaning of `bind`: Alice can encapsulate the safe profile
+capability and publish her wrapper's interface. Revoking or narrowing
+`author` invalidates the recorded `profile` edge on its next invocation and
+therefore disables it for every consumer.
 
 The complete Hono app lives in `examples/secret-store`. It uses one SQLite
 database for RGAP state and initializes `SqliteSecretStore` with another
