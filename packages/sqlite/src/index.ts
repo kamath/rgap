@@ -37,10 +37,11 @@ import {
   type GrantResource,
   type AuditEvent,
   type CreateGrantInput,
-  type CreateResourceInput,
+  type ExecutableDefinition,
   type GrantId,
   type InvocationRecord,
   type InvokeInput,
+  type JsonValue,
   type RuntimeRegistrations,
   type Permission,
   type SetExecutableInput,
@@ -48,6 +49,7 @@ import {
   type RecordId,
   type ResourceId,
   type ResourceListQuery,
+  type ResourceWrite,
   type RgapCommands,
   type RgapRepository,
   type RgapStore,
@@ -180,19 +182,27 @@ class SqliteBackingRepository implements RgapCommands {
     return rows.map(auditRecord);
   }
 
-  async createResource(input: CreateResourceInput) {
+  async createResource(input: ResourceWrite & { parentId: ResourceId | null }) {
     return this.db.transaction(() => {
+      const at = now();
       const state = this.workingState();
       this.prepareResourcePath(state, input.name, input.parentId);
+      Object.values(input.executable?.bind ?? {}).forEach((boundId) => {
+        this.loadResource(state, boundId);
+      });
       const before = new Set(Object.keys(state.resources));
-      const next = createAtPath(state, input.name, input.parentId, now());
+      let next = createAtPath(state, input.name, input.parentId, at);
       const id = resourceIdAtPath(next.resources, input.name, input.parentId);
       if (!id) throw new RgapError('invalid_name', 'Resource name is required.');
+      if (input.executable) {
+        next = associateExecutable(next, id, input.executable, at, this.runtimes);
+      }
       const created = Object.values(next.resources).filter((resource) => !before.has(resource.id));
       insert(this.db, schema.resources, parentsFirst(
         Object.fromEntries(created.map((resource) => [resource.id, resource])),
         'resource_cycle',
       ));
+      if (input.executable) this.storeExecutable(next.executables[id]);
       this.persistAuditDelta(state, next);
       return resourceRecord(this.db.select().from(schema.resources).where(eq(schema.resources.id, id)).get()!);
     });
@@ -241,6 +251,7 @@ class SqliteBackingRepository implements RgapCommands {
     return {
       resourceId: resourceId(row.resourceId),
       runtime: row.runtime,
+      input: parseExecutableInput(row.input),
       bind,
     };
   }
@@ -252,24 +263,7 @@ class SqliteBackingRepository implements RgapCommands {
       Object.values(input.bind ?? {}).forEach((boundId) => this.loadResource(state, boundId));
       const next = associateExecutable(state, id, input, now(), this.runtimes);
       const definition = next.executables[id];
-      this.db.insert(schema.executables).values({
-        resourceId: definition.resourceId,
-        runtime: definition.runtime,
-      })
-        .onConflictDoUpdate({
-          target: schema.executables.resourceId,
-          set: { runtime: definition.runtime },
-        }).run();
-      this.db.delete(schema.executableBindings)
-        .where(eq(schema.executableBindings.executableResourceId, id)).run();
-      insert(this.db, schema.executableBindings, Object.entries(definition.bind).map(([name, binding]) => ({
-        executableResourceId: id,
-        name,
-        resourceId: binding.resourceId,
-        grantLineage: binding.grantLineage === null
-          ? null
-          : JSON.stringify(binding.grantLineage),
-      })));
+      this.storeExecutable(definition);
       this.persistAuditDelta(state, next);
       return structuredClone(definition);
     });
@@ -283,6 +277,7 @@ class SqliteBackingRepository implements RgapCommands {
       if (row) state.executables[id] = {
         resourceId: id,
         runtime: row.runtime,
+        input: parseExecutableInput(row.input),
         bind: {},
       };
       const next = removeExecutable(state, id, now());
@@ -774,6 +769,31 @@ class SqliteBackingRepository implements RgapCommands {
     };
   }
 
+  private storeExecutable(definition: ExecutableDefinition) {
+    this.db.insert(schema.executables).values({
+      resourceId: definition.resourceId,
+      runtime: definition.runtime,
+      input: JSON.stringify(definition.input),
+    })
+      .onConflictDoUpdate({
+        target: schema.executables.resourceId,
+        set: {
+          runtime: definition.runtime,
+          input: JSON.stringify(definition.input),
+        },
+      }).run();
+    this.db.delete(schema.executableBindings)
+      .where(eq(schema.executableBindings.executableResourceId, definition.resourceId)).run();
+    insert(this.db, schema.executableBindings, Object.entries(definition.bind).map(([name, binding]) => ({
+      executableResourceId: definition.resourceId,
+      name,
+      resourceId: binding.resourceId,
+      grantLineage: binding.grantLineage === null
+        ? null
+        : JSON.stringify(binding.grantLineage),
+    })));
+  }
+
   /** Replaces the stored rows with one complete state, writing parents before children. */
   private replace(state: State) {
     this.db.delete(schema.grantResourcePermissions).run();
@@ -815,6 +835,7 @@ class SqliteBackingRepository implements RgapCommands {
     insert(this.db, schema.executables, Object.values(state.executables).map((definition) => ({
       resourceId: definition.resourceId,
       runtime: definition.runtime,
+      input: JSON.stringify(definition.input),
     })));
     insert(this.db, schema.executableBindings, Object.values(state.executables).flatMap((definition) =>
       Object.entries(definition.bind).map(([name, binding]) => ({
@@ -853,6 +874,25 @@ const completeState = (state?: State): State => ({
 const now = () => new Date().toISOString();
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const digest = (value: string) => tokenHash(hash(value));
+const parseExecutableInput = (value: string): Record<string, JsonValue> => {
+  const parsed: unknown = JSON.parse(value);
+  if (!isJsonObject(parsed)) {
+    throw new RgapError('invalid_executable_input', 'Stored executable input is invalid.');
+  }
+  return parsed;
+};
+const isJsonValue = (value: unknown): value is JsonValue =>
+  value === null ||
+  typeof value === 'string' ||
+  typeof value === 'boolean' ||
+  (typeof value === 'number' && Number.isFinite(value)) ||
+  (Array.isArray(value) && value.every(isJsonValue)) ||
+  isJsonObject(value);
+const isJsonObject = (value: unknown): value is Record<string, JsonValue> =>
+  value !== null &&
+  typeof value === 'object' &&
+  !Array.isArray(value) &&
+  Object.values(value).every(isJsonValue);
 const parseGrantLineage = (value: string): GrantId[] => {
   const parsed: unknown = JSON.parse(value);
   if (!Array.isArray(parsed) || parsed.some((id) => typeof id !== 'string')) {

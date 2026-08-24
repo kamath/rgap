@@ -17,7 +17,7 @@ import {
 import type { InvokeInput, SetExecutableInput } from './executable';
 import type { InvocationEvent } from './runtime';
 
-export type ResourceWrite = { name: string };
+export type ResourceWrite = { name: string; executable?: SetExecutableInput };
 export type GrantWrite = { name: string; resources: GrantResource[]; expiresAt: string | null };
 export type TokenWrite = { label: string };
 

@@ -4,6 +4,7 @@ import {
   resourceId as toResourceId,
   type ExecutableDefinition,
   type GrantId,
+  type JsonValue,
   type Permission,
   type ResourceId,
   type State,
@@ -16,6 +17,7 @@ import {
 
 export type SetExecutableInput = {
   runtime: string;
+  input?: Record<string, JsonValue>;
   bind?: Record<string, ResourceId>;
 };
 export type InvokeInput = {
@@ -62,7 +64,42 @@ function getAuthorizedBindings(input: SetExecutableInput) {
 }
 
 const cloned = <T>(value: T): T => structuredClone(value);
-const invalidBindingNames = new Set(['__proto__', 'prototype', 'constructor']);
+const invalidSealedNames = new Set(['__proto__', 'prototype', 'constructor']);
+
+function configuredInput(input: SetExecutableInput['input']): Record<string, JsonValue> {
+  if (input === undefined) return {};
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    throw new RgapError('invalid_executable_input', 'Executable input must be an object.');
+  }
+  return Object.fromEntries(Object.entries(input).map(([name, value]) => {
+    if (invalidSealedNames.has(name)) {
+      throw new RgapError('invalid_executable_input', `Executable input name ${name} is reserved.`);
+    }
+    return [name, jsonValue(value, name)];
+  }));
+}
+
+function jsonValue(value: unknown, path: string): JsonValue {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean'
+  ) return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (Array.isArray(value)) {
+    return value.map((entry, index) => jsonValue(entry, `${path}[${index}]`));
+  }
+  if (typeof value === 'object') {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new RgapError('invalid_executable_input', `Executable input ${path} must be JSON-compatible.`);
+    }
+    return Object.fromEntries(
+      Object.entries(value).map(([name, entry]) => [name, jsonValue(entry, `${path}.${name}`)]),
+    );
+  }
+  throw new RgapError('invalid_executable_input', `Executable input ${path} must be JSON-compatible.`);
+}
 
 /** Atomically creates or replaces a resource-to-runtime association. */
 export function setExecutable(
@@ -78,10 +115,14 @@ export function setExecutable(
   const runtime = input.runtime.trim();
   if (!runtime) throw new RgapError('invalid_runtime', 'Runtime name is required.');
   runtimes.get(runtime);
+  const configured = configuredInput(input.input);
   const authorized = getAuthorizedBindings(input);
   const bind = Object.fromEntries(Object.entries(input.bind ?? {}).map(([name, boundId]) => {
-    if (invalidBindingNames.has(name)) {
+    if (invalidSealedNames.has(name)) {
       throw new RgapError('invalid_bindings', `Binding name ${name} is reserved.`);
+    }
+    if (Object.prototype.hasOwnProperty.call(configured, name)) {
+      throw new RgapError('invalid_bindings', `Binding ${name} conflicts with executable input.`);
     }
     if (!isLive(state.resources[boundId])) {
       throw new RgapError('missing_resource', `Bound resource ${boundId} does not exist.`);
@@ -96,7 +137,7 @@ export function setExecutable(
     }];
   }));
   const next = cloned(state);
-  next.executables[resourceId] = { resourceId, runtime, bind };
+  next.executables[resourceId] = { resourceId, runtime, input: configured, bind };
   next.audit.unshift({
     id: `${at}:executable.set:${next.audit.length}`,
     at,
@@ -199,8 +240,9 @@ async function* invokeFrame(
   }
 
   let completeInput = input.input;
+  const configuredEntries = Object.entries(definition.input);
   const bindingEntries = Object.entries(definition.bind);
-  if (bindingEntries.length) {
+  if (configuredEntries.length || bindingEntries.length) {
     if (
       completeInput === null ||
       typeof completeInput !== 'object' ||
@@ -208,12 +250,13 @@ async function* invokeFrame(
     ) {
       throw new RgapError('invalid_input', 'Invocation input must be an object when bindings exist.');
     }
-    for (const [name] of bindingEntries) {
+    for (const [name] of [...configuredEntries, ...bindingEntries]) {
       if (Object.prototype.hasOwnProperty.call(completeInput, name)) {
         throw new RgapError('invalid_input', `Invocation input cannot override sealed field ${name}.`);
       }
     }
     const merged = Object.assign(Object.create(null), completeInput);
+    for (const [name, value] of configuredEntries) merged[name] = cloned(value);
     for (const [name, binding] of bindingEntries) merged[name] = binding.resourceId;
     completeInput = merged;
   }

@@ -59,6 +59,8 @@ export const tokens = sqliteTable('tokens', {
 export const executables = sqliteTable('executables', {
   resourceId: text('resource_id').primaryKey().references(() => resources.id),
   runtime: text('runtime').notNull(),
+  /** JSON object containing sealed literal input fields. */
+  input: text('input').notNull(),
 });
 
 export const executableBindings = sqliteTable(

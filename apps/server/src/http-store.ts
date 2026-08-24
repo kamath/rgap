@@ -135,7 +135,12 @@ class HttpRgapCommands implements RgapCommands {
     const name = input.parentId === null
       ? input.name
       : `${await this.pathOf(input.parentId)}/${input.name}`;
-    return asResource(unwrap(await createResource(this.options({ body: { name } }))));
+    return asResource(unwrap(await createResource(this.options({
+      body: {
+        name,
+        executable: input.executable,
+      },
+    }))));
   }
 
   private async pathOf(id: ReturnType<typeof resourceId>) {

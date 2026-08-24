@@ -30,9 +30,18 @@ export type ExecutableBinding = {
   grantLineage: GrantId[] | null;
 };
 
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
 export type ExecutableDefinition = {
   resourceId: ResourceId;
   runtime: string;
+  input: Record<string, JsonValue>;
   bind: Record<string, ExecutableBinding>;
 };
 

@@ -37,6 +37,7 @@ describe('executable associations', () => {
     expect(first.executables[executableId]).toEqual({
       resourceId: executableId,
       runtime: 'one',
+      input: {},
       bind: {},
     });
     expect(first.audit[0].action).toBe('executable.set');
@@ -98,6 +99,19 @@ describe('executable associations', () => {
       at,
       runtimes,
     )).toThrow('was not authorized');
+    expect(() => setExecutable(fixture(), executableId, {
+      runtime: 'test',
+      input: { source: 'configured' },
+      bind: { source: resourceId('read-file') },
+    }, at, runtimes)).toThrow('conflicts');
+    expect(() => setExecutable(fixture(), executableId, {
+      runtime: 'test',
+      input: { constructor: 'reserved' },
+    }, at, runtimes)).toThrow('reserved');
+    expect(() => setExecutable(fixture(), executableId, {
+      runtime: 'test',
+      input: { invalid: new Date() } as never,
+    }, at, runtimes)).toThrow('JSON-compatible');
   });
 });
 
@@ -170,7 +184,11 @@ describe('runtime registry and invocation', () => {
     const state = setExecutable(
       fixture(),
       executableId,
-      { runtime: 'test', bind: { source: resourceId('read-file') } },
+      {
+        runtime: 'test',
+        input: { model: 'gpt-5.6-sol' },
+        bind: { source: resourceId('read-file') },
+      },
       at,
       new RuntimeRegistry({ test: implementation }),
     );
@@ -182,6 +200,7 @@ describe('runtime registry and invocation', () => {
       { type: 'done' },
     ]);
     expect(inputSchema.parse).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'gpt-5.6-sol',
       query: 'raw',
       source: resourceId('read-file'),
     }));
@@ -199,6 +218,9 @@ describe('runtime registry and invocation', () => {
 
     await expect(collect(invokeExecutable(configured, executableId, {
       input: { query: 'raw', source: 'override' },
+    }))).rejects.toThrow('cannot override sealed field');
+    await expect(collect(invokeExecutable(configured, executableId, {
+      input: { query: 'raw', model: 'override' },
     }))).rejects.toThrow('cannot override sealed field');
     for (const invalid of [null, 'not-an-object', []]) {
       await expect(collect(invokeExecutable(configured, executableId, {

@@ -95,6 +95,7 @@ export function stubCommands(state: State, at: string) {
     setExecutable: (id, input) => record('setExecutable', [id, input], {
       resourceId: id,
       runtime: input.runtime,
+      input: structuredClone(input.input ?? {}),
       bind: Object.fromEntries(Object.entries(input.bind ?? {}).map(([name, boundId]) => [
         name,
         { resourceId: boundId, grantLineage: null },

@@ -27,7 +27,11 @@ import {
   type RgapRepository,
   type TokenHandle,
 } from './repository';
-import { withAuthorizedBindings, withAuthorizedLineage } from './executable';
+import {
+  withAuthorizedBindings,
+  withAuthorizedLineage,
+  type SetExecutableInput,
+} from './executable';
 
 /**
  * Wraps a repository so each command authorizes the token before it runs.
@@ -69,11 +73,23 @@ export function guardCommands(
     throw new RgapError('unauthorized', `${operation} is an administrative operation that no token authorizes.`);
   }
 
+  const authorizeExecutable = async (input: SetExecutableInput) => {
+    const bindings = Object.fromEntries(await Promise.all(
+      Object.entries(input.bind ?? {}).map(async ([name, id]) => [
+        name,
+        (await permit(id, 'bind')).lineage,
+      ]),
+    ));
+    return withAuthorizedBindings(input, bindings);
+  };
+
   const wrapResource = (resource: ResourceHandle): ResourceHandle => ({
     ...resource,
     async create(input) {
       await permit(resource.id, 'write');
-      return wrapResource(await resource.create(input));
+      return wrapResource(await resource.create(input.executable
+        ? { ...input, executable: await authorizeExecutable(input.executable) }
+        : input));
     },
     async move(parentId) {
       await bearerContext();
@@ -93,13 +109,7 @@ export function guardCommands(
       },
       async set(input) {
         await permit(resource.id, 'write');
-        const bindings = Object.fromEntries(await Promise.all(
-          Object.entries(input.bind ?? {}).map(async ([name, id]) => [
-            name,
-            (await permit(id, 'bind')).lineage,
-          ]),
-        ));
-        return resource.executable.set(withAuthorizedBindings(input, bindings));
+        return resource.executable.set(await authorizeExecutable(input));
       },
       async delete() {
         await permit(resource.id, 'write');
@@ -311,7 +321,9 @@ export function guardCommands(
       async create(input: ResourceWrite) {
         await bearerContext();
         await authorizeCreateFrom(null, input.name);
-        return wrapResource(await repository.resources.create(input));
+        return wrapResource(await repository.resources.create(input.executable
+          ? { ...input, executable: await authorizeExecutable(input.executable) }
+          : input));
       },
       async get(id) {
         if (!(await visibleResourceIds()).has(id)) throw new RgapError('unauthorized', 'That resource is outside this token\'s view.');
@@ -329,16 +341,7 @@ export function guardCommands(
       },
       async set(resourceId, input) {
         await permit(resourceId, 'write');
-        const bindings = Object.fromEntries(await Promise.all(
-          Object.entries(input.bind ?? {}).map(async ([name, id]) => [
-            name,
-            (await permit(id, 'bind')).lineage,
-          ]),
-        ));
-        return repository.executables.set(
-          resourceId,
-          withAuthorizedBindings(input, bindings),
-        );
+        return repository.executables.set(resourceId, await authorizeExecutable(input));
       },
       async delete(resourceId) {
         await permit(resourceId, 'write');

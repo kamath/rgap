@@ -57,11 +57,13 @@ describe('RGAP domain', () => {
     state.executables['missing-definition-resource'] = {
       resourceId: r('missing-definition-resource'),
       runtime: 'test',
+      input: {},
       bind: {},
     };
     state.executables.drive = {
       resourceId: r('drive'),
       runtime: 'test',
+      input: {},
       bind: {},
     };
 
@@ -78,6 +80,7 @@ describe('RGAP domain', () => {
     state.executables.drive = {
       resourceId: r('drive'),
       runtime: 'test',
+      input: {},
       bind: {
         source: {
           resourceId: r('missing-bound-resource'),

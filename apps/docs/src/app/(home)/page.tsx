@@ -83,8 +83,11 @@ export default function HomePage() {
           <pre className="whitespace-pre-wrap break-words p-5 text-[13px] leading-7 text-fd-muted-foreground sm:p-7 sm:text-sm">
             <code>{`const model = await admin.resources.create({
   name: 'openai/gpt-5.6-sol',
+  executable: {
+    runtime: 'openai',
+    input: { model: 'gpt-5.6-sol' },
+  },
 });
-await model.executable.set({ runtime: 'openai' });
 
 const grant = await admin.grants.create({
   name: 'company/platform-team/employee',
@@ -98,7 +101,6 @@ const authorizedModel = await employee.resources.get(model.id);
 
 const response = await authorizedModel.invoke({
   input: {
-    model: 'gpt-5.6-sol',
     prompt: 'Summarize the design notes.',
   },
 });`}</code>

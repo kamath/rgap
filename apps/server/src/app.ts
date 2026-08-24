@@ -268,8 +268,21 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
       return c.json(records, 200);
     })
     .openapi(createResourceRoute, async (c) => {
-      const { name } = c.req.valid('json');
-      const record = await repository(c).resources.create({ name });
+      const { name, executable } = c.req.valid('json');
+      const record = await repository(c).resources.create({
+        name,
+        executable: executable
+          ? {
+            ...executable,
+            bind: executable.bind
+              ? Object.fromEntries(
+                Object.entries(executable.bind)
+                  .map(([binding, boundId]) => [binding, resourceId(boundId)]),
+              )
+              : undefined,
+          }
+          : undefined,
+      });
       return c.json(resourceRecord(record), 200);
     })
     .openapi(moveResourceRoute, async (c) => {
@@ -291,9 +304,10 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
     })
     .openapi(setExecutableRoute, async (c) => {
       const { id } = c.req.valid('param');
-      const { runtime, bind } = c.req.valid('json');
+      const { runtime, input, bind } = c.req.valid('json');
       return c.json(await repository(c).executables.set(resourceId(id), {
         runtime,
+        input,
         bind: bind
           ? Object.fromEntries(
             Object.entries(bind).map(([name, boundId]) => [name, resourceId(boundId)]),

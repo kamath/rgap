@@ -200,6 +200,7 @@ describe('SqliteRgapStore', () => {
     await drive.executable.set({ runtime: 'test' });
     await drive.executable.set({
       runtime: 'other',
+      input: { model: 'gpt-5.6-sol' },
       bind: { source: resourceId('acme') },
     });
     expect((await drive.executable.get())?.runtime).toBe('other');
@@ -209,6 +210,7 @@ describe('SqliteRgapStore', () => {
     expect(await second.executables.get(resourceId('drive'))).toEqual({
       resourceId: resourceId('drive'),
       runtime: 'other',
+      input: { model: 'gpt-5.6-sol' },
       bind: {
         source: {
           resourceId: resourceId('acme'),
@@ -218,6 +220,47 @@ describe('SqliteRgapStore', () => {
     });
     await second.executables.delete(resourceId('drive'));
     expect(await second.executables.get(resourceId('drive'))).toBeUndefined();
+  });
+
+  it('creates a resource and configured executable atomically', async () => {
+    const url = file();
+    const implementation = runtime(({ input }) => {
+      expect(input).toEqual({
+        model: 'gpt-5.6-sol',
+        prompt: 'hello',
+      });
+      return 'done';
+    });
+    const store = open({ url, runtimes: { openai: implementation } });
+    const admin = store.admin();
+    const model = await admin.resources.create({
+      name: 'openai/gpt-5.6-sol',
+      executable: {
+        runtime: 'openai',
+        input: { model: 'gpt-5.6-sol' },
+      },
+    });
+    expect(await model.executable.get()).toEqual({
+      resourceId: model.id,
+      runtime: 'openai',
+      input: { model: 'gpt-5.6-sol' },
+      bind: {},
+    });
+    expect(await collect(model.invoke({ input: { prompt: 'hello' } })))
+      .toEqual([{ type: 'data', value: 'done' }, { type: 'done' }]);
+    store.close();
+
+    const reopened = open({ url, runtimes: { openai: implementation } });
+    expect((await reopened.admin().executables.get(model.id))?.input)
+      .toEqual({ model: 'gpt-5.6-sol' });
+    reopened.close();
+
+    const failed = open({ runtimes: { openai: implementation } }).admin();
+    await expect(failed.resources.create({
+      name: 'missing/runtime',
+      executable: { runtime: 'unknown' },
+    })).rejects.toMatchObject({ code: 'unknown_runtime' });
+    expect(await failed.resources.list()).toEqual([]);
   });
 
   it('fails clearly when executable setting names an unknown runtime', async () => {
