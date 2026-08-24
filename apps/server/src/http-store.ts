@@ -10,6 +10,7 @@ import {
   type GrantResource,
   type ExecutableDefinition,
   type InvocationEvent,
+  type JsonValue,
   type Grant,
   type Permission,
   type RecordId,
@@ -349,6 +350,7 @@ function asExecutableDefinition(record: HttpExecutableDefinition): ExecutableDef
   return {
     ...record,
     resourceId: resourceId(record.resourceId),
+    input: record.input as Record<string, JsonValue>,
     bind: Object.fromEntries(Object.entries(record.bind).map(([name, binding]) => [
       name,
       {

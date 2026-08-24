@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { openai } from '@ai-sdk/openai';
+import { openai as openaiProvider } from '@ai-sdk/openai';
 import { generateText } from 'ai';
 import type { InvokeRuntime } from '@rgap/core';
 import { SqliteRgapStore } from '@rgap/sqlite';
@@ -20,7 +20,7 @@ const openai: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
   outputSchema: OpenAIOutputSchema,
   async invoke({ input, signal }) {
     const { text } = await generateText({
-      model: openai(input.model),
+      model: openaiProvider(input.model),
       prompt: input.prompt,
       abortSignal: signal,
     });

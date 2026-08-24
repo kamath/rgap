@@ -112,6 +112,32 @@ describe('executable associations', () => {
       runtime: 'test',
       input: { invalid: new Date() } as never,
     }, at, runtimes)).toThrow('JSON-compatible');
+    for (const invalid of [undefined, Number.POSITIVE_INFINITY]) {
+      expect(() => setExecutable(fixture(), executableId, {
+        runtime: 'test',
+        input: { invalid } as never,
+      }, at, runtimes)).toThrow('JSON-compatible');
+    }
+    for (const input of [null, []]) {
+      expect(() => setExecutable(fixture(), executableId, {
+        runtime: 'test',
+        input: input as never,
+      }, at, runtimes)).toThrow('must be an object');
+    }
+
+    const configured = setExecutable(fixture(), executableId, {
+      runtime: 'test',
+      input: {
+        options: {
+          values: [null, true, 2],
+        },
+      },
+    }, at, runtimes);
+    expect(configured.executables[executableId].input).toEqual({
+      options: {
+        values: [null, true, 2],
+      },
+    });
   });
 });
 

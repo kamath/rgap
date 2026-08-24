@@ -10,6 +10,7 @@ import {
   type GrantResource,
   type GrantHandle,
   type InvocationEvent,
+  type JsonValue,
   type ResourceHandle,
   type RgapRepository,
   type RgapStore,
@@ -274,6 +275,7 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
         executable: executable
           ? {
             ...executable,
+            input: executableInput(executable.input),
             bind: executable.bind
               ? Object.fromEntries(
                 Object.entries(executable.bind)
@@ -307,7 +309,7 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
       const { runtime, input, bind } = c.req.valid('json');
       return c.json(await repository(c).executables.set(resourceId(id), {
         runtime,
-        input,
+        input: executableInput(input),
         bind: bind
           ? Object.fromEntries(
             Object.entries(bind).map(([name, boundId]) => [name, resourceId(boundId)]),
@@ -550,6 +552,10 @@ function brandedResources(
   entries: Array<{ permissions: GrantResource['permissions']; id: string }>,
 ): GrantResource[] {
   return entries.map((entry) => ({ ...entry, id: resourceId(entry.id) }));
+}
+
+function executableInput(input: Record<string, unknown> | undefined) {
+  return input as Record<string, JsonValue> | undefined;
 }
 
 function secretsEqual(left: string, right: string) {

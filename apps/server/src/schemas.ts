@@ -22,11 +22,12 @@ export const JsonValueSchema = z.union([
   z.array(z.unknown()),
   z.record(z.string(), z.unknown()),
 ]);
+const ExecutableInputSchema = z.record(z.string(), z.unknown());
 
 export const ExecutableDefinitionSchema = z.object({
   resourceId: IdSchema,
   runtime: z.string(),
-  input: z.record(z.string(), JsonValueSchema),
+  input: ExecutableInputSchema,
   bind: z.record(z.string(), z.object({
     resourceId: IdSchema,
     grantLineage: z.array(IdSchema).nullable(),
@@ -35,7 +36,7 @@ export const ExecutableDefinitionSchema = z.object({
 
 export const SetExecutableSchema = z.object({
   runtime: z.string().min(1),
-  input: z.record(z.string(), JsonValueSchema).optional(),
+  input: ExecutableInputSchema.optional(),
   bind: z.record(z.string(), IdSchema).optional(),
 }).strict();
 
