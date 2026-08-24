@@ -2,7 +2,7 @@ import {
   isLive,
   RgapError,
   type AuditEvent,
-  type GrantResource,
+  type GrantBinding,
   type Decision,
   type ExecutableDefinition,
   type Grant,
@@ -18,7 +18,7 @@ import type { InvokeInput, SetExecutableInput } from './executable';
 import type { InvocationEvent } from './runtime';
 
 export type ResourceWrite = { name: string; executable?: SetExecutableInput };
-export type GrantWrite = { name: string; resources: GrantResource[]; expiresAt: string | null };
+export type GrantWrite = { name: string; bindings: GrantBinding[]; expiresAt: string | null };
 export type TokenWrite = { label: string };
 
 export const defaultPageLimit = 50;
@@ -55,12 +55,12 @@ export type ResourceHandle = Resource & {
   invoke(input: InvokeInput): AsyncIterable<InvocationEvent>;
 };
 
-export type ResourcesHandle = GrantResource[] & {
-  set(resources: GrantResource[]): Promise<GrantHandle>;
+export type BindingsHandle = GrantBinding[] & {
+  set(bindings: GrantBinding[]): Promise<GrantHandle>;
 };
 
-export type GrantHandle = Omit<Grant, 'resources'> & {
-  resources: ResourcesHandle;
+export type GrantHandle = Omit<Grant, 'bindings'> & {
+  bindings: BindingsHandle;
   create(input: GrantWrite): Promise<GrantHandle>;
   tokens: { create(input: TokenWrite): Promise<IssuedToken> };
   revoke(): Promise<void>;
@@ -100,7 +100,7 @@ export interface RgapCommands {
   deleteExecutable(resourceId: ResourceId): Promise<void>;
   invoke(resourceId: ResourceId, input: InvokeInput): AsyncIterable<InvocationEvent>;
   createGrant(input: GrantWrite & { parentId: GrantId | null }): Promise<Grant>;
-  setResources(grantId: GrantId, resources: GrantResource[]): Promise<Grant>;
+  setBindings(grantId: GrantId, bindings: GrantBinding[]): Promise<Grant>;
   issueToken(grantId: GrantId, label: string): Promise<{ record: Token; value: TokenValue }>;
   revokeToken(id: TokenId): Promise<void>;
   revokeGrant(id: GrantId): Promise<void>;
@@ -200,12 +200,12 @@ function asResource(commands: RgapCommands, resource: Resource): ResourceHandle 
 }
 
 function asGrant(commands: RgapCommands, grant: Grant): GrantHandle {
-  const resources = Object.assign([...grant.resources], {
-    set: async (entries: GrantResource[]) => asGrant(commands, await commands.setResources(grant.id, entries)),
+  const bindings = Object.assign([...grant.bindings], {
+    set: async (entries: GrantBinding[]) => asGrant(commands, await commands.setBindings(grant.id, entries)),
   });
   return {
     ...grant,
-    resources,
+    bindings,
     create: async (input) => asGrant(commands, await commands.createGrant({ ...input, parentId: grant.id })),
     tokens: {
       create: async (input) => asIssued(commands, await commands.issueToken(grant.id, input.label)),

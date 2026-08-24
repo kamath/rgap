@@ -3,8 +3,8 @@ import {
   authorize, authorizeLineage, availableGrantId, availableId, covers, createAtPath, createGrant, createGrantAtPath, createResource,
   deleteResource, grantId, grantIdAtPath, InvalidParentError, isLive, isWithin, liveResources,
   moveResource, normalizePath, permissions, recordToken, requireResourceId, resourceId, resourceIdAtPath,
-  resolveBearer, resourcePath, revokeGrant, revokeToken, RgapError, setResources,
-  stateIntegrity, tryResourcePath, tokenHash, tokenId, type GrantResource, type GrantResourceConfig, type CreateGrantInput,
+  resolveBearer, resourcePath, revokeGrant, revokeToken, RgapError, setBindings,
+  stateIntegrity, tryResourcePath, tokenHash, tokenId, type GrantBinding, type GrantBindingConfig, type CreateGrantInput,
   type GrantId, type Resource, type ResourceId, type State, type Token,
 } from './domain';
 import { fixture } from './fixture';
@@ -15,13 +15,13 @@ const r = resourceId;
 const g = grantId;
 const cap = (
   id: string,
-  over: Partial<GrantResourceConfig> = {},
-): GrantResource => ({
+  over: Partial<GrantBindingConfig> = {},
+): GrantBinding => ({
   id: r(id),
   permissions: ['invoke'],
   ...over,
 });
-const storedCap = (id: string): GrantResource => cap(id, { permissions: ['read', 'invoke'] });
+const storedCap = (id: string): GrantBinding => cap(id, { permissions: ['read', 'invoke'] });
 
 describe('RGAP domain', () => {
   it('authorizes only resources present in the complete grant chain', () => {
@@ -108,43 +108,43 @@ describe('RGAP domain', () => {
 
   it('rejects delegation that expands permission', () => {
     const state = fixture();
-    state.grants.coordinator.resources = [cap('drive', { permissions: ['read'] })];
+    state.grants.coordinator.bindings = [cap('drive', { permissions: ['read'] })];
 
     expect(() => createGrant(state, {
       name: 'Writer', parentId: g('coordinator'), expiresAt: '2027-01-01T00:00:00.000Z',
-      resources: [cap('read-file', { permissions: ['write'] })],
+      bindings: [cap('read-file', { permissions: ['write'] })],
     }, g('writer'), at)).toThrow('not covered');
   });
 
-  it('creates a grant that reaches nothing until its resources are set', () => {
+  it('creates a grant that reaches nothing until its bindings are set', () => {
     const created = createGrant(fixture(), {
       name: 'Empty', parentId: g('coordinator'),
-      expiresAt: '2027-01-01T00:00:00.000Z', resources: [],
+      expiresAt: '2027-01-01T00:00:00.000Z', bindings: [],
     }, g('empty'), at);
 
-    expect(created.grants.empty.resources).toEqual([]);
+    expect(created.grants.empty.bindings).toEqual([]);
 
-    const withEntry = setResources(created, g('empty'), [
+    const withEntry = setBindings(created, g('empty'), [
       cap('search-files'),
     ], at);
-    expect(withEntry.grants.empty.resources).toHaveLength(1);
+    expect(withEntry.grants.empty.bindings).toHaveLength(1);
   });
 
   it('holds a set to the same downscoping proof as issue', () => {
     const state = createGrant(fixture(), {
       name: 'Empty', parentId: g('coordinator'),
-      expiresAt: '2027-01-01T00:00:00.000Z', resources: [],
+      expiresAt: '2027-01-01T00:00:00.000Z', bindings: [],
     }, g('empty'), at);
 
     // The coordinator holds `invoke` on search-files, so neither a wider permission nor a
     // resource it does not reach may be set on a grant delegated from it.
-    expect(() => setResources(state, g('empty'), [
+    expect(() => setBindings(state, g('empty'), [
       cap('search-files', { permissions: ['write'] }),
     ], at)).toThrow('not covered by the parent');
-    expect(() => setResources(state, g('empty'), [
+    expect(() => setBindings(state, g('empty'), [
       cap('post-message'),
     ], at)).toThrow('not covered by the parent');
-    expect(() => setResources(state, g('empty'), [
+    expect(() => setBindings(state, g('empty'), [
       cap('search-files', { permissions: [] }),
     ], at)).toThrow('at least one permission');
   });
@@ -154,11 +154,11 @@ describe('RGAP domain', () => {
     state = createGrant(state, {
       name: 'Deeper', parentId: g('researcher'),
       expiresAt: '2027-01-01T00:00:00.000Z',
-      resources: [cap('search-files')],
+      bindings: [cap('search-files')],
     }, g('deeper'), at);
 
     // The coordinator gives up search-files, which is all the researcher held.
-    const next = setResources(state, g('coordinator'), [
+    const next = setBindings(state, g('coordinator'), [
       cap('create-issue'),
     ], at);
 
@@ -170,13 +170,13 @@ describe('RGAP domain', () => {
 
   it('orphans a child when its target is outside the parent target', () => {
     let state = fixture();
-    state.grants.coordinator.resources = [storedCap('drive')];
+    state.grants.coordinator.bindings = [storedCap('drive')];
     state = createGrant(state, {
       name: 'Follower', parentId: g('coordinator'), expiresAt: '2027-01-01T00:00:00.000Z',
-      resources: [cap('search-files')],
+      bindings: [cap('search-files')],
     }, g('follower'), at);
 
-    const next = setResources(state, g('coordinator'), [cap('slack')], at);
+    const next = setBindings(state, g('coordinator'), [cap('slack')], at);
 
     expect(next.grants.follower.revokedAt).toBe(at);
   });
@@ -184,13 +184,13 @@ describe('RGAP domain', () => {
   it('refuses to amend a grant that is not active', () => {
     const state = revokeGrant(fixture(), g('researcher'), at);
 
-    expect(() => setResources(state, g('researcher'), [], at)).toThrow('revoked or expired grant is not amended');
+    expect(() => setBindings(state, g('researcher'), [], at)).toThrow('revoked or expired grant is not amended');
   });
 
   it('makes delegated authority ineffective when its resource leaves parent scope without revoking it', () => {
     const state = fixture();
-    state.grants.coordinator.resources = [storedCap('drive')];
-    state.grants.researcher.resources = [storedCap('search-files')];
+    state.grants.coordinator.bindings = [storedCap('drive')];
+    state.grants.researcher.bindings = [storedCap('search-files')];
     state.tokens.demo.grantId = g('researcher');
 
     const moved = moveResource(state, r('search-files'), r('slack-tools'), at);
@@ -235,31 +235,31 @@ describe('RGAP domain', () => {
   it('refuses a child rooted outside its parent', () => {
     const state = fixture();
     const expiresAt = state.grants.coordinator.expiresAt;
-    state.grants.coordinator.resources = [storedCap('search-files')];
+    state.grants.coordinator.bindings = [storedCap('search-files')];
 
     expect(() => createGrant(state, {
       name: 'Escalated', parentId: g('coordinator'), expiresAt,
-      resources: [cap('post-message')],
+      bindings: [cap('post-message')],
     }, g('escalated'), at)).toThrow('not covered');
   });
 
   it('covers a child rooted at or under its parent', () => {
     const state = fixture();
     const expiresAt = state.grants.coordinator.expiresAt;
-    state.grants.coordinator.resources = [storedCap('drive')];
+    state.grants.coordinator.bindings = [storedCap('drive')];
 
     expect(createGrant(state, {
       name: 'Nested', parentId: g('coordinator'), expiresAt,
-      resources: [cap('search-files')],
+      bindings: [cap('search-files')],
     }, g('nested'), at).grants.nested.name).toBe('Nested');
   });
 
   it('never authorizes a descendant grant beyond the grant it was delegated from', () => {
     const state = fixture();
     const expiresAt = state.grants.coordinator.expiresAt;
-    state.grants.coordinator.resources = [storedCap('drive')];
+    state.grants.coordinator.bindings = [storedCap('drive')];
     // A resource that was never covered cannot appear through a stored grant either.
-    state.grants.researcher.resources = [storedCap('post-message')];
+    state.grants.researcher.bindings = [storedCap('post-message')];
     state.tokens.demo.grantId = g('researcher');
 
     expect(authorize(state, demo, r('post-message'), 'invoke', at).allowed).toBe(false);
@@ -445,7 +445,7 @@ describe('moving a resource', () => {
 
   it('keeps grant targets on the resource when it moves', () => {
     const state = fixture();
-    state.grants.coordinator.resources = [storedCap('drive')];
+    state.grants.coordinator.bindings = [storedCap('drive')];
 
     const moved = moveResource(state, r('drive'), r('slack-tools'), at);
     expect(authorize(moved, demo, r('search-files'), 'invoke', at).allowed).toBe(true);
@@ -463,7 +463,7 @@ describe('deleting a resource', () => {
 
   it('leaves grants active without transferring authority to a replacement resource', () => {
     const state = fixture();
-    state.grants.coordinator.resources = [
+    state.grants.coordinator.bindings = [
       storedCap('search-files'),
       storedCap('create-issue'),
     ];
@@ -480,7 +480,7 @@ describe('deleting a resource', () => {
 describe('creating a grant', () => {
   const input = {
     name: 'Child', parentId: g('coordinator'),
-    expiresAt: '2027-01-01T00:00:00.000Z', resources: [],
+    expiresAt: '2027-01-01T00:00:00.000Z', bindings: [],
   };
 
   it('requires a name', () => {
@@ -488,25 +488,25 @@ describe('creating a grant', () => {
       .toThrow('Grant name is required.');
   });
 
-  it('requires resource targets to be live and every resource to carry a permission', () => {
+  it('requires binding targets to be live and every binding to carry a permission', () => {
     const entry = cap('ghost');
 
-    expect(() => createGrant(fixture(), { ...input, resources: [entry] }, g('child'), at))
-      .toThrow('Grant resource does not exist.');
+    expect(() => createGrant(fixture(), { ...input, bindings: [entry] }, g('child'), at))
+      .toThrow('Grant binding resource does not exist.');
     expect(() => createGrant(fixture(), {
-      ...input, resources: [cap('search-files', { permissions: [] })],
+      ...input, bindings: [cap('search-files', { permissions: [] })],
     }, g('child'), at)).toThrow('Select at least one permission.');
   });
 
-  it('requires exactly one resource ID target', () => {
+  it('requires exactly one resource ID target per binding', () => {
     expect(() => createGrant(fixture(), {
       ...input, parentId: null,
-      resources: [{ path: 'acme/future', permissions: ['invoke'] } as unknown as GrantResource],
-    }, g('path'), at)).toThrow('Grant resource must name one resource id.');
+      bindings: [{ path: 'acme/future', permissions: ['invoke'] } as unknown as GrantBinding],
+    }, g('path'), at)).toThrow('Grant binding must name one resource id.');
     expect(() => createGrant(fixture(), {
       ...input, parentId: null,
-      resources: [{ id: r('search-files'), path: 'acme/drive', permissions: ['invoke'] } as unknown as GrantResource],
-    }, g('both'), at)).toThrow('Grant resource must name one resource id.');
+      bindings: [{ id: r('search-files'), path: 'acme/drive', permissions: ['invoke'] } as unknown as GrantBinding],
+    }, g('both'), at)).toThrow('Grant binding must name one resource id.');
   });
 
   it('requires a parent that is present and active', () => {
@@ -554,7 +554,7 @@ describe('creating a grant', () => {
 describe('creating a grant at a path', () => {
   const write = {
     name: 'company/team/employee',
-    resources: [] as GrantResource[],
+    bindings: [] as GrantBinding[],
     expiresAt: null,
   };
 
@@ -600,31 +600,31 @@ describe('creating a grant at a path', () => {
     expect(availableGrantId(state, 'Writer Grant')).toBe(g('writer-grant'));
     state.grants['writer-grant'] = {
       id: g('writer-grant'), name: 'Writer Grant', parentId: null,
-      resources: [], expiresAt: null, revokedAt: null,
+      bindings: [], expiresAt: null, revokedAt: null,
     };
     expect(availableGrantId(state, 'Writer Grant')).toBe(g('writer-grant-2'));
     expect(availableGrantId(state, '---')).toBe(g('grant'));
   });
 });
 
-describe('setting resources', () => {
+describe('setting bindings', () => {
   it('requires a grant that exists', () => {
-    expect(() => setResources(fixture(), g('ghost'), [], at)).toThrow('Grant does not exist.');
+    expect(() => setBindings(fixture(), g('ghost'), [], at)).toThrow('Grant does not exist.');
   });
 
   it('requires each resource target to name a live resource', () => {
     const deleted = deleteResource(fixture(), r('slack'), at);
 
-    expect(() => setResources(deleted, g('coordinator'), [cap('post-message')], at))
-      .toThrow('Grant resource does not exist.');
+    expect(() => setBindings(deleted, g('coordinator'), [cap('post-message')], at))
+      .toThrow('Grant binding resource does not exist.');
   });
 
   it('requires a parent that is present and active', () => {
     const state = fixture();
     state.grants.researcher.parentId = g('ghost');
 
-    expect(() => setResources(state, g('researcher'), [], at)).toThrow(InvalidParentError);
-    expect(() => setResources(state, g('researcher'), [], at)).toThrow('Parent grant does not exist.');
+    expect(() => setBindings(state, g('researcher'), [], at)).toThrow(InvalidParentError);
+    expect(() => setBindings(state, g('researcher'), [], at)).toThrow('Parent grant does not exist.');
   });
 });
 
@@ -720,15 +720,15 @@ describe('authorization decisions', () => {
 
   it('reaches a descendant resource through the target\'s subtree', () => {
     const state = fixture();
-    state.grants.coordinator.resources = [storedCap('drive')];
+    state.grants.coordinator.bindings = [storedCap('drive')];
 
     expect(authorize(state, demo, r('read-file'), 'invoke', at).allowed).toBe(true);
     expect(authorize(state, demo, r('post-message'), 'invoke', at).allowed).toBe(false);
   });
 
-  it('denies a permission the matching resource entry does not carry', () => {
+  it('denies a permission the matching binding does not carry', () => {
     const state = fixture();
-    state.grants.coordinator.resources = [{ id: r('search-files'), permissions: ['read'] }];
+    state.grants.coordinator.bindings = [{ id: r('search-files'), permissions: ['read'] }];
 
     expect(authorize(state, demo, r('search-files'), 'invoke', at).allowed).toBe(false);
   });
@@ -770,6 +770,6 @@ describe('identity brands', () => {
     expectTypeOf<CreateGrantInput['parentId']>().toEqualTypeOf<GrantId | null>();
     expectTypeOf<ResourceId>().not.toEqualTypeOf<GrantId>();
     expectTypeOf<Resource['id']>().not.toEqualTypeOf<GrantId>();
-    expectTypeOf<GrantResource>().toEqualTypeOf<GrantResourceConfig & { id: ResourceId }>();
+    expectTypeOf<GrantBinding>().toEqualTypeOf<GrantBindingConfig & { id: ResourceId }>();
   });
 });
