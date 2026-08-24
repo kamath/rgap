@@ -435,7 +435,7 @@ registered runtime implementation.
 
 An executable definition cannot be replaced or removed independently. Retiring
 one requires `resource.delete`, which tombstones the complete resource and
-permanently disables every binding and grant-resource entry naming it.
+permanently disables every executable binding and grant binding naming it.
 Publishing a different definition means creating another executable resource
 with its own ID. Reading the embedded definition requires `read`; deleting the
 resource requires `delete`.

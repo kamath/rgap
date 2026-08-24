@@ -109,10 +109,11 @@ const architecture = await platform.create({
 await design.delete();
 ```
 
-The replacement is a distinct resource with its own ID. Grant-resource entries
-and bindings that named the deleted resource stay pointed at the tombstone and
-become permanently ineffective, so authority is re-granted deliberately rather
-than inherited by a definition that was swapped underneath it.
+The replacement is a distinct resource with its own ID. Grant bindings and
+executable bindings that named the deleted resource stay pointed at the
+tombstone and become permanently ineffective, so authority is re-granted
+deliberately rather than inherited by a definition that was swapped underneath
+it.
 
 ## Identity and location
 
