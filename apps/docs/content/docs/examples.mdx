@@ -186,7 +186,112 @@ database for RGAP state and initializes `SqliteSecretStore` with another
 SQLite database for secret values. Inputs, outputs, and secret values stay out
 of invocation audit records, logs, and errors.
 
+## Proxy a remote MCP server
+
+`examples/mcp-proxy` is a Hono app that acts as an OAuth-compatible MCP
+client. RGAP holds the server as a resource. Invocation sends MCP JSON-RPC to
+that sealed origin. OAuth access tokens never enter RGAP state.
+
+The app registers one trusted `mcpClient` runtime and three executables that
+share a credential binding and a sealed server URL:
+
+```text
+mcp/demo/
+├── credential     # secret-store key for DCR client + tokens
+├── authorize      # operation=authorize, seals callback resource ID
+├── callback       # operation=callback
+└── rpc            # operation=rpc
+```
+
+The server URL is sealed input. The credential resource is a `bind` edge. A
+caller supplies only the MCP method and params, or the OAuth `code` and
+`state` on callback. That is the confused-deputy rule from privilege
+delegation: the runtime attaches the stored token only to the sealed origin.
+
+```ts
+const rpc = await admin.resources.create({
+  name: 'mcp/demo/rpc',
+  executable: {
+    runtime: 'mcpClient',
+    input: { serverUrl, operation: 'rpc' },
+    bind: { credential: credential.id },
+  },
+});
+```
+
+Invoking `rpc` with `{ method: 'tools/call', params: { name: 'echo',
+arguments: { text: 'hello' } } }` is an MCP JSON-RPC call to that server.
+Granting `invoke` on this resource is the server-level governance boundary.
+Tool leaves under the same server come later: each tool resource seals
+`operation`, `serverUrl`, and the tool name so a caller supplies only
+arguments.
+
+### OAuth through invoke
+
+MCP HTTP servers advertise an authorization server with protected-resource
+metadata. The proxy runtime discovers that metadata, registers with dynamic
+client registration when needed, and starts authorization-code plus PKCE:
+
+<Steps>
+  <Step>
+    ### Invoke authorize
+
+    The consumer invokes the authorize resource. The runtime stores a PKCE
+    verifier and OAuth `state` in the secret store, then returns an
+    `authorizationUrl`.
+  </Step>
+  <Step>
+    ### Redirect to the public callback
+
+    The authorization server redirects the browser to `GET /oauth/callback`.
+    RGAP invoke is POST with a bearer, so this route is a sibling of the RGAP
+    API rather than a `createApp` route. `createApp` requires a bearer on
+    every path except OpenAPI.
+  </Step>
+  <Step>
+    ### Invoke callback
+
+    The HTTP adapter looks up `state`, then invokes the callback resource with
+    `{ code, state }` using a deployment grant that can invoke only that
+    resource. The callback runtime verifies the session against its sealed
+    server URL and bound credential, exchanges the code, and stores tokens.
+  </Step>
+  <Step>
+    ### Invoke RPC
+
+    Later `rpc` invocations refresh the access token when needed, initialize
+    an MCP session, and forward JSON-RPC. A missing token fails with an
+    authorization error rather than returning a login URL.
+  </Step>
+</Steps>
+
+The consumer grant contains `invoke` on authorize and rpc only. It has no
+permission on `credential` or `callback`. Completing OAuth is a deployment
+callback, not an agent-facing capability.
+
+Access tokens, refresh tokens, DCR client credentials, and PKCE verifiers
+live in a `SecretStore` keyed by the credential resource ID and by opaque
+`oauth:session:*` keys. RGAP never stores those values. The same contract
+already backs the GitHub credential in `examples/secret-store`. Sharing it
+across apps means moving `SecretStore` and `SqliteSecretStore` into
+`@rgap/secrets`.
+
+The example hosts a mock authorization server and an `echo` tool so the loop
+runs without an external provider. Set `MCP_SERVER_URL` to target any remote
+MCP server that speaks protected-resource metadata, PKCE S256, and dynamic
+client registration. The complete app lives in `examples/mcp-proxy`.
+
+<Callout type="info">
+  The server-level RPC interface is intentionally broad: the caller chooses
+  the MCP method. Seal the origin and credential first. Narrow each tool to
+  its own resource when a grant must not reach sibling tools.
+</Callout>
+
 ## MCP server governance
+
+The proxy example creates one resource per MCP server. The next slice places
+each tool under that server so grants can select leaves instead of the whole
+RPC interface.
 
 ```text
 acme/

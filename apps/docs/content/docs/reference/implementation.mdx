@@ -16,7 +16,10 @@ apps/
 ├── server/         # Hono HTTP API and generated clients
 └── docs/           # Next.js and Fumadocs documentation
 examples/
-└── index.ts        # executable scratchpad
+├── index.ts        # executable scratchpad
+├── openai.ts
+├── secret-store/   # sealed credential bindings
+└── mcp-proxy/      # OAuth MCP client with invoke callbacks
 ```
 
 ## Core boundary
@@ -253,6 +256,12 @@ whose sealed input contains an externally stored credential resource ID and
 another runtime that invokes it by resource ID. It creates the outer
 executable through an ordinary delegated repository plane without granting
 that plane authority over the credential.
+
+The MCP proxy is a Hono app that mounts `createApp` beside a public OAuth
+callback. One trusted runtime speaks MCP JSON-RPC and OAuth against a sealed
+server URL. Access tokens live in a `SecretStore` keyed independently of
+RGAP state. `@rgap/secrets` is the shared package for that adapter so the
+secret-store and MCP proxy apps do not each inline a SQLite secret table.
 
 Change only store construction to run the same walkthrough against HTTP:
 

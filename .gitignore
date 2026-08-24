@@ -4,5 +4,7 @@ dist/
 examples/scratch.db*
 examples/secret-store/*.db*
 examples/secret-store/*.token
+examples/mcp-proxy/*.db*
+examples/mcp-proxy/*.token
 apps/server/openapi.json
 apps/server/src/client/generated/
