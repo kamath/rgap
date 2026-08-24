@@ -168,8 +168,8 @@ export function guardCommands(
     value: issued.value,
   });
 
-  const resourceRecord = ({ id, parentId, name, deletedAt }: Resource): Resource => ({
-    id, parentId, name, deletedAt,
+  const resourceRecord = ({ id, parentId, name, deletedAt, executable }: Resource): Resource => ({
+    id, parentId, name, deletedAt, executable,
   });
 
   const liveResource = async (id: ResourceId) => {
