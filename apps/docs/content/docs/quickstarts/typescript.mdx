@@ -47,11 +47,6 @@ try {
     design.id,
     'read',
   );
-  const invoke = await agentPlane.authorize(
-    agentToken.value,
-    design.id,
-    'invoke',
-  );
   const write = await agentPlane.authorize(
     agentToken.value,
     design.id,
@@ -61,7 +56,6 @@ try {
   console.log({
     resource: visibleDesign.name,
     read: read.allowed,
-    invoke: invoke.allowed,
     write: write.allowed,
   });
 
@@ -86,18 +80,16 @@ try {
 From the repository root, run
 `pnpm --filter @rgap/examples exec tsx quickstart.ts`.
 
-The first result reports the `design` resource with `read: true`,
-`invoke: true`, and `write: false`. The second reports
-`readAfterAncestorRevocation: false`.
+The first result reports the `design` resource with `read: true` and
+`write: false`. The second reports `readAfterAncestorRevocation: false`.
 
 ## What the file demonstrates
 
 - Resources form a mutable hierarchy with stable identities.
 - One grant create materializes the `company/documentation-agent` grant path.
-- Each grant created in that path receives `read` and `invoke` under
-  `acme/platform/docs` from the create body.
-- The agent's repository plane can read and invoke `design` but cannot write
-  it.
+- Each grant created in that path receives `read` under `acme/platform/docs`
+  from the create body.
+- The agent's repository plane can read `design` but cannot write it.
 - Revoking the agent grant disables its token on the next authorization check.
 
 <Callout type="info">

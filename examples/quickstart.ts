@@ -31,11 +31,6 @@ try {
     design.id,
     'read',
   );
-  const invoke = await agentPlane.authorize(
-    agentToken.value,
-    design.id,
-    'invoke',
-  );
   const write = await agentPlane.authorize(
     agentToken.value,
     design.id,
@@ -45,7 +40,6 @@ try {
   console.log({
     resource: visibleDesign.name,
     read: read.allowed,
-    invoke: invoke.allowed,
     write: write.allowed,
   });
 
