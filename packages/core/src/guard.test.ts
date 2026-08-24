@@ -97,7 +97,7 @@ describe('command guard', () => {
     initial.resources['beta-leaf'] = {
       id: r('beta-leaf'), parentId: r('beta'), name: 'beta-leaf', deletedAt: null,
     };
-    initial.grants.coordinator.resources = [
+    initial.grants.coordinator.bindings = [
       cap('drive', ['read']),
       cap('create-issue', ['read']),
       cap('beta-leaf', ['read']),
@@ -113,7 +113,7 @@ describe('command guard', () => {
     expect((await guard.resources.list({ parentId: r('acme') })).map(({ id }) => id))
       .toEqual(['create-issue', 'drive']);
 
-    initial.grants.coordinator.resources = [];
+    initial.grants.coordinator.bindings = [];
     expect(await guard.resources.list({ parentId: null })).toEqual([]);
   });
 
@@ -134,7 +134,7 @@ describe('command guard', () => {
     initial.resources['cycle-b'] = {
       id: r('cycle-b'), parentId: r('cycle-a'), name: 'cycle-b', deletedAt: null,
     };
-    initial.grants.coordinator.resources = [
+    initial.grants.coordinator.bindings = [
       cap('drive', ['read']),
       cap('search-files', ['read']),
       cap('deleted', ['read']),
