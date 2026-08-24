@@ -17,17 +17,27 @@ import {
   McpConnection,
   McpInvokeInputSchema,
 } from './mcp-connection';
-import type { McpCredential } from './oauth-provider';
+import { OAuthFlowStore, type OAuthFlowRecord } from './oauth-flow-store';
+import {
+  type McpCredential,
+  oauthClientMetadataDocument,
+} from './oauth-provider';
 
 const directory = fileURLToPath(new URL('.', import.meta.url));
 const port = Number(process.env.PORT ?? 3003);
 const publicBaseUrl = new URL(process.env.PUBLIC_BASE_URL ?? `http://127.0.0.1:${port}`);
+const callbackUrl = new URL('/oauth/callback', publicBaseUrl);
+const clientMetadataUrl = publicBaseUrl.protocol === 'https:'
+  ? new URL('/oauth/client-metadata.json', publicBaseUrl)
+  : undefined;
 const serverUrl = new URL(process.env.MCP_SERVER_URL ?? 'http://127.0.0.1:3001/mcp');
 const credentialStore = new SqliteCredentialStore<McpCredential>(
   `${directory}/credentials.db`,
 );
+const oauthFlowStore = new OAuthFlowStore(
+  new SqliteCredentialStore<OAuthFlowRecord>(`${directory}/oauth-flows.db`),
+);
 const connections = new Map<string, McpConnection>();
-const flows = new Map<string, McpConnection>();
 
 const McpRuntimeInputSchema = McpInvokeInputSchema.extend({
   serverUrl: z.url(),
@@ -48,15 +58,19 @@ const mcpRuntime: InvokeRuntime<
     );
     if (!connection.isConnected()) {
       const status = await connection.connect();
-      await registerFlow(connection, status);
+      await registerFlow(connection);
       if (status.status === 'authorization_required') {
         throw new Error(`MCP OAuth authorization is required: ${status.authorizationUrl}`);
       }
     }
-    return connection.request({
-      method: input.method,
-      params: input.params,
-    }, signal);
+    try {
+      return await connection.request({
+        method: input.method,
+        params: input.params,
+      }, signal);
+    } finally {
+      await registerFlow(connection);
+    }
   },
 };
 
@@ -101,23 +115,39 @@ const initialStatus = await connection.connect().catch((error: unknown) => {
   console.error(`Initial MCP connection failed: ${message(error)}`);
   return undefined;
 });
-if (initialStatus) await registerFlow(connection, initialStatus);
+if (initialStatus) await registerFlow(connection);
 
 const app = new Hono();
-app.get('/oauth/callback/:flowId', async (context) => {
-  const flowId = context.req.param('flowId');
-  const connection = flows.get(flowId);
-  if (!connection) return context.text('OAuth flow not found or expired.', 404);
+app.get('/oauth/client-metadata.json', (context) => {
+  if (!clientMetadataUrl) return context.notFound();
+  context.header('Cache-Control', 'public, max-age=3600');
+  return context.json(oauthClientMetadataDocument(
+    clientMetadataUrl,
+    callbackUrl,
+    publicBaseUrl.origin,
+  ));
+});
+app.get('/oauth/callback', async (context) => {
+  context.header('Referrer-Policy', 'no-referrer');
+  const state = context.req.query('state');
+  if (!state) return context.text('OAuth callback validation failed.', 400);
+  let flow: OAuthFlowRecord;
   try {
-    const status = await connection.finishAuthorization(flowId, new URL(context.req.url));
-    flows.delete(flowId);
-    await registerFlow(connection, status);
+    flow = await oauthFlowStore.claim(state);
+  } catch {
+    return context.text('OAuth callback validation failed.', 400);
+  }
+  const connection = connectionFor(new URL(flow.serverUrl), flow.credentialId);
+  try {
+    const status = await connection.finishAuthorization(flow.flowId, new URL(context.req.url));
+    await oauthFlowStore.complete(state);
+    await registerFlow(connection);
     if (status.status !== 'connected') {
       return context.text('OAuth authorization did not complete.', 409);
     }
     return context.html('<h1>MCP authorization complete</h1><p>You may close this window.</p>');
-  } catch (error) {
-    console.error(`OAuth callback failed: ${message(error)}`);
+  } catch {
+    console.error('OAuth callback failed.');
     return context.text('OAuth callback validation failed.', 400);
   }
 });
@@ -144,23 +174,16 @@ function connectionFor(upstream: URL, credentialId: string) {
     serverUrl: upstream,
     credentialId,
     publicBaseUrl,
+    clientMetadataUrl: clientMetadataUrl?.toString(),
     credentialStore,
   });
   connections.set(key, connection);
   return connection;
 }
 
-async function registerFlow(
-  connection: McpConnection,
-  status: Awaited<ReturnType<McpConnection['connect']>>,
-) {
-  for (const [flowId, registered] of flows) {
-    if (registered === connection) flows.delete(flowId);
-  }
-  const flowId = status.status === 'authorization_required'
-    ? status.flowId
-    : await connection.pendingFlowId();
-  if (flowId) flows.set(flowId, connection);
+async function registerFlow(connection: McpConnection) {
+  const flow = await connection.pendingAuthorization();
+  if (flow) await oauthFlowStore.register(flow.state, flow);
 }
 
 async function ensureResource(repository: RgapRepository, path: string) {
@@ -207,6 +230,7 @@ async function close() {
     await Promise.all([...connections.values()].map((connection) => connection.close()));
     store.close();
     await credentialStore.close();
+    await oauthFlowStore.close();
   });
 }
 

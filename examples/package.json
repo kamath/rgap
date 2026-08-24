@@ -9,7 +9,8 @@
     "mcp-proxy": "tsx mcp-proxy/index.ts",
     "secret-store": "tsx secret-store/index.ts",
     "prestart": "pnpm --filter @rgap/server generate",
-    "start": "tsx index.ts"
+    "start": "tsx index.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.46",
@@ -26,6 +27,7 @@
   "devDependencies": {
     "@types/node": "latest",
     "tsx": "latest",
-    "typescript": "latest"
+    "typescript": "latest",
+    "vitest": "^4.1.11"
   }
 }

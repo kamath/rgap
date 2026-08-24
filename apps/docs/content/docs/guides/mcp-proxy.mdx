@@ -26,7 +26,7 @@ access or require the MCP OAuth authorization flow.
 The example listens on port `3003`. Its OAuth redirect URI is:
 
 ```text
-http://127.0.0.1:3003/oauth/callback/<flow-id>
+http://127.0.0.1:3003/oauth/callback
 ```
 
 The authorization server must accept that callback URI. Use a public HTTPS
@@ -64,7 +64,37 @@ The executable connection seals the upstream URL and binds the server and
 credential resources. The generated grant contains `invoke` on the connection,
 and `invoker.token` contains its opaque bearer.
 
-## 2. Complete OAuth
+## 2. Choose client registration
+
+When `PUBLIC_BASE_URL` uses a public HTTPS origin, the proxy publishes:
+
+```text
+https://proxy.example.com/oauth/client-metadata.json
+```
+
+That document is the OAuth client ID. It contains the fixed callback URI,
+client name, authorization-code grant, refresh-token grant, and public-client
+token authentication method. The MCP SDK selects it when the authorization
+server advertises Client ID Metadata Document support.
+
+An HTTP loopback URL does not enable the metadata document because a Client ID
+Metadata Document must have a public HTTPS URL with a path. The MCP SDK uses
+dynamic client registration when the authorization server advertises a
+registration endpoint.
+
+To exercise Client ID Metadata Documents, expose the app through HTTPS and set
+the matching public origin:
+
+```bash
+MCP_SERVER_URL=https://mcp.example.com/mcp \
+PUBLIC_BASE_URL=https://proxy.example.com \
+pnpm --filter @rgap/examples mcp-proxy
+```
+
+The metadata URL and every value in its document derive from the same public
+base URL, so `client_id` and `redirect_uri` comparisons are exact.
+
+## 3. Complete OAuth
 
 When the MCP server requires OAuth, the app also prints:
 
@@ -75,12 +105,13 @@ Authorize the MCP connection: https://authorization.example.com/authorize?...
 Open that URL in a browser and approve access. The authorization server returns
 the browser to the Hono callback. The callback:
 
-1. Locates the pending flow from its random flow ID.
-2. Compares the returned state with the stored state.
+1. Hashes the returned state and locates the pending flow in local storage.
+2. Atomically marks the state as consumed.
 3. Rejects expired or previously consumed flows.
-4. Gives the callback parameters to the MCP SDK.
-5. Lets the SDK validate the issuer and exchange the authorization code.
-6. Stores the resulting tokens and reconnects to the MCP server.
+4. Compares the returned state with the value bound to the credential.
+5. Gives the callback parameters to the MCP SDK.
+6. Lets the SDK validate the issuer and exchange the authorization code.
+7. Stores the resulting tokens and reconnects to the MCP server.
 
 The page displays `MCP authorization complete` when the connection succeeds.
 
@@ -89,12 +120,16 @@ data in `examples/mcp-proxy/credentials.db`. The records are keyed by the RGAP
 credential resource ID. Credential values never enter RGAP invocation input,
 output, or audit records.
 
+The state index lives in `examples/mcp-proxy/oauth-flows.db`. Its keys are
+SHA-256 hashes rather than callback state values. Each record identifies the
+credential, MCP server, internal flow, expiration, and one-time claim.
+
 <Callout type="warn" title="Local storage only">
   The example SQLite credential store contains plaintext values. Use an
   encrypted deployment-owned credential store for a deployed proxy.
 </Callout>
 
-## 3. List the upstream tools
+## 4. List the upstream tools
 
 In another terminal, load the generated RGAP bearer:
 
@@ -123,7 +158,7 @@ The response is an NDJSON invocation stream:
 The exact `value` comes from the upstream MCP server. RGAP validates `invoke`
 before the runtime resolves the credential binding or sends the MCP request.
 
-## 4. Call a tool
+## 5. Call a tool
 
 Use a tool name and arguments returned by `tools/list`:
 
@@ -152,7 +187,7 @@ resources, completion, or extension methods exposed by the server.
 The MCP SDK owns `initialize`, `server/discover`, protocol negotiation, and
 session lifecycle. Callers do not send those lifecycle requests through RGAP.
 
-## 5. Understand the authorization boundary
+## 6. Understand the authorization boundary
 
 The generated grant reaches the complete connection:
 
@@ -183,7 +218,7 @@ Each child seals its MCP method and operation name. A grant on one child then
 authorizes that operation without authorizing the complete connection or its
 siblings.
 
-## 6. Restart the example
+## 7. Restart the example
 
 The RGAP database and credential database persist in
 `examples/mcp-proxy`. Starting the example with the same MCP URL finds the
@@ -195,6 +230,7 @@ Delete the local databases and bearer when you want a clean walkthrough:
 ```bash
 rm -f \
   examples/mcp-proxy/credentials.db \
+  examples/mcp-proxy/oauth-flows.db \
   examples/mcp-proxy/rgap.db \
   examples/mcp-proxy/invoker.token
 ```
@@ -208,6 +244,7 @@ service that accepts user-supplied URLs also:
 - blocks private, loopback, and link-local destinations by default;
 - revalidates every redirect and DNS resolution;
 - applies connection, request, and response-size limits;
+- rate-limits callback failures and never logs callback query parameters;
 - replaces the SQLite credential store with encrypted secret storage; and
 - places the RGAP administrative bearer behind an infrastructure boundary.
 

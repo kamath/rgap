@@ -22,6 +22,7 @@ type ConnectionOptions = {
   serverUrl: URL;
   credentialId: string;
   publicBaseUrl: URL;
+  clientMetadataUrl?: string;
   credentialStore: CredentialStore<McpCredential>;
 };
 
@@ -29,6 +30,7 @@ export class McpConnection {
   readonly #serverUrl: URL;
   readonly #credentialId: string;
   readonly #publicBaseUrl: URL;
+  readonly #clientMetadataUrl?: string;
   readonly #credentialStore: CredentialStore<McpCredential>;
   #client?: Client;
   #transport?: StreamableHTTPClientTransport;
@@ -39,6 +41,7 @@ export class McpConnection {
     this.#serverUrl = options.serverUrl;
     this.#credentialId = options.credentialId;
     this.#publicBaseUrl = options.publicBaseUrl;
+    this.#clientMetadataUrl = options.clientMetadataUrl;
     this.#credentialStore = options.credentialStore;
   }
 
@@ -47,10 +50,11 @@ export class McpConnection {
     const pending = await this.#freshPending();
     const flowId = pending?.flowId ?? randomUUID();
     const state = pending?.state ?? randomUUID();
-    const callbackUrl = new URL(`/oauth/callback/${flowId}`, this.#publicBaseUrl);
+    const callbackUrl = new URL('/oauth/callback', this.#publicBaseUrl);
     const provider = new PersistentOAuthProvider({
       credentialId: this.#credentialId,
       callbackUrl,
+      clientMetadataUrl: this.#clientMetadataUrl,
       store: this.#credentialStore,
     });
     if (!pending) {
@@ -129,8 +133,16 @@ export class McpConnection {
     }
   }
 
-  async pendingFlowId() {
-    return (await this.#provider?.pending())?.flowId;
+  async pendingAuthorization() {
+    const pending = await this.#provider?.pending();
+    if (!pending) return undefined;
+    return {
+      state: pending.state,
+      flowId: pending.flowId,
+      credentialId: this.#credentialId,
+      serverUrl: this.#serverUrl.toString(),
+      expiresAt: pending.expiresAt,
+    };
   }
 
   isConnected() {

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   type OAuthClientInformationContext,
   type OAuthClientMetadata,
@@ -27,10 +28,12 @@ export type McpCredential = {
 type ProviderOptions = {
   credentialId: string;
   callbackUrl: URL;
+  clientMetadataUrl?: string;
   store: CredentialStore<McpCredential>;
 };
 
 export class PersistentOAuthProvider implements OAuthClientProvider {
+  readonly clientMetadataUrl?: string;
   readonly #credentialId: string;
   readonly #callbackUrl: URL;
   readonly #store: CredentialStore<McpCredential>;
@@ -38,6 +41,7 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
   constructor(options: ProviderOptions) {
     this.#credentialId = options.credentialId;
     this.#callbackUrl = options.callbackUrl;
+    this.clientMetadataUrl = options.clientMetadataUrl;
     this.#store = options.store;
   }
 
@@ -46,14 +50,24 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
   }
 
   get clientMetadata(): OAuthClientMetadata {
-    return {
-      client_name: 'RGAP MCP proxy example',
-      redirect_uris: [this.#callbackUrl.toString()],
-    };
+    return oauthClientMetadata(this.#callbackUrl);
   }
 
   async state() {
-    return (await this.#pending()).state;
+    const current = (await this.#record()).pendingAuthorization;
+    if (
+      current &&
+      !current.consumedAt &&
+      new Date(current.expiresAt).getTime() > Date.now()
+    ) return current.state;
+
+    const pendingAuthorization = {
+      flowId: randomUUID(),
+      state: randomUUID(),
+      expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+    };
+    await this.begin(pendingAuthorization);
+    return pendingAuthorization.state;
   }
 
   async clientInformation(_context?: OAuthClientInformationContext) {
@@ -64,7 +78,7 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
     clientInformation: StoredOAuthClientInformation,
     _context?: OAuthClientInformationContext,
   ) {
-    this.#patch((record) => ({ ...record, clientInformation }));
+    return this.#patch((record) => ({ ...record, clientInformation }));
   }
 
   async tokens(_context?: OAuthClientInformationContext) {
@@ -72,11 +86,11 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
   }
 
   saveTokens(tokens: StoredOAuthTokens, _context?: OAuthClientInformationContext) {
-    this.#patch((record) => ({ ...record, tokens }));
+    return this.#patch((record) => ({ ...record, tokens }));
   }
 
   redirectToAuthorization(authorizationUrl: URL) {
-    this.#patch((record) => ({
+    return this.#patch((record) => ({
       ...record,
       pendingAuthorization: {
         ...this.#requiredPending(record),
@@ -86,7 +100,7 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
   }
 
   saveCodeVerifier(codeVerifier: string) {
-    this.#patch((record) => ({
+    return this.#patch((record) => ({
       ...record,
       pendingAuthorization: {
         ...this.#requiredPending(record),
@@ -102,7 +116,7 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
   }
 
   saveDiscoveryState(discoveryState: OAuthDiscoveryState) {
-    this.#patch((record) => ({ ...record, discoveryState }));
+    return this.#patch((record) => ({ ...record, discoveryState }));
   }
 
   async discoveryState() {
@@ -110,7 +124,7 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
   }
 
   invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery') {
-    this.#patch((record) => {
+    return this.#patch((record) => {
       if (scope === 'all') return {};
       if (scope === 'client') {
         const { clientInformation: _, ...rest } = record;
@@ -185,4 +199,26 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
   #patch(update: (record: McpCredential) => McpCredential) {
     return this.#store.update(this.#credentialId, (record) => update(record ?? {}));
   }
+}
+
+export function oauthClientMetadata(callbackUrl: URL): OAuthClientMetadata {
+  return {
+    client_name: 'RGAP MCP proxy example',
+    redirect_uris: [callbackUrl.toString()],
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    token_endpoint_auth_method: 'none',
+  };
+}
+
+export function oauthClientMetadataDocument(
+  clientMetadataUrl: URL,
+  callbackUrl: URL,
+  clientUri: string,
+) {
+  return {
+    client_id: clientMetadataUrl.toString(),
+    client_uri: clientUri,
+    ...oauthClientMetadata(callbackUrl),
+  };
 }

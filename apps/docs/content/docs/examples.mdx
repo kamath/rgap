@@ -283,14 +283,15 @@ The proxy exposes a browser callback independently from the bearer-protected
 RGAP command API:
 
 ```text
-GET /oauth/callback/:flowId
+GET /oauth/callback
 ```
 
-The callback loads the pending flow from the credential store, compares the
-returned state with the stored value, checks its expiration, and consumes it
-exactly once. It then passes the callback parameters to the MCP SDK, which
-validates the authorization-server issuer and exchanges the code. The resulting
-tokens and client information remain in the credential store.
+The callback hashes the returned OAuth state and uses that key to load the
+pending flow from local storage. It compares the returned state with the value
+bound to the credential, checks its expiration, and consumes it exactly once
+with an atomic update. It then passes the callback parameters to the MCP SDK,
+which validates the authorization-server issuer and exchanges the code. The
+resulting tokens and client information remain in the credential store.
 
 An OAuth redirect does not call the RGAP invoke endpoint directly. Authorization
 servers send browser `GET` requests without an RGAP bearer, while resource
@@ -310,6 +311,7 @@ type McpCredential = {
     codeVerifier?: string;
     authorizationUrl?: string;
     expiresAt: string;
+    consumedAt?: string;
   };
 };
 ```
@@ -318,6 +320,26 @@ Atomic updates prevent simultaneous token refreshes from overwriting each
 other. The example SQLite store contains plaintext values and is suitable for
 local development only. A deployed proxy supplies an encrypted credential
 store through the same interface.
+
+## Publish OAuth client metadata
+
+When `PUBLIC_BASE_URL` uses HTTPS, the proxy publishes a Client ID Metadata
+Document:
+
+```text
+GET /oauth/client-metadata.json
+```
+
+The document's `client_id` is its exact public URL and its `redirect_uris`
+contains the fixed `/oauth/callback` URL. The OAuth provider supplies that
+metadata URL to the MCP SDK. The SDK uses it when the authorization server
+advertises Client ID Metadata Document support and uses dynamic client
+registration when the authorization server advertises a registration endpoint
+instead.
+
+An HTTP loopback `PUBLIC_BASE_URL` does not enable Client ID Metadata Documents
+because their client IDs are public HTTPS URLs. Local development therefore
+uses dynamic client registration.
 
 ## Downscope MCP authority
 
