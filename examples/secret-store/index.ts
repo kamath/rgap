@@ -13,51 +13,80 @@ import {
 const directory = fileURLToPath(new URL('.', import.meta.url));
 const secretStore: SecretStore = new SqliteSecretStore(`${directory}/secrets.db`);
 
-const revealSecret: InvokeRuntime<null, string> = {
-  inputSchema: z.null(),
-  outputSchema: z.string(),
-  bindings: {
-    secret: { kind: 'resource' },
+type GithubProfile = { login: string };
+
+const githubProfile: InvokeRuntime<{ credential: string }, GithubProfile> = {
+  inputSchema: z.object({ credential: z.string() }),
+  outputSchema: z.object({ login: z.string() }),
+  async invoke({ input }) {
+    const token = await secretStore.get(input.credential);
+    if (token === undefined) throw new Error('Credential is unavailable.');
+    return mockGithubProfile(token);
   },
-  async invoke({ bindings }) {
-    const value = await secretStore.get(bindings.secret.resourceId);
-    if (value === undefined) throw new Error('Secret is unavailable.');
-    return value;
+};
+
+const profileSummary: InvokeRuntime<{ profile: string }, string> = {
+  inputSchema: z.object({ profile: z.string() }),
+  outputSchema: z.string(),
+  async invoke({ input, invoke }) {
+    const profile = await invoke.one<GithubProfile>(input.profile, { input: {} });
+    return `GitHub user: ${profile.login}`;
   },
 };
 
 const store = new SqliteRgapStore({
   url: `${directory}/rgap.db`,
-  runtimes: { revealSecret },
+  runtimes: { githubProfile, profileSummary },
 });
 
 const admin = store.admin();
 await admin.reset();
 
-const reveal = await admin.resources.create({
-  name: 'services/secret-store/reveal',
-});
-await reveal.executable.set({ runtime: 'revealSecret' });
-
 const githubToken = await admin.resources.create({
   name: 'users/alice/secrets/github-token',
 });
-await secretStore.set(
-  githubToken.id,
-  process.env.DEMO_SECRET ?? 'example-user-secret',
-);
+const demoToken = process.env.DEMO_SECRET ?? 'example-user-secret';
+await secretStore.set(githubToken.id, demoToken);
 
-const grant = await admin.grants.create({
-  name: 'users/alice/secret-reader',
+const profile = await admin.resources.create({
+  name: 'users/alice/functions/github-profile',
+});
+await profile.executable.set({
+  runtime: 'githubProfile',
+  bind: { credential: githubToken.id },
+});
+
+const scripts = await admin.resources.create({
+  name: 'users/alice/scripts',
+});
+const author = await admin.grants.create({
+  name: 'users/alice/script-author',
   resources: [
-    { id: reveal.id, permissions: ['invoke'] },
-    { id: githubToken.id, permissions: ['invoke'] },
+    { id: scripts.id, permissions: ['write', 'invoke'] },
+    { id: profile.id, permissions: ['bind'] },
   ],
   expiresAt: null,
 });
-const token = await grant.tokens.create({ label: 'secret-reader' });
-const tokenPath = `${directory}/secret-reader.token`;
-writeFileSync(tokenPath, token.value, { mode: 0o600 });
+const authorToken = await author.tokens.create({ label: 'script-author' });
+
+const alice = store.as(authorToken.value);
+const script = await (await alice.resources.get(scripts.id)).create({
+  name: 'profile-summary',
+});
+await script.executable.set({
+  runtime: 'profileSummary',
+  bind: { profile: profile.id },
+});
+
+const actingAuthor = await alice.grants.get(author.id);
+const consumer = await actingAuthor.create({
+  name: 'profile-consumer',
+  resources: [{ id: script.id, permissions: ['invoke'] }],
+  expiresAt: null,
+});
+const consumerToken = await consumer.tokens.create({ label: 'consumer' });
+const tokenPath = `${directory}/script-invoker.token`;
+writeFileSync(tokenPath, consumerToken.value, { mode: 0o600 });
 
 const app = createApp({
   store,
@@ -67,8 +96,7 @@ const port = Number(process.env.PORT ?? 3002);
 const server = serve({ fetch: app.fetch, port }, ({ port: listeningPort }) => {
   console.log(`Secret-store example listening on http://localhost:${listeningPort}`);
   console.log(`Bearer token written to ${tokenPath}`);
-  console.log(`Reveal resource: ${reveal.id}`);
-  console.log(`Secret binding: ${githubToken.id}`);
+  console.log(`User-created script resource: ${script.id}`);
 });
 
 function close() {
@@ -80,3 +108,8 @@ function close() {
 
 process.once('SIGINT', close);
 process.once('SIGTERM', close);
+
+function mockGithubProfile(token: string): GithubProfile {
+  if (token !== demoToken) throw new Error('GitHub authentication failed.');
+  return { login: 'alice' };
+}

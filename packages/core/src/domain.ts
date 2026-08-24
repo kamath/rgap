@@ -1,5 +1,5 @@
 /** Permissions understood by the reference RGAP contract. */
-export const permissions = ['read', 'write', 'invoke', 'move', 'delete'] as const;
+export const permissions = ['read', 'write', 'invoke', 'bind', 'move', 'delete'] as const;
 export type Permission = (typeof permissions)[number];
 
 declare const identityBrand: unique symbol;
@@ -23,14 +23,17 @@ export const grantId = (id: string): GrantId => id as GrantId;
 export const tokenId = (id: string): TokenId => id as TokenId;
 export const tokenValue = (id: string): TokenValue => id as TokenValue;
 export const tokenHash = (id: string): TokenHash => id as TokenHash;
-export type BindingSlot = {
-  kind: string;
-  required?: boolean;
+
+export type ExecutableBinding = {
+  resourceId: ResourceId;
+  /** Null records administrative provenance. */
+  grantLineage: GrantId[] | null;
 };
 
 export type ExecutableDefinition = {
   resourceId: ResourceId;
   runtime: string;
+  bind: Record<string, ExecutableBinding>;
 };
 
 export type Resource = {
@@ -188,6 +191,20 @@ export function stateIntegrity(state: State) {
     if (!state.resources[definition.resourceId]) {
       problems.push(`Executable ${definition.resourceId} refers to a missing resource.`);
     }
+    Object.entries(definition.bind).forEach(([name, binding]) => {
+      if (!state.resources[binding.resourceId]) {
+        problems.push(
+          `Executable ${definition.resourceId} binding ${name} refers to missing resource ${binding.resourceId}.`,
+        );
+      }
+      binding.grantLineage?.forEach((id) => {
+        if (!state.grants[id]) {
+          problems.push(
+            `Executable ${definition.resourceId} binding ${name} refers to missing grant ${id}.`,
+          );
+        }
+      });
+    });
   });
   return problems;
 }
@@ -531,6 +548,55 @@ export function authorize(state: State, hash: TokenHash, id: ResourceId, permiss
     detail: allowed ? `${permission} is covered by every grant in the chain.` : `No ${permission} resource survives the complete grant chain.`,
     grantId: token.grantId,
     lineage: chain.map((grant) => grant.id),
+  };
+}
+
+/** Revalidates authority previously proven by a complete grant lineage. */
+export function authorizeLineage(
+  state: State,
+  recorded: readonly GrantId[],
+  id: ResourceId,
+  permission: Permission,
+  at: string,
+): Decision {
+  if (!isLive(state.resources[id])) {
+    return { allowed: false, detail: 'Resource does not exist.', grantId: null, lineage: [] };
+  }
+  const leaf = recorded[0];
+  if (!leaf) {
+    return { allowed: false, detail: 'Binding has no grant lineage.', grantId: null, lineage: [] };
+  }
+  const chain = lineage(state, leaf);
+  const current = chain.map((grant) => grant.id);
+  const sameLineage =
+    current.length === recorded.length &&
+    current.every((grant, index) => grant === recorded[index]);
+  if (!sameLineage) {
+    return {
+      allowed: false,
+      detail: 'The recorded grant lineage no longer matches.',
+      grantId: leaf,
+      lineage: current,
+    };
+  }
+  if (chain.some((grant) => !active(grant, at))) {
+    return {
+      allowed: false,
+      detail: 'A grant in the delegation chain is expired or revoked.',
+      grantId: leaf,
+      lineage: current,
+    };
+  }
+  const allowed = chain.every((grant) =>
+    grant.resources.some((entry) => resourceAuthorizes(entry, state.resources, id, permission))
+  );
+  return {
+    allowed,
+    detail: allowed
+      ? `${permission} is covered by every grant in the recorded chain.`
+      : `No ${permission} resource survives the recorded grant chain.`,
+    grantId: leaf,
+    lineage: current,
   };
 }
 

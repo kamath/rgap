@@ -81,15 +81,10 @@ async function queriedState(repository: RgapRepository): Promise<State> {
 }
 
 const runtime = (
-  bindings: Record<string, {
-  kind: string;
-  required?: boolean;
-  }> = {},
   invoke: InvokeRuntime['invoke'] = () => undefined,
 ): InvokeRuntime => ({
   inputSchema: null,
   outputSchema: null,
-  bindings,
   invoke,
 });
 
@@ -203,13 +198,23 @@ describe('SqliteRgapStore', () => {
     const first = firstStore.admin();
     const drive = await first.resources.get(resourceId('drive'));
     await drive.executable.set({ runtime: 'test' });
-    await drive.executable.set({ runtime: 'other' });
+    await drive.executable.set({
+      runtime: 'other',
+      bind: { source: resourceId('acme') },
+    });
     expect((await drive.executable.get())?.runtime).toBe('other');
     firstStore.close();
 
     const second = open({ ...options, initialState: undefined }).admin();
     expect(await second.executables.get(resourceId('drive'))).toEqual({
-      resourceId: resourceId('drive'), runtime: 'other',
+      resourceId: resourceId('drive'),
+      runtime: 'other',
+      bind: {
+        source: {
+          resourceId: resourceId('acme'),
+          grantLineage: null,
+        },
+      },
     });
     await second.executables.delete(resourceId('drive'));
     expect(await second.executables.get(resourceId('drive'))).toBeUndefined();
@@ -221,13 +226,16 @@ describe('SqliteRgapStore', () => {
       .rejects.toMatchObject({ code: 'unknown_runtime' });
   });
 
-  it('records audit-safe invoke facts without exposing input, output, or binding kinds', async () => {
+  it('records audit-safe invoke facts without exposing input, output, or bound values', async () => {
     const url = file();
     const inputMarker = 'private-invocation-input';
     const outputMarker = 'private-runtime-output';
-    const implementation = runtime({ source: { kind: 'document' } }, async (context) => {
-        expect(context.bindings.source).toEqual({ resourceId: resourceId('acme'), kind: 'document' });
-        return outputMarker;
+    const implementation = runtime(async (context) => {
+      expect(context.input).toEqual(expect.objectContaining({
+        marker: inputMarker,
+        source: resourceId('acme'),
+      }));
+      return outputMarker;
     });
     const options: SqliteRgapStoreOptions = {
       url,
@@ -235,17 +243,51 @@ describe('SqliteRgapStore', () => {
       runtimes: { test: implementation },
     };
     const first = open(options).admin();
-    await first.executables.set(resourceId('drive'), { runtime: 'test' });
+    await first.executables.set(resourceId('drive'), {
+      runtime: 'test',
+      bind: { source: resourceId('acme') },
+    });
     expect(await collect(first.invoke(resourceId('drive'), {
-      input: inputMarker,
-      bindings: { source: resourceId('acme') },
+      input: { marker: inputMarker },
     }))).toEqual([{ type: 'data', value: outputMarker }, { type: 'done' }]);
     const invokeAudit = (await first.audit.list()).find(({ action }) => action === 'executable.invoke')!;
     expect(invokeAudit.detail).toContain('"runtime":"test"');
     expect(invokeAudit.detail).toContain('"result":"done"');
     expect(invokeAudit.detail).not.toContain(inputMarker);
     expect(invokeAudit.detail).not.toContain(outputMarker);
-    expect(invokeAudit.detail).not.toContain('document');
+    expect(invokeAudit.detail).toContain('"bindingResourceIds":["acme"]');
+  });
+
+  it('invokes sealed executable bindings and links nested audit records', async () => {
+    const child = runtime(() => ({ login: 'alice' }));
+    const parent = runtime(async ({ input, invoke }) => {
+      const profile = await invoke.one<{ login: string }>(
+        (input as { profile: string }).profile,
+        { input: null },
+      );
+      return profile.login;
+    });
+    const repository = open({
+      initialState: acme(),
+      runtimes: { child, parent },
+    }).admin();
+    await repository.executables.set(resourceId('acme'), { runtime: 'child' });
+    await repository.executables.set(resourceId('drive'), {
+      runtime: 'parent',
+      bind: { profile: resourceId('acme') },
+    });
+
+    expect(await collect(repository.invoke(resourceId('drive'), { input: {} })))
+      .toEqual([{ type: 'data', value: 'alice' }, { type: 'done' }]);
+    const invocations = (await repository.audit.list())
+      .filter(({ action }) => action === 'executable.invoke')
+      .map(({ detail }) => JSON.parse(detail));
+    const outer = invocations.find(({ runtime }) => runtime === 'parent');
+    const nested = invocations.find(({ runtime }) => runtime === 'child');
+    expect(nested.parentInvocationId).toBeTruthy();
+    const records = await repository.audit.list();
+    const outerRecord = records.find(({ detail }) => detail === JSON.stringify(outer));
+    expect(nested.parentInvocationId).toBe(outerRecord?.id);
   });
 
   it('authorizes invocation through the guarded plane while admin remains unrestricted', async () => {
@@ -271,6 +313,46 @@ describe('SqliteRgapStore', () => {
       .toEqual([{ type: 'done' }]);
     const invocation = (await admin.audit.list()).find(({ action }) => action === 'executable.invoke')!;
     expect(JSON.parse(invocation.detail).grantLineageIds).toEqual([invoker.id]);
+  });
+
+  it('revalidates the binding author lineage for every invocation', async () => {
+    const implementation = runtime(({ input }) => {
+      expect(input).toEqual(expect.objectContaining({ credential: resourceId('acme') }));
+      return 'used';
+    });
+    const store = open({ initialState: acme(), runtimes: { test: implementation } });
+    const admin = store.admin();
+
+    const author = await admin.grants.create({
+      name: 'Author',
+      resources: [{ id: resourceId('acme'), permissions: ['write', 'bind'] }],
+      expiresAt: null,
+    });
+    const authorToken = await author.tokens.create({ label: 'author' });
+    await store.as(authorToken.value).executables.set(resourceId('drive'), {
+      runtime: 'test',
+      bind: { credential: resourceId('acme') },
+    });
+
+    const consumer = await admin.grants.create({
+      name: 'Consumer',
+      resources: [{ id: resourceId('drive'), permissions: ['invoke'] }],
+      expiresAt: null,
+    });
+    const consumerToken = await consumer.tokens.create({ label: 'consumer' });
+    expect(await collect(store.as(consumerToken.value).invoke(
+      resourceId('drive'),
+      { input: {} },
+    ))).toEqual([
+      { type: 'data', value: 'used' },
+      { type: 'done' },
+    ]);
+
+    await author.revoke();
+    await expect(collect(store.as(consumerToken.value).invoke(
+      resourceId('drive'),
+      { input: {} },
+    ))).rejects.toMatchObject({ code: 'unauthorized' });
   });
 
   it('reads a permission set in the protocol canonical order', async () => {

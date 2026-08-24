@@ -27,7 +27,10 @@ type TreeNode<Id extends string> = { id: Id; parentId: Id | null; name: string }
 
 // To use Hono, replace the next line with:
 // const store = new HttpRgapStore({ baseUrl: 'http://localhost:3000', adminToken: process.env.RGAP_ADMIN_TOKEN ?? 'test' });
-const EchoInputSchema = z.object({ query: z.string() });
+const EchoInputSchema = z.object({
+  query: z.string(),
+  searchWithin: z.string(),
+});
 const EchoOutputSchema = z.object({ message: z.string(), searchedWithin: z.string() });
 const echo: InvokeRuntime<
   z.infer<typeof EchoInputSchema>,
@@ -35,13 +38,10 @@ const echo: InvokeRuntime<
 > = {
   inputSchema: EchoInputSchema,
   outputSchema: EchoOutputSchema,
-  bindings: {
-    searchWithin: { kind: 'resource' },
-  },
-  async invoke({ input, bindings }) {
+  async invoke({ input }) {
     return {
       message: `result: ${input.query}`,
-      searchedWithin: bindings.searchWithin.resourceId,
+      searchedWithin: input.searchWithin,
     };
   },
 };
@@ -59,7 +59,7 @@ const companyGrant = await root.grants.create({
   name: 'company',
   resources: [{
     id: acme.id,
-    permissions: ['read', 'write', 'delete', 'move', 'invoke'],
+    permissions: ['read', 'write', 'delete', 'move', 'invoke', 'bind'],
   }],
   expiresAt: null,
 });
@@ -72,6 +72,7 @@ const design = await docs.create({ name: 'design' });
 const search = await platform.create({ name: 'tools/search' });
 await search.executable.set({
   runtime: 'echo',
+  bind: { searchWithin: docs.id },
 });
 const payroll = await company.resources.create({ name: 'acme/finance/payroll' });
 
@@ -154,7 +155,6 @@ for (const [label, token] of tokens) {
 console.log('\nINVOKE');
 for await (const event of search.invoke({
   input: { query: 'design' },
-  bindings: { searchWithin: docs.id },
 })) {
   console.log(event);
 }

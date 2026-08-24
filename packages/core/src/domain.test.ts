@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import {
-  authorize, availableGrantId, availableId, covers, createAtPath, createGrant, createGrantAtPath, createResource,
+  authorize, authorizeLineage, availableGrantId, availableId, covers, createAtPath, createGrant, createGrantAtPath, createResource,
   deleteResource, grantId, grantIdAtPath, InvalidParentError, isLive, isWithin, liveResources,
   moveResource, normalizePath, permissions, recordToken, requireResourceId, resourceId, resourceIdAtPath,
   resolveBearer, resourcePath, revokeGrant, revokeToken, RgapError, setResources,
@@ -57,10 +57,12 @@ describe('RGAP domain', () => {
     state.executables['missing-definition-resource'] = {
       resourceId: r('missing-definition-resource'),
       runtime: 'test',
+      bind: {},
     };
     state.executables.drive = {
       resourceId: r('drive'),
       runtime: 'test',
+      bind: {},
     };
 
     expect(stateIntegrity(state)).toEqual([
@@ -69,6 +71,36 @@ describe('RGAP domain', () => {
       'Token demo refers to missing grant coordinator.',
       'Executable missing-definition-resource refers to a missing resource.',
     ]);
+  });
+
+  it('reports missing executable binding resources and grant lineage', () => {
+    const state = fixture();
+    state.executables.drive = {
+      resourceId: r('drive'),
+      runtime: 'test',
+      bind: {
+        source: {
+          resourceId: r('missing-bound-resource'),
+          grantLineage: [g('missing-binding-grant')],
+        },
+      },
+    };
+    expect(stateIntegrity(state)).toEqual([
+      'Executable drive binding source refers to missing resource missing-bound-resource.',
+      'Executable drive binding source refers to missing grant missing-binding-grant.',
+    ]);
+
+    state.executables.drive.bind = {
+      valid: {
+        resourceId: r('read-file'),
+        grantLineage: [g('coordinator')],
+      },
+      admin: {
+        resourceId: r('drive'),
+        grantLineage: null,
+      },
+    };
+    expect(stateIntegrity(state)).toEqual([]);
   });
 
   it('rejects delegation that expands permission', () => {
@@ -619,6 +651,54 @@ describe('tokens', () => {
 });
 
 describe('authorization decisions', () => {
+  it('revalidates recorded grant lineage against current authority', () => {
+    const recorded = [g('coordinator')];
+    expect(authorizeLineage(
+      fixture(),
+      recorded,
+      r('search-files'),
+      'invoke',
+      at,
+    ).allowed).toBe(true);
+
+    const revoked = revokeGrant(fixture(), g('coordinator'), at);
+    expect(authorizeLineage(
+      revoked,
+      recorded,
+      r('search-files'),
+      'invoke',
+      at,
+    ).allowed).toBe(false);
+    expect(authorizeLineage(
+      fixture(),
+      [g('researcher')],
+      r('search-files'),
+      'invoke',
+      at,
+    ).detail).toContain('no longer matches');
+    expect(authorizeLineage(
+      fixture(),
+      recorded,
+      r('missing'),
+      'invoke',
+      at,
+    ).detail).toBe('Resource does not exist.');
+    expect(authorizeLineage(
+      fixture(),
+      [],
+      r('search-files'),
+      'invoke',
+      at,
+    ).detail).toBe('Binding has no grant lineage.');
+    expect(authorizeLineage(
+      fixture(),
+      recorded,
+      r('search-files'),
+      'write',
+      at,
+    ).allowed).toBe(false);
+  });
+
   it('denies a token it does not know, and one that is expired or revoked', () => {
     expect(authorize(fixture(), tokenHash('unknown-hash'), r('search-files'), 'invoke', at).detail)
       .toBe('Token is unknown, expired, or revoked.');
@@ -670,7 +750,7 @@ describe('resolving a bearer internally', () => {
   });
 
   it('lists every permission the contract understands', () => {
-    expect(permissions).toEqual(['read', 'write', 'invoke', 'move', 'delete']);
+    expect(permissions).toEqual(['read', 'write', 'invoke', 'bind', 'move', 'delete']);
   });
 });
 

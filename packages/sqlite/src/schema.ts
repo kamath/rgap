@@ -61,6 +61,21 @@ export const executables = sqliteTable('executables', {
   runtime: text('runtime').notNull(),
 });
 
+export const executableBindings = sqliteTable(
+  'executable_bindings',
+  {
+    executableResourceId: text('executable_resource_id').notNull()
+      .references(() => executables.resourceId),
+    name: text('name').notNull(),
+    resourceId: text('resource_id').notNull().references(() => resources.id),
+    /** JSON grant ID array; null denotes administrative provenance. */
+    grantLineage: text('grant_lineage'),
+  },
+  (table) => [
+    primaryKey({ columns: [table.executableResourceId, table.name] }),
+  ],
+);
+
 /** The log's order is stored rather than inferred, so a read returns the events in the order they were recorded. */
 export const audit = sqliteTable('audit', {
   seq: integer('seq').primaryKey(),

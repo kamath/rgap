@@ -65,72 +65,119 @@ The guarded repository exposes the model because the agent holds `read` and
 `OPENAI_API_KEY`. The complete executable version lives in
 `examples/openai.ts`.
 
-## Expose a user-managed secret through invoke
+## Compose a secret-backed resource
 
-A deployment can keep end-user secrets in its own store and expose one
-`reveal-secret` executable. The caller supplies the secret's RGAP resource as
-a binding. The runtime depends only on a small store interface:
+A deployment stores each credential under an ordinary RGAP resource ID. An
+administrator seals that resource into a trusted executable and exposes only
+the executable's narrow interface:
 
 ```ts
-interface SecretStore {
-  get(resourceId: ResourceId): string | undefined | Promise<string | undefined>;
-  set(resourceId: ResourceId, value: string): void | Promise<void>;
-  close(): void | Promise<void>;
-}
+const githubToken = await admin.resources.create({
+  name: 'users/alice/secrets/github-token',
+});
+await secretStore.set(githubToken.id, process.env.ALICE_GITHUB_TOKEN);
 
-const revealSecret = {
-  inputSchema: z.null(),
-  outputSchema: z.string(),
-  bindings: {
-    secret: { kind: 'resource' },
-  },
-  async invoke({ bindings }) {
-    return secretStore.get(bindings.secret.resourceId);
-  },
-} satisfies InvokeRuntime<null, string>;
+const githubProfile = await admin.resources.create({
+  name: 'users/alice/functions/github-profile',
+});
+await githubProfile.executable.set({
+  runtime: 'githubProfile',
+  bind: { credential: githubToken.id },
+});
 ```
 
-RGAP requires `invoke` on both the `reveal-secret` executable and the bound
-secret resource before the runtime runs. The secret store indexes values by
-the stable resource ID, so the caller cannot bypass authorization by supplying
-a secret name:
+The `bind` map partially applies top-level input fields with ordinary resource
+ID strings. Setting a binding requires `bind` on its resource and records the
+authorizing grant lineage. Invocation revalidates that lineage and rejects
+caller input that attempts to replace a sealed field.
+
+The trusted runtime reads the credential from the deployment-owned store and
+returns only the operation result:
 
 ```ts
-const grant = await admin.grants.create({
-  name: 'users/alice/secret-reader',
+const githubProfileRuntime = {
+  inputSchema: z.object({ credential: z.string() }),
+  outputSchema: z.object({ login: z.string() }),
+  async invoke({ input }) {
+    const token = await secretStore.get(input.credential);
+    if (token === undefined) throw new Error('Credential is unavailable.');
+    return fetchGithubProfile(token);
+  },
+} satisfies InvokeRuntime<{ credential: string }, { login: string }>;
+```
+
+The administrator gives Alice authority to compose the safe function and to
+invoke resources under her scripts subtree, but gives her no authority over
+the credential:
+
+```ts
+const scripts = await admin.resources.create({ name: 'users/alice/scripts' });
+const author = await admin.grants.create({
+  name: 'users/alice/script-author',
   resources: [
-    { id: reveal.id, permissions: ['invoke'] },
-    { id: githubToken.id, permissions: ['invoke'] },
+    { id: scripts.id, permissions: ['write', 'invoke'] },
+    { id: githubProfile.id, permissions: ['bind'] },
   ],
   expiresAt: null,
 });
-
-for await (const event of reveal.invoke({
-  input: null,
-  bindings: { secret: githubToken.id },
-})) {
-  // The data event contains the secret string.
-}
+const authorToken = await author.tokens.create({ label: 'script-author' });
 ```
 
-The holder can copy or disclose the plaintext after invocation. This pattern
-is appropriate only when the caller is trusted to possess the secret.
+Alice creates another executable resource and binds the safe function as its
+direct dependency:
 
-Inputs and outputs stay out of RGAP invocation audit records, logs, and errors.
-The surrounding application must also keep the returned value out of model
-context, telemetry, caches, and exception messages. The complete executable
-Hono app lives in `examples/secret-store`. It uses one SQLite database for
-RGAP state and initializes `SqliteSecretStore` with another SQLite database
-for secret values. A deployment can supply a different `SecretStore`
-implementation without changing the runtime.
+```ts
+const alice = store.as(authorToken.value);
+const script = await (await alice.resources.get(scripts.id)).create({
+  name: 'profile-summary',
+});
+await script.executable.set({
+  runtime: 'profileSummary',
+  bind: { profile: githubProfile.id },
+});
 
-### Consume a secret without revealing it
+const actingAuthor = await alice.grants.get(author.id);
+const consumer = await actingAuthor.create({
+  name: 'profile-consumer',
+  resources: [{ id: script.id, permissions: ['invoke'] }],
+  expiresAt: null,
+});
+const consumerToken = await consumer.tokens.create({ label: 'consumer' });
+```
 
-When a caller only needs to perform an operation, the executable fetches and
-uses the secret internally instead. The OpenAI example above follows this
-pattern: `invoke` grants use of the model while the provider API key remains in
-the runtime. This narrower interface prevents the caller from exfiltrating the
-credential and is the preferred design for tool and provider integrations.
+The composition runtime invokes that named binding. It receives the profile
+result and never receives the transitive credential binding:
+
+```ts
+const profileSummaryRuntime = {
+  inputSchema: z.object({ profile: z.string() }),
+  outputSchema: z.string(),
+  async invoke({ input, invoke }) {
+    const profile = await invoke.one<{ login: string }>(
+      input.profile,
+      { input: {} },
+    );
+    return `GitHub user: ${profile.login}`;
+  },
+} satisfies InvokeRuntime<{ profile: string }, string>;
+```
+
+Creating the `profile` edge requires `bind` on `githubProfile`. When the script
+runs, RGAP revalidates that edge and invokes the arbitrary resource ID in
+`input.profile`. The profile's frame then revalidates its own credential edge.
+This transitive call chain never grants the script's frame direct authority to
+bind or read `githubToken`.
+
+The consumer can invoke `script` without receiving `bind` on `githubProfile`.
+This is the intended meaning of `bind`: Alice can encapsulate the safe profile
+capability and publish her wrapper's interface. Revoking or narrowing
+`author` invalidates the recorded `profile` edge on its next invocation and
+therefore disables it for every consumer.
+
+The complete Hono app lives in `examples/secret-store`. It uses one SQLite
+database for RGAP state and initializes `SqliteSecretStore` with another
+SQLite database for secret values. Inputs, outputs, and secret values stay out
+of invocation audit records, logs, and errors.
 
 ## MCP server governance
 
@@ -200,7 +247,7 @@ Its expiration is earlier than the coordinator's expiration.
 To enforce application-specific argument restrictions—such as allowed Slack
 channels or Drive roots—register each protected scope as a resource and grant
 the applicable leaves. Submitted `invoke` entries store `read` as well.
-`write`, `invoke`, `move`, and `delete` stay independent of each other.
+`write`, `invoke`, `bind`, `move`, and `delete` stay independent of each other.
 
 ## Gateway request flow
 

@@ -54,14 +54,15 @@ type Token = {
   revokedAt: string | null;
 };
 
-type BindingSlot = {
-  kind: string;
-  required?: boolean;
+type ExecutableBinding = {
+  resourceId: string;
+  grantLineage: string[] | null;
 };
 
 type ExecutableDefinition = {
   resourceId: string;
   runtime: string;
+  bind: Record<string, ExecutableBinding>;
 };
 
 type AuditEvent = {
@@ -74,7 +75,7 @@ type AuditEvent = {
 };
 ```
 
-`Permission` is `'read' | 'write' | 'delete' | 'move' | 'invoke'`. Every
+`Permission` is `'read' | 'write' | 'delete' | 'move' | 'invoke' | 'bind'`. Every
 persisted record is JSON-compatible. Timestamps are RFC 3339 strings in UTC
 with a fixed number of fractional digits so lexical comparison preserves time
 order.
@@ -125,6 +126,7 @@ only live resources, so a new resource may reuse a deleted name with a new ID.
 | `read` | Reading a resource and listing its children. |
 | `write` | Modifying a resource and creating children under it. |
 | `invoke` | Calling a resource, such as executing a tool. |
+| `bind` | Sealing a resource into another executable as a direct dependency. |
 | `move` | Relocating a resource to a different parent. |
 | `delete` | Deleting a resource together with its descendants. |
 
@@ -133,7 +135,7 @@ permission set and stores that set unioned with `read`, in canonical order:
 
 ```ts
 normalizePermissions(submitted) =
-  ['read', 'write', 'invoke', 'move', 'delete']
+  ['read', 'write', 'invoke', 'bind', 'move', 'delete']
     .filter((permission) =>
       permission === 'read' || submitted.includes(permission),
     );
@@ -142,17 +144,18 @@ normalizePermissions(submitted) =
 Submitting `['invoke']` stores `['read', 'invoke']`. Submitting `['read']`
 stores `['read']`.
 
-No permission implies another during authorization. `write` does not include
-`invoke`, `invoke` does not include `write`, and `delete` does not include
-`move`. `authorize` tests membership in the stored set.
+No permission implies another during authorization. `write`, `invoke`, and
+`bind` remain independent, and `delete` does not include `move`. `authorize`
+tests membership in the stored set.
 
 | Operation | Required authority |
 | --- | --- |
 | Read a resource or list children | `read` on the resource |
 | Invoke a resource | `invoke` on the resource |
-| Bind a resource to an invocation | `invoke` on the bound resource |
+| Bind a resource into an executable | `bind` on the bound resource |
 | Read an executable association | `read` on the resource |
-| Set or delete an executable | `write` on the resource |
+| Set an executable | `write` on the resource and `bind` on each direct binding |
+| Delete an executable | `write` on the resource |
 | Create a child | `write` on that child's parent |
 | Create at a path | `write` on the parent of each created resource |
 | Move a resource | `move` on the resource and `write` on the destination |
@@ -365,12 +368,37 @@ permanently ineffective.
 ## Executables
 
 An executable definition attaches one registered runtime to one live resource,
-which remains the authorization target.
+which remains the authorization target. It can also pre-bind top-level input
+fields to ordinary resource ID strings. Bound fields are sealed configuration
+rather than caller-controlled invocation values.
 
-`setExecutable(state, resourceId, { runtime }, at, runtimes)` trims and
+`setExecutable(state, resourceId, { runtime, bind }, at, runtimes)` trims and
 validates the runtime name, requires that runtime to be registered, and
-atomically creates or replaces `{ resourceId, runtime }` together with its
-audit event. Setting requires `write`.
+atomically creates or replaces the association together with its audit event.
+Setting requires `write` on the executable resource and `bind` on every
+directly bound resource. Each binding records the complete grant lineage that
+authorized it. Administrative bindings record administrative provenance.
+Binding names are top-level input property names. `__proto__`, `prototype`,
+and `constructor` are invalid binding names.
+
+Binding creation validates authority immediately, and every invocation
+revalidates that the bound resource is live and its recorded lineage remains
+active and still covers `bind`. Revoking or narrowing any grant in that
+lineage disables the edge.
+
+A valid binding is deliberately delegable through its executable. Any
+principal with `invoke` on that executable can exercise its interface without
+holding `bind` on the direct target. Granting `bind` therefore authorizes the
+holder to create a wrapper and publish that wrapper by delegating `invoke`.
+
+Authority composes through nested invocation frames. If A binds B and B binds
+C, invoking A can invoke B, whose own frame can then use C. Authority is not
+flattened: A's frame does not gain a direct edge to C. Every hop is revalidated
+when the call chain runs.
+
+Bindings are live references to resource identity. A frame resolves the
+target's current executable definition. Replacing that definition changes the
+behavior observed through every binding to the resource.
 
 Deleting an executable removes its association and records the deletion
 atomically. It leaves resource and audit records intact, and a later set may
@@ -386,7 +414,6 @@ configure runtime code. RGAP defines no built-in runtime implementation.
 ```ts
 type InvokeInput = {
   input: unknown;
-  bindings?: Record<string, string>;
 };
 
 type InvocationEvent =
@@ -401,16 +428,16 @@ type RuntimeSchema<T> = {
 
 type RuntimeInvocation<TInput> = {
   input: TInput;
-  bindings: Readonly<
-    Record<string, { resourceId: string; kind: string }>
-  >;
+  invoke: {
+    stream(resourceId: string, input: InvokeInput): AsyncIterable<InvocationEvent>;
+    one<T = unknown>(resourceId: string, input: InvokeInput): Promise<T>;
+  };
   signal: AbortSignal;
 };
 
 interface InvokeRuntime<TInput = unknown, TOutput = unknown> {
   inputSchema: RuntimeSchema<TInput> | null;
   outputSchema: RuntimeSchema<TOutput> | null;
-  bindings?: Readonly<Record<string, BindingSlot>>;
   invoke(
     context: RuntimeInvocation<TInput>,
   ): RuntimeResult<TOutput> | Promise<RuntimeResult<TOutput>>;
@@ -421,29 +448,45 @@ Invocation is one ordered decision and lifecycle:
 
 1. Resolve the executable definition and registered runtime.
 2. Authorize `invoke` on the executable resource through the complete lineage.
-3. Parse input when the runtime's `inputSchema` is not null.
-4. Reject undeclared bindings and missing required slots.
-5. Authorize `invoke` on every supplied live binding resource.
-6. Invoke the runtime with typed input, an abort signal, and opaque
-   `{ resourceId, kind }` bindings.
-7. Normalize one value, a promise, an async iterable, or `undefined`.
-8. Parse each output when `outputSchema` is not null, emit a `data` event for
+3. Revalidate every sealed binding's live target and recorded `bind` lineage.
+4. Require object input when bindings exist and reject any caller-supplied
+   property whose name is sealed.
+5. Create input without prototype inheritance, insert the bound resource ID
+   strings, then parse the complete input when the runtime's `inputSchema` is
+   not null.
+6. Invoke the runtime with typed input, an abort signal, and nested invocation
+   methods that accept resource IDs.
+7. Authorize each nested target from either the initiating caller's direct
+   `invoke` authority or a valid direct binding edge on the current frame.
+8. Reject a resource already present in the active invocation stack and reject
+   a call deeper than 32 frames.
+9. Normalize one value, a promise, an async iterable, or `undefined`.
+10. Parse each output when `outputSchema` is not null, emit a `data` event for
    each defined value, and emit `done` automatically.
-9. Let runtime failures terminate the stream. Record normal exhaustion as
+11. Let runtime failures terminate the stream. Record normal exhaustion as
    `done`, runtime failure as `error`, and caller abort or early iterator return
    as `cancelled`.
 
 Runtimes return raw values and never construct protocol events. The registry
 accepts heterogeneous generic runtimes; type erasure is confined to registry
-lookup. Binding kinds are runtime-defined strings. Cancellation propagates to
-the runtime through `AbortSignal`.
+lookup. Cancellation propagates through nested calls and reaches each runtime
+through `AbortSignal`. Every nested invocation produces its own audit record,
+linked to the parent invocation without recording inputs or outputs.
+Authorization is fixed for the lifetime of one frame. Authorization state is
+read again when a nested frame starts.
+
+A schema can accept a bound ID in any string field. Binding a resource to the
+wrong same-type field is a configuration error rather than an authorization
+failure; the runtime's complete schema and behavior determine whether it
+fails. RGAP assigns resource semantics only to fields named in `bind`.
 
 ## Invocation auditing and redaction
 
 An invocation record contains the executable resource ID, runtime name,
-grant-lineage IDs, binding resource IDs, start and finish times, and result
-(`done`, `error`, or `cancelled`). It does not contain invocation input or
-output data. Implementations apply the same rule to logs and errors.
+grant-lineage IDs, parent invocation ID when present, binding resource IDs,
+start and finish times, and result (`done`, `error`, or `cancelled`). It does
+not contain invocation input, output data, or external secret values.
+Implementations apply the same rule to logs and errors.
 
 ## Enforcement boundary
 
@@ -472,18 +515,25 @@ An implementation conforms when:
 9. Resource operations and grant amendments commit atomically with audit.
 10. Deleted resources remain as unreadable tombstones.
 11. Commands are exposed only through explicit token or administrative planes.
-12. Every invocation binding requires `invoke` on its bound resource through
-    the complete lineage.
-13. An executable persists only one resource-to-runtime association; setting
-    validates registration atomically and deletion removes the association.
-14. Runtime registration, schemas, binding declarations, and behavior are
-    deployment configuration that repository commands cannot mutate.
-15. Invocation resolves one runtime, conditionally parses nullable runtime
-    schemas, validates bindings, authorizes the executable and every binding,
-    passes only opaque resource bindings, normalizes results into `data` and
-    automatic `done` events, propagates cancellation, and records its result.
-16. Audit records, errors, and logs exclude inputs and outputs while retaining
+12. Setting an executable binding requires `bind` on its direct resource
+    through the complete lineage and records that lineage with the edge.
+13. Invocation revalidates every binding lineage and live target before
+    inserting sealed resource ID strings into runtime input.
+14. An executable persists one resource-to-runtime association and its sealed
+    direct bindings; deletion removes the association and bindings.
+15. Binding authority is delegable through `invoke`, follows the target's live
+    executable definition, and never flattens transitive edges into a caller.
+16. Runtime registration, schemas, and behavior are deployment configuration
+    that repository commands cannot mutate.
+17. Invocation resolves one runtime, rejects sealed input collisions, parses
+    input after safely inserting bound fields,
+    authorizes arbitrary nested resource IDs against caller authority or the
+    current frame's direct edges, follows valid edges transitively across
+    frames, rejects active cycles and depths above 32, normalizes results into
+    `data` and automatic `done` events, propagates cancellation, and records
+    each call in the chain.
+18. Audit records, errors, and logs exclude inputs and outputs while retaining
     the IDs, runtime, timing, and result needed for accountability.
-16. An implementation may load and persist command-scoped records when the
+19. An implementation may load and persist command-scoped records when the
     command remains atomic and observably equivalent to one complete state
     transition.

@@ -7,13 +7,13 @@ import type { SQLiteTable } from 'drizzle-orm/sqlite-core';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import {
   authorize as decide,
+  authorizeLineage,
   createAtPath,
   createGrantAtPath,
   deleteExecutable as removeExecutable,
   deleteResource as removeResource,
   grantId,
   grantIdAtPath,
-  getAuthorizedLineage,
   guardCommands,
   invokeExecutable,
   moveResource as move,
@@ -228,29 +228,50 @@ class SqliteBackingRepository implements RgapCommands {
 
   async getExecutable(id: ResourceId) {
     const row = this.db.select().from(schema.executables).where(eq(schema.executables.resourceId, id)).get();
-    return row ? {
+    if (!row) return undefined;
+    const bind = Object.fromEntries(this.db.select().from(schema.executableBindings)
+      .where(eq(schema.executableBindings.executableResourceId, id))
+      .orderBy(asc(schema.executableBindings.name)).all()
+      .map((binding) => [binding.name, {
+        resourceId: resourceId(binding.resourceId),
+        grantLineage: binding.grantLineage === null
+          ? null
+          : parseGrantLineage(binding.grantLineage),
+      }]));
+    return {
       resourceId: resourceId(row.resourceId),
       runtime: row.runtime,
-    } : undefined;
+      bind,
+    };
   }
 
   async setExecutable(id: ResourceId, input: SetExecutableInput) {
     return this.db.transaction(() => {
       const state = this.workingState();
       this.loadResource(state, id);
+      Object.values(input.bind ?? {}).forEach((boundId) => this.loadResource(state, boundId));
       const next = associateExecutable(state, id, input, now(), this.runtimes);
       const definition = next.executables[id];
-      this.db.insert(schema.executables).values(definition)
+      this.db.insert(schema.executables).values({
+        resourceId: definition.resourceId,
+        runtime: definition.runtime,
+      })
         .onConflictDoUpdate({
           target: schema.executables.resourceId,
           set: { runtime: definition.runtime },
         }).run();
+      this.db.delete(schema.executableBindings)
+        .where(eq(schema.executableBindings.executableResourceId, id)).run();
+      insert(this.db, schema.executableBindings, Object.entries(definition.bind).map(([name, binding]) => ({
+        executableResourceId: id,
+        name,
+        resourceId: binding.resourceId,
+        grantLineage: binding.grantLineage === null
+          ? null
+          : JSON.stringify(binding.grantLineage),
+      })));
       this.persistAuditDelta(state, next);
-      return {
-        resourceId: id,
-        runtime: this.db.select().from(schema.executables)
-          .where(eq(schema.executables.resourceId, id)).get()!.runtime,
-      };
+      return structuredClone(definition);
     });
   }
 
@@ -259,8 +280,14 @@ class SqliteBackingRepository implements RgapCommands {
       const state = this.workingState();
       const row = this.db.select().from(schema.executables)
         .where(eq(schema.executables.resourceId, id)).get();
-      if (row) state.executables[id] = { resourceId: id, runtime: row.runtime };
+      if (row) state.executables[id] = {
+        resourceId: id,
+        runtime: row.runtime,
+        bind: {},
+      };
       const next = removeExecutable(state, id, now());
+      this.db.delete(schema.executableBindings)
+        .where(eq(schema.executableBindings.executableResourceId, id)).run();
       this.db.delete(schema.executables).where(eq(schema.executables.resourceId, id)).run();
       this.persistAuditDelta(state, next);
     });
@@ -271,12 +298,26 @@ class SqliteBackingRepository implements RgapCommands {
     return (async function* () {
       yield* invokeExecutable({
         getDefinition: (resource) => repository.getExecutable(resource),
-        // The selected repository plane already authorized invocation. The admin plane is unrestricted.
-        authorize: async (resource) => {
-          repository.requireLiveResource(resource);
-          return { lineage: getAuthorizedLineage(input) };
+        authorize: async (resource, permission, recorded) => {
+          if (recorded === null) {
+            repository.requireLiveResource(resource);
+            return { lineage: [] };
+          }
+          return repository.db.transaction(() => {
+            const state = repository.workingState();
+            repository.loadResourceAncestry(state, resource);
+            recorded.forEach((grant) => repository.loadGrant(state, grant));
+            repository.loadGrantResourceTargets(
+              state,
+              recorded.flatMap((grant) => state.grants[grant]?.resources ?? []),
+            );
+            const decision = authorizeLineage(state, recorded, resource, permission, now());
+            if (!decision.allowed) throw new RgapError('unauthorized', decision.detail);
+            return { lineage: decision.lineage };
+          });
         },
         runtimes: repository.runtimes,
+        createInvocationId: randomUUID,
         recordInvocation: (record) => repository.recordInvocation(record),
       }, id, input);
     })();
@@ -448,7 +489,7 @@ class SqliteBackingRepository implements RgapCommands {
   private async recordInvocation(record: InvocationRecord) {
     this.db.transaction(() => {
       this.appendAudit([{
-        id: randomUUID(),
+        id: record.id,
         at: record.finishedAt,
         action: 'executable.invoke',
         target: record.resourceId,
@@ -456,6 +497,7 @@ class SqliteBackingRepository implements RgapCommands {
         detail: JSON.stringify({
           runtime: record.runtime,
           grantLineageIds: record.grantLineage,
+          parentInvocationId: record.parentInvocationId,
           bindingResourceIds: Object.values(record.bindings),
           startedAt: record.startedAt,
           finishedAt: record.finishedAt,
@@ -737,6 +779,7 @@ class SqliteBackingRepository implements RgapCommands {
     this.db.delete(schema.grantResourcePermissions).run();
     this.db.delete(schema.grantResources).run();
     this.db.delete(schema.tokens).run();
+    this.db.delete(schema.executableBindings).run();
     this.db.delete(schema.executables).run();
     this.db.delete(schema.audit).run();
     this.db.delete(schema.grants).run();
@@ -769,14 +812,27 @@ class SqliteBackingRepository implements RgapCommands {
     insert(this.db, schema.grantResourcePermissions, carried);
 
     insert(this.db, schema.tokens, Object.values(state.tokens));
-    insert(this.db, schema.executables, Object.values(state.executables));
+    insert(this.db, schema.executables, Object.values(state.executables).map((definition) => ({
+      resourceId: definition.resourceId,
+      runtime: definition.runtime,
+    })));
+    insert(this.db, schema.executableBindings, Object.values(state.executables).flatMap((definition) =>
+      Object.entries(definition.bind).map(([name, binding]) => ({
+        executableResourceId: definition.resourceId,
+        name,
+        resourceId: binding.resourceId,
+        grantLineage: binding.grantLineage === null
+          ? null
+          : JSON.stringify(binding.grantLineage),
+      }))
+    ));
     insert(this.db, schema.audit, state.audit.map((event, seq) => ({ ...event, seq })));
   }
 
   private isEmpty() {
     return [
       schema.resources, schema.grants, schema.tokens, schema.executables,
-      schema.audit,
+      schema.executableBindings, schema.audit,
     ].every(
       (table) => this.db.select().from(table).limit(1).all().length === 0,
     );
@@ -797,6 +853,13 @@ const completeState = (state?: State): State => ({
 const now = () => new Date().toISOString();
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const digest = (value: string) => tokenHash(hash(value));
+const parseGrantLineage = (value: string): GrantId[] => {
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed) || parsed.some((id) => typeof id !== 'string')) {
+    throw new RgapError('invalid_binding_lineage', 'Executable binding lineage is invalid.');
+  }
+  return parsed.map(grantId);
+};
 const resourceIdBase = (name: string) =>
   name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'resource';
 const grantIdBase = (name: string) =>

@@ -195,7 +195,6 @@ class HttpRgapCommands implements RgapCommands {
           },
           body: JSON.stringify({
             input: input.input,
-            bindings: input.bindings,
           }),
           signal: input.signal,
         },
@@ -345,6 +344,13 @@ function asExecutableDefinition(record: HttpExecutableDefinition): ExecutableDef
   return {
     ...record,
     resourceId: resourceId(record.resourceId),
+    bind: Object.fromEntries(Object.entries(record.bind).map(([name, binding]) => [
+      name,
+      {
+        resourceId: resourceId(binding.resourceId),
+        grantLineage: binding.grantLineage?.map(grantId) ?? null,
+      },
+    ])),
   };
 }
 
