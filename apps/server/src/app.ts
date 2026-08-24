@@ -289,7 +289,6 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
 
   const app = base
     .openapi(moveResourceRoute, async (c) => {
-    .openapi(moveResourceRoute, async (c) => {
       const { id } = c.req.valid('param');
       const { parentId } = c.req.valid('json');
       const moved = await repository(c).resources.get(resourceId(id))
