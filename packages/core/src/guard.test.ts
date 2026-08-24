@@ -113,7 +113,7 @@ describe('command guard', () => {
     expect((await guard.resources.list({ parentId: null })).map(({ id }) => id)).toEqual(['acme']);
     expect((await guard.resources.get(r('orphan'))).id).toBe('orphan');
     expect((await guard.resources.get(r('loop'))).id).toBe('loop');
-    await expect(guard.resources.get(r('deleted'))).rejects.toThrow('Resource does not exist');
+    await expect(guard.resources.get(r('deleted'))).rejects.toThrow('outside this token');
   });
 
   it('propagates unexpected failures while loading visibility roots', async () => {
