@@ -81,16 +81,21 @@ export default function HomePage() {
             </span>
           </div>
           <pre className="whitespace-pre-wrap break-words p-5 text-[13px] leading-7 text-fd-muted-foreground sm:p-7 sm:text-sm">
-            <code>{`const model = await company.resources.create({
-  name: 'acme/models/openai',
-  executable: { runtime: 'openai' },
+            <code>{`const grant = await admin.grants.create({
+  name: 'company/platform-team/employee',
+  resources: [{ id: model.id, permissions: ['invoke'] }],
+  expiresAt: null,
 });
 
-const response = await model.invoke({
-  input: {
-    prompt: 'Summarize the design notes.',
-  },
-});`}</code>
+const token = await grant.tokens.create({ label: 'employee' });
+const employee = store.as(token.value);
+const authorizedModel = await employee.resources.get(model.id);
+
+for await (const event of authorizedModel.invoke({
+  input: { prompt: 'Summarize the design notes.' },
+})) {
+  console.log(event);
+}`}</code>
           </pre>
         </div>
       </section>

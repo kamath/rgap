@@ -1,8 +1,15 @@
 # Repository Instructions
 
-## Docs-and-examples-first workflow
+## Implementation docs-and-examples-first workflow
 
-Before making any coding edit, update the relevant MDX documentation in `apps/docs/content/docs` and the executable material in `examples` to describe the proposed behavior, design, or interface.
+Apply this workflow only when changing product implementation code, tests, schemas,
+migrations, or configuration. Documentation content, examples, and presentation
+code for the docs site may be edited directly without updating both documentation
+and examples or requesting design approval.
+
+Before changing product implementation code, update the relevant MDX documentation
+in `apps/docs/content/docs` and the executable material in `examples` to describe
+the proposed behavior, design, or interface.
 
 After updating both the documentation and examples, stop and obtain the user's explicit approval of those changes. Do not create, modify, or delete code, tests, schemas, migrations, configuration, or other implementation files until approval is received.
 
