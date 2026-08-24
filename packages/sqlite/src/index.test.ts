@@ -35,20 +35,36 @@ afterEach(() => {
 
 const acme = (): State => ({
   resources: {
-    acme: { id: resourceId('acme'), parentId: null, name: 'acme', deletedAt: null },
-    drive: { id: resourceId('drive'), parentId: resourceId('acme'), name: 'drive', deletedAt: null },
+    acme: { id: resourceId('acme'), parentId: null, name: 'acme', deletedAt: null, executable: null },
+    drive: {
+      id: resourceId('drive'),
+      parentId: resourceId('acme'),
+      name: 'drive',
+      deletedAt: null,
+      executable: null,
+    },
   },
   grants: {},
   tokens: {},
-  executables: {},
   audit: [],
 });
 
 const tokenRecord = (token: { id: string; grantId: string; label: string; hash: string; expiresAt: string | null; revokedAt: string | null }) =>
   ({ id: token.id, grantId: token.grantId, label: token.label, hash: token.hash, expiresAt: token.expiresAt, revokedAt: token.revokedAt });
 
-const resourceRecord = (resource: { id: string; parentId: string | null; name: string; deletedAt: string | null }) =>
-  ({ id: resource.id, parentId: resource.parentId, name: resource.name, deletedAt: resource.deletedAt });
+const resourceRecord = (resource: {
+  id: string;
+  parentId: string | null;
+  name: string;
+  deletedAt: string | null;
+  executable: unknown;
+}) => ({
+  id: resource.id,
+  parentId: resource.parentId,
+  name: resource.name,
+  deletedAt: resource.deletedAt,
+  executable: resource.executable,
+});
 
 const rootGrant = (repository: RgapRepository) =>
   repository.grants.create({ name: 'Acme admin', resources: [], expiresAt: null });
@@ -75,7 +91,6 @@ async function queriedState(repository: RgapRepository): Promise<State> {
     resources: Object.fromEntries(resources.map((record) => [record.id, record])),
     grants: Object.fromEntries(grants.map((record) => [record.id, record])),
     tokens: Object.fromEntries(tokens.map((record) => [record.id, record])),
-    executables: {},
     audit,
   };
 }
@@ -186,7 +201,7 @@ describe('SqliteRgapStore', () => {
     expect(nested.parentId).toBe('same');
   });
 
-  it('persists and replaces executable associations across restart', async () => {
+  it('persists and replaces embedded executable definitions across restart', async () => {
     const url = file();
     const implementation = runtime();
     const options = {
@@ -197,18 +212,17 @@ describe('SqliteRgapStore', () => {
     const firstStore = open(options);
     const first = firstStore.admin();
     const drive = await first.resources.get(resourceId('drive'));
-    await drive.executable.set({ runtime: 'test' });
-    await drive.executable.set({
+    await drive.update({ executable: { runtime: 'test' } });
+    await drive.update({ executable: {
       runtime: 'other',
       input: { model: 'gpt-5.6-sol' },
       bind: { source: resourceId('acme') },
-    });
-    expect((await drive.executable.get())?.runtime).toBe('other');
+    } });
+    expect((await first.resources.get(resourceId('drive'))).executable?.runtime).toBe('other');
     firstStore.close();
 
     const second = open({ ...options, initialState: undefined }).admin();
-    expect(await second.executables.get(resourceId('drive'))).toEqual({
-      resourceId: resourceId('drive'),
+    expect((await second.resources.get(resourceId('drive'))).executable).toEqual({
       runtime: 'other',
       input: { model: 'gpt-5.6-sol' },
       bind: {
@@ -218,8 +232,9 @@ describe('SqliteRgapStore', () => {
         },
       },
     });
-    await second.executables.delete(resourceId('drive'));
-    expect(await second.executables.get(resourceId('drive'))).toBeUndefined();
+    await (await second.resources.get(resourceId('drive'))).delete();
+    await expect(second.resources.get(resourceId('drive')))
+      .rejects.toMatchObject({ code: 'missing_resource' });
   });
 
   it('creates a resource and configured executable atomically', async () => {
@@ -240,8 +255,7 @@ describe('SqliteRgapStore', () => {
         input: { model: 'gpt-5.6-sol' },
       },
     });
-    expect(await model.executable.get()).toEqual({
-      resourceId: model.id,
+    expect(model.executable).toEqual({
       runtime: 'openai',
       input: { model: 'gpt-5.6-sol' },
       bind: {},
@@ -251,7 +265,7 @@ describe('SqliteRgapStore', () => {
     store.close();
 
     const reopened = open({ url, runtimes: { openai: implementation } });
-    expect((await reopened.admin().executables.get(model.id))?.input)
+    expect((await reopened.admin().resources.get(model.id)).executable?.input)
       .toEqual({ model: 'gpt-5.6-sol' });
     reopened.close();
 
@@ -263,9 +277,10 @@ describe('SqliteRgapStore', () => {
     expect(await failed.resources.list()).toEqual([]);
   });
 
-  it('fails clearly when executable setting names an unknown runtime', async () => {
+  it('fails clearly when an executable update names an unknown runtime', async () => {
     const repository = open({ initialState: acme() }).admin();
-    await expect(repository.executables.set(resourceId('drive'), { runtime: 'test' }))
+    await expect((await repository.resources.get(resourceId('drive')))
+      .update({ executable: { runtime: 'test' } }))
       .rejects.toMatchObject({ code: 'unknown_runtime' });
   });
 
@@ -286,9 +301,11 @@ describe('SqliteRgapStore', () => {
       runtimes: { test: implementation },
     };
     const first = open(options).admin();
-    await first.executables.set(resourceId('drive'), {
-      runtime: 'test',
-      bind: { source: resourceId('acme') },
+    await (await first.resources.get(resourceId('drive'))).update({
+      executable: {
+        runtime: 'test',
+        bind: { source: resourceId('acme') },
+      },
     });
     expect(await collect(first.invoke(resourceId('drive'), {
       input: { marker: inputMarker },
@@ -314,10 +331,15 @@ describe('SqliteRgapStore', () => {
       initialState: acme(),
       runtimes: { child, parent },
     }).admin();
-    await repository.executables.set(resourceId('acme'), { runtime: 'child' });
-    await repository.executables.set(resourceId('drive'), {
-      runtime: 'parent',
-      bind: { profile: resourceId('acme') },
+    const profile = await repository.resources.create({
+      name: 'profile',
+      executable: { runtime: 'child' },
+    });
+    await (await repository.resources.get(resourceId('drive'))).update({
+      executable: {
+        runtime: 'parent',
+        bind: { profile: profile.id },
+      },
     });
 
     expect(await collect(repository.invoke(resourceId('drive'), { input: {} })))
@@ -337,7 +359,8 @@ describe('SqliteRgapStore', () => {
     const implementation = runtime();
     const store = open({ initialState: acme(), runtimes: { test: implementation } });
     const admin = store.admin();
-    await admin.executables.set(resourceId('drive'), { runtime: 'test' });
+    await (await admin.resources.get(resourceId('drive')))
+      .update({ executable: { runtime: 'test' } });
     expect(await collect(admin.invoke(resourceId('drive'), { input: {} }))).toEqual([{ type: 'done' }]);
 
     const grant = await rootGrant(admin);
@@ -372,9 +395,11 @@ describe('SqliteRgapStore', () => {
       expiresAt: null,
     });
     const authorToken = await author.tokens.create({ label: 'author' });
-    await store.as(authorToken.value).executables.set(resourceId('drive'), {
-      runtime: 'test',
-      bind: { credential: resourceId('acme') },
+    await (await store.as(authorToken.value).resources.get(resourceId('drive'))).update({
+      executable: {
+        runtime: 'test',
+        bind: { credential: resourceId('acme') },
+      },
     });
 
     const consumer = await admin.grants.create({
@@ -470,7 +495,7 @@ describe('SqliteRgapStore', () => {
     const second = open({
       url,
       initialState: {
-        resources: {}, grants: {}, tokens: {}, executables: {},
+        resources: {}, grants: {}, tokens: {},
         audit: [],
       },
     }).admin();
@@ -497,14 +522,13 @@ describe('SqliteRgapStore', () => {
 
     const repository = open({ url }).admin();
     const created = await repository.resources.create({ name: 'other' });
-    await created.move(resourceId('acme'));
+    await created.update({ parentId: resourceId('acme') });
 
     expect(await repository.resources.get(resourceId('drive'))).toEqual({
       ...acme().resources.drive,
       create: expect.any(Function),
-      move: expect.any(Function),
+      update: expect.any(Function),
       delete: expect.any(Function),
-      executable: expect.any(Object),
       invoke: expect.any(Function),
     });
   });
@@ -521,7 +545,7 @@ describe('SqliteRgapStore', () => {
   it('opens an empty store with no initial state at all', async () => {
     const repository = open().admin();
     expect(await queriedState(repository)).toEqual({
-      resources: {}, grants: {}, tokens: {}, executables: {},
+      resources: {}, grants: {}, tokens: {},
       audit: [],
     });
   });
@@ -562,9 +586,10 @@ describe('SqliteRgapStore', () => {
     expect(audit.every((event) => event.action.length > 0)).toBe(true);
   });
 
-  it('moves, deletes, and revokes', async () => {
+  it('updates, deletes, and revokes', async () => {
     const repository = open({ initialState: acme() }).admin();
-    const moved = await (await repository.resources.get(resourceId('drive'))).move(null);
+    const moved = await (await repository.resources.get(resourceId('drive')))
+      .update({ parentId: null });
     expect(moved.parentId).toBe(null);
 
     const grant = await rootGrant(repository);
@@ -585,7 +610,7 @@ describe('SqliteRgapStore', () => {
       { id: resourceId('drive'), permissions: ['read'] },
     ]);
 
-    await (await repository.resources.get(resourceId('drive'))).move(null);
+    await (await repository.resources.get(resourceId('drive'))).update({ parentId: null });
     await (await repository.resources.get(resourceId('drive'))).delete();
 
     expect((await repository.grants.get(grant.id)).revokedAt).toBe(null);
@@ -616,14 +641,14 @@ describe('SqliteRgapStore', () => {
 
   it('writes a state larger than one insert statement', async () => {
     const initialState: State = {
-      resources: {}, grants: {}, tokens: {}, executables: {},
+      resources: {}, grants: {}, tokens: {},
       audit: [],
     };
     for (let index = 0; index < 250; index += 1) {
       const id = resourceId(`resource-${index}`);
       initialState.resources[id] = {
         id, parentId: index === 0 ? null : resourceId(`resource-${index - 1}`), name: `r${index}`,
-        deletedAt: null,
+        deletedAt: null, executable: null,
       };
     }
     const repository = open({ initialState }).admin();
@@ -635,10 +660,22 @@ describe('SqliteRgapStore', () => {
   it('refuses to write a state whose parents form a cycle', () => {
     const initialState: State = {
       resources: {
-        a: { id: resourceId('a'), parentId: resourceId('b'), name: 'a', deletedAt: null },
-        b: { id: resourceId('b'), parentId: resourceId('a'), name: 'b', deletedAt: null },
+        a: {
+          id: resourceId('a'),
+          parentId: resourceId('b'),
+          name: 'a',
+          deletedAt: null,
+          executable: null,
+        },
+        b: {
+          id: resourceId('b'),
+          parentId: resourceId('a'),
+          name: 'b',
+          deletedAt: null,
+          executable: null,
+        },
       },
-      grants: {}, tokens: {}, executables: {},
+      grants: {}, tokens: {},
       audit: [],
     };
     expect(() => open({ initialState })).toThrow(RgapError);

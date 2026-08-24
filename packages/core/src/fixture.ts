@@ -31,13 +31,13 @@ export function fixture(): State {
         expiresAt: '2027-08-21T23:00:00.000Z', revokedAt: null,
       },
     },
-    executables: {},
     audit: [],
   };
 }
 
 const resource = (id: string, parent: string | null): Resource => ({
   id: resourceId(id), parentId: parent ? resourceId(parent) : null, name: id, deletedAt: null,
+  executable: null,
 });
 
 const cap = (id: string): GrantResource => ({
@@ -61,7 +61,15 @@ export function stubCommands(state: State, at: string) {
     return Promise.resolve(result);
   };
   const resourceStub = (id: Resource['id'], parentId: Resource['parentId']): Resource =>
-    ({ id, parentId, name: id, deletedAt: null });
+    ({ id, parentId, name: id, deletedAt: null, executable: null });
+  const executable = (input: NonNullable<Parameters<RgapCommands['createResource']>[0]['executable']>) => ({
+    runtime: input.runtime,
+    input: structuredClone(input.input ?? {}),
+    bind: Object.fromEntries(Object.entries(input.bind ?? {}).map(([name, boundId]) => [
+      name,
+      { resourceId: boundId, grantLineage: null },
+    ])),
+  });
 
   const commands: RgapCommands = {
     getResource: (id) => Promise.resolve(state.resources[id]),
@@ -88,20 +96,21 @@ export function stubCommands(state: State, at: string) {
     listAudit: (query = {}) => Promise.resolve(paginateRecords(state.audit, query)),
     // Tests treat the bearer as the stored hash, so the stub re-brands rather than hashing.
     authorize: (token, id, permission) => Promise.resolve(authorize(state, tokenHash(token), id, permission, at)),
-    createResource: (input) => record('createResource', [input], { ...input, id: resourceId('created'), deletedAt: null }),
-    moveResource: (id, parentId) => record('moveResource', [id, parentId], resourceStub(id, parentId)),
-    deleteResource: (id) => record('deleteResource', [id], undefined),
-    getExecutable: (id) => Promise.resolve(state.executables[id]),
-    setExecutable: (id, input) => record('setExecutable', [id, input], {
-      resourceId: id,
-      runtime: input.runtime,
-      input: structuredClone(input.input ?? {}),
-      bind: Object.fromEntries(Object.entries(input.bind ?? {}).map(([name, boundId]) => [
-        name,
-        { resourceId: boundId, grantLineage: null },
-      ])),
+    createResource: (input) => record('createResource', [input], {
+      id: resourceId('created'),
+      parentId: input.parentId,
+      name: input.name,
+      deletedAt: null,
+      executable: input.executable ? executable(input.executable) : null,
     }),
-    deleteExecutable: (id) => record('deleteExecutable', [id], undefined),
+    updateResource: (id, input) => record('updateResource', [id, input], {
+      ...resourceStub(id, input.parentId ?? state.resources[id]?.parentId ?? null),
+      ...state.resources[id],
+      ...(input.name === undefined ? {} : { name: input.name }),
+      ...(input.parentId === undefined ? {} : { parentId: input.parentId }),
+      ...(input.executable === undefined ? {} : { executable: executable(input.executable) }),
+    }),
+    deleteResource: (id) => record('deleteResource', [id], undefined),
     invoke: (id, input) => {
       calls.push({ method: 'invoke', args: [id, input] });
       return (async function* () {

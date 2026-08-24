@@ -17,11 +17,8 @@ const expectedOperations = [
   'getResource',
   'listResources',
   'createResource',
-  'moveResource',
+  'updateResource',
   'deleteResource',
-  'getExecutable',
-  'setExecutable',
-  'deleteExecutable',
   'invoke',
   'getGrant',
   'listGrants',
@@ -187,25 +184,21 @@ describe('RGAP Hono API', () => {
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    const executable = await (await request('/resources', 'POST', {
-      name: 'echo',
-    })).json() as { id: string };
     const source = await (await request('/resources', 'POST', {
       name: 'source',
     })).json() as { id: string };
-    const set = await request(
-      `/resources/${executable.id}/executable`,
-      'PUT',
-      {
+    const executable = await (await request('/resources', 'POST', {
+      name: 'echo',
+      executable: {
         runtime: 'test',
         input: { model: 'gpt-5.6-sol' },
         bind: { source: source.id },
       },
-    );
-    expect(set.status).toBe(200);
-    expect(await (await request(`/resources/${executable.id}/executable`, 'GET')).json())
-      .toEqual({
-        resourceId: executable.id,
+    })).json() as { id: string };
+    expect(await (await request(`/resources/${executable.id}`, 'GET')).json())
+      .toMatchObject({
+        id: executable.id,
+        executable: {
         runtime: 'test',
         input: { model: 'gpt-5.6-sol' },
         bind: {
@@ -213,6 +206,7 @@ describe('RGAP Hono API', () => {
             resourceId: source.id,
             grantLineage: null,
           },
+        },
         },
       });
 
@@ -229,7 +223,9 @@ describe('RGAP Hono API', () => {
       { type: 'data', value: { message: 'hello', model: 'gpt-5.6-sol' } },
       { type: 'done' },
     ]);
-    await request(`/resources/${executable.id}/executable`, 'PUT', { runtime: 'void' });
+    await request(`/resources/${executable.id}`, 'PATCH', {
+      executable: { runtime: 'void' },
+    });
     const voidInvocation = await request(`/resources/${executable.id}/invoke`, 'POST', {
       input: null,
     });
@@ -243,12 +239,12 @@ describe('RGAP Hono API', () => {
     const reader = await (await request(`/grants/${readerGrant.id}/tokens`, 'POST', {
       label: 'reader',
     })).json() as { value: string };
-    expect((await request(`/resources/${executable.id}/executable`, 'GET', undefined, reader.value)).status)
+    expect((await request(`/resources/${executable.id}`, 'GET', undefined, reader.value)).status)
       .toBe(200);
     expect((await request(
-      `/resources/${executable.id}/executable`,
-      'PUT',
-      { runtime: 'test' },
+      `/resources/${executable.id}`,
+      'PATCH',
+      { executable: { runtime: 'test' } },
       reader.value,
     )).status).toBe(403);
     expect((await request(
@@ -258,8 +254,8 @@ describe('RGAP Hono API', () => {
       reader.value,
     )).status).toBe(403);
 
-    expect((await request(`/resources/${executable.id}/executable`, 'DELETE')).status).toBe(204);
-    expect((await request(`/resources/${executable.id}/executable`, 'GET')).status).toBe(404);
+    expect((await request(`/resources/${executable.id}`, 'DELETE')).status).toBe(204);
+    expect((await request(`/resources/${executable.id}`, 'GET')).status).toBe(404);
   });
 
   it('exposes the same route contract through Hono RPC', async () => {
@@ -314,7 +310,7 @@ describe('RGAP Hono API', () => {
       headers,
       query: { parentId: root.data!.id, limit: 10 },
     })).data?.map((resource) => resource.id)).toEqual([childId]);
-    expect((await sdk.moveResource({
+    expect((await sdk.updateResource({
       client,
       headers,
       path: { id: childId },
@@ -387,7 +383,7 @@ describe('RGAP Hono API', () => {
         bind: { source: source.id },
       },
     });
-    expect(await executable.executable.get()).toMatchObject({
+    expect(executable.executable).toMatchObject({
       runtime: 'test',
       input: { model: 'gpt-5.6-sol' },
     });
@@ -401,7 +397,7 @@ describe('RGAP Hono API', () => {
       { type: 'data', value: { remote: true, model: 'gpt-5.6-sol' } },
       { type: 'done' },
     ]);
-    await executable.executable.delete();
+    await executable.delete();
   });
 
   it('presents the HTTP API through the RgapStore interface', async () => {

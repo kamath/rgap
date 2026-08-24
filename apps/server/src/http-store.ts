@@ -25,9 +25,7 @@ import {
   authorize,
   createGrant,
   createResource,
-  deleteExecutable,
   deleteResource,
-  getExecutable,
   getGrant,
   getResource,
   getToken,
@@ -36,8 +34,7 @@ import {
   listGrants,
   listResources,
   listTokens,
-  moveResource,
-  setExecutable,
+  updateResource,
   reset,
   revokeGrant,
   revokeToken,
@@ -155,34 +152,15 @@ class HttpRgapCommands implements RgapCommands {
     return names.join('/');
   }
 
-  async moveResource(id: ReturnType<typeof resourceId>, parentId: ReturnType<typeof resourceId> | null) {
-    return asResource(unwrap(await moveResource(this.options({
-      path: { id },
-      body: { parentId },
-    }))));
-  }
-
-  async deleteResource(id: ReturnType<typeof resourceId>) {
-    unwrap<void>(await deleteResource(this.options({ path: { id } })));
-  }
-
-  async getExecutable(id: ReturnType<typeof resourceId>) {
-    const result = await getExecutable(this.options({ path: { id } }));
-    return result.response?.status === 404 ? undefined : asExecutableDefinition(unwrap(result));
-  }
-
-  async setExecutable(
-    id: ReturnType<typeof resourceId>,
-    input: Parameters<RgapCommands['setExecutable']>[1],
-  ) {
-    return asExecutableDefinition(unwrap(await setExecutable(this.options({
+  async updateResource(id: ReturnType<typeof resourceId>, input: Parameters<RgapCommands['updateResource']>[1]) {
+    return asResource(unwrap(await updateResource(this.options({
       path: { id },
       body: input,
     }))));
   }
 
-  async deleteExecutable(id: ReturnType<typeof resourceId>) {
-    unwrap<void>(await deleteExecutable(this.options({ path: { id } })));
+  async deleteResource(id: ReturnType<typeof resourceId>) {
+    unwrap<void>(await deleteResource(this.options({ path: { id } })));
   }
 
   invoke(id: ReturnType<typeof resourceId>, input: Parameters<RgapCommands['invoke']>[1]) {
@@ -343,13 +321,13 @@ function asResource(record: HttpResource): Resource {
     ...record,
     id: resourceId(record.id),
     parentId: record.parentId === null ? null : resourceId(record.parentId),
+    executable: record.executable ? asExecutableDefinition(record.executable) : null,
   };
 }
 
 function asExecutableDefinition(record: HttpExecutableDefinition): ExecutableDefinition {
   return {
     ...record,
-    resourceId: resourceId(record.resourceId),
     input: record.input as Record<string, JsonValue>,
     bind: Object.fromEntries(Object.entries(record.bind).map(([name, binding]) => [
       name,

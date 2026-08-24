@@ -101,16 +101,24 @@ function jsonValue(value: unknown, path: string): JsonValue {
   throw new RgapError('invalid_executable_input', `Executable input ${path} must be JSON-compatible.`);
 }
 
-/** Atomically creates or replaces a resource-to-runtime association. */
-export function setExecutable(
+/** Validates and embeds an executable definition in an empty folder or executable resource. */
+export function setResourceExecutable(
   state: State,
   resourceId: ResourceId,
   input: SetExecutableInput,
-  at: string,
   runtimes: RuntimeRegistry,
 ) {
-  if (!isLive(state.resources[resourceId])) {
+  const resource = state.resources[resourceId];
+  if (!isLive(resource)) {
     throw new RgapError('missing_resource', 'Resource does not exist.');
+  }
+  if (
+    resource.executable === null &&
+    Object.values(state.resources).some((candidate) =>
+      isLive(candidate) && candidate.parentId === resourceId
+    )
+  ) {
+    throw new RgapError('not_terminal', 'A folder with children cannot become executable.');
   }
   const runtime = input.runtime.trim();
   if (!runtime) throw new RgapError('invalid_runtime', 'Runtime name is required.');
@@ -137,33 +145,7 @@ export function setExecutable(
     }];
   }));
   const next = cloned(state);
-  next.executables[resourceId] = { resourceId, runtime, input: configured, bind };
-  next.audit.unshift({
-    id: `${at}:executable.set:${next.audit.length}`,
-    at,
-    action: 'executable.set',
-    target: resourceId,
-    result: 'recorded',
-    detail: `Associated runtime ${runtime}.`,
-  });
-  return next;
-}
-
-/** Deletes the association; setting it again later creates a new current association. */
-export function deleteExecutable(state: State, resourceId: ResourceId, at: string) {
-  if (!state.executables[resourceId]) {
-    throw new RgapError('missing_executable', 'Executable does not exist.');
-  }
-  const next = cloned(state);
-  delete next.executables[resourceId];
-  next.audit.unshift({
-    id: `${at}:executable.delete:${next.audit.length}`,
-    at,
-    action: 'executable.delete',
-    target: resourceId,
-    result: 'recorded',
-    detail: 'Deleted executable definition.',
-  });
+  next.resources[resourceId].executable = { runtime, input: configured, bind };
   return next;
 }
 

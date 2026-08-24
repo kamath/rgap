@@ -91,30 +91,23 @@ export function guardCommands(
         ? { ...input, executable: await authorizeExecutable(input.executable) }
         : input));
     },
-    async move(parentId) {
+    async update(input) {
       await bearerContext();
-      if (!parentId) administrative('Moving a resource to a root');
-      await permit(resource.id, 'move');
-      await permit(parentId, 'write');
-      return wrapResource(await resource.move(parentId));
+      if (input.name !== undefined || input.executable !== undefined) {
+        await permit(resource.id, 'write');
+      }
+      if (input.parentId !== undefined) {
+        if (!input.parentId) administrative('Moving a resource to a root');
+        await permit(resource.id, 'move');
+        await permit(input.parentId, 'write');
+      }
+      return wrapResource(await resource.update(input.executable
+        ? { ...input, executable: await authorizeExecutable(input.executable) }
+        : input));
     },
     async delete() {
       await permit(resource.id, 'delete');
       return resource.delete();
-    },
-    executable: {
-      async get() {
-        await permit(resource.id, 'read');
-        return resource.executable.get();
-      },
-      async set(input) {
-        await permit(resource.id, 'write');
-        return resource.executable.set(await authorizeExecutable(input));
-      },
-      async delete() {
-        await permit(resource.id, 'write');
-        return resource.executable.delete();
-      },
     },
     invoke: (input) => guardedInvoke(resource.id, input),
   });
@@ -238,7 +231,6 @@ export function guardCommands(
     if (
       event.action === 'authorize' ||
       event.action.startsWith('resource.') ||
-      event.action.startsWith('executable.') ||
       event.action.startsWith('invoke.')
     ) {
       return resources.has(event.target);
@@ -332,20 +324,6 @@ export function guardCommands(
       async list(query) {
         const visible = await visibleResourceIds();
         return filtered(query, (page) => repository.resources.list(page), async (resource) => visible.has(resource.id));
-      },
-    },
-    executables: {
-      async get(resourceId) {
-        await permit(resourceId, 'read');
-        return repository.executables.get(resourceId);
-      },
-      async set(resourceId, input) {
-        await permit(resourceId, 'write');
-        return repository.executables.set(resourceId, await authorizeExecutable(input));
-      },
-      async delete(resourceId) {
-        await permit(resourceId, 'write');
-        return repository.executables.delete(resourceId);
       },
     },
     invoke: guardedInvoke,
