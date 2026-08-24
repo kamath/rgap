@@ -325,7 +325,7 @@ function asResource(record: HttpResource): Resource {
   };
 }
 
-function asExecutableDefinition(record: HttpExecutableDefinition): ExecutableDefinition {
+function asExecutableDefinition(record: NonNullable<HttpExecutableDefinition>): ExecutableDefinition {
   return {
     ...record,
     input: record.input as Record<string, JsonValue>,
