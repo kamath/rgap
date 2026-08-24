@@ -2,6 +2,9 @@ import {
   resourcePath,
   type Grant,
   type GrantId,
+  type Resource,
+  type ResourceId,
+  type RgapRepository,
   type RgapStore,
 } from '@rgap/core';
 
@@ -29,6 +32,21 @@ function grantPath(grants: readonly Grant[], id: GrantId) {
     current = current.parentId ? byId.get(current.parentId) : undefined;
   }
   return segments.join('/');
+}
+
+async function listResourceTree(repository: RgapRepository) {
+  const resources: Resource[] = [];
+  const visit = async (parentId: ResourceId | null) => {
+    let cursor: string | undefined;
+    do {
+      const page = await repository.resources.list({ parentId, cursor, limit: 100 });
+      resources.push(...page);
+      for (const resource of page) await visit(resource.id);
+      cursor = page.length === 100 ? page.at(-1)!.id : undefined;
+    } while (cursor);
+  };
+  await visit(null);
+  return resources;
 }
 
 /**
@@ -85,7 +103,7 @@ export async function runAdapterConformance(
     await admin.authorize(agentToken.value, design.id, 'read')
   ).allowed;
 
-  const resources = await admin.resources.list({ limit: 100 });
+  const resources = await listResourceTree(admin);
   const grants = await admin.grants.list({ limit: 100 });
 
   return {
