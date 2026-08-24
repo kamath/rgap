@@ -27,9 +27,11 @@ escalation.
 The holder of `bind` can encapsulate a resource in another executable:
 
 ```ts
-await summary.executable.set({
-  runtime: 'profileSummary',
-  bind: { profile: githubProfile.id },
+await summary.update({
+  executable: {
+    runtime: 'profileSummary',
+    bind: { profile: githubProfile.id },
+  },
 });
 ```
 
@@ -198,12 +200,12 @@ Use these rules for every credential-backed runtime:
 
 ## Live references
 
-A binding follows the current executable attached to its resource. Replacing
+A binding follows the current executable definition in its resource. Updating
 B's runtime changes the behavior observed by every A that binds B. This live
 reference is deliberate and allows centrally managed functions to update
 without rewriting their consumers.
 
-Only principals with `write` on B can change its executable association.
+Only principals with `write` on B can change its executable definition.
 Administrators review that authority as carefully as authority over B's
 implementation.
 

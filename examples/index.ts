@@ -70,9 +70,11 @@ const platform = await company.resources.create({ name: 'acme/platform' });
 const docs = await platform.create({ name: 'docs' });
 const design = await docs.create({ name: 'design' });
 const search = await platform.create({ name: 'tools/search' });
-await search.executable.set({
-  runtime: 'echo',
-  bind: { searchWithin: docs.id },
+await search.update({
+  executable: {
+    runtime: 'echo',
+    bind: { searchWithin: docs.id },
+  },
 });
 const payroll = await company.resources.create({ name: 'acme/finance/payroll' });
 

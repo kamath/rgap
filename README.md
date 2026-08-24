@@ -36,11 +36,14 @@ const openai: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
 };
 ```
 
-The runtime is registered on the store and associated with a resource. An
-authorized resource handle invokes it without receiving the OpenAI API key:
+The runtime is registered on the store and embedded in an executable resource.
+An authorized resource handle invokes it without receiving the OpenAI API key:
 
 ```ts
-await model.executable.set({ runtime: 'openai' });
+const model = await admin.resources.create({
+  name: 'openai/model',
+  executable: { runtime: 'openai' },
+});
 
 for await (const event of authorizedModel.invoke({
   input: { prompt: 'Summarize the design notes.' },

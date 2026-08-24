@@ -23,13 +23,13 @@ examples/
 
 `@rgap/core` separates five modules:
 
-- `domain.ts` defines resources, grants, tokens, executable associations, audit
+- `domain.ts` defines folder and executable resources, grants, tokens, audit
   events, permission algebra, and pure resource and grant rules.
 - `repository.ts` defines `RgapCommands`, `RgapStore`, `RgapRepository`, and
   resource, grant, and token handles.
 - `guard.ts` constructs the bearer-token command plane and enforces visibility
   and command authority.
-- `executable.ts` atomically sets and deletes associations with sealed input
+- `executable.ts` validates embedded executable definitions and sealed input
   bindings, records and revalidates binding authority, and orchestrates nested
   invocation.
 - `runtime.ts` defines structural runtime schemas, typed invocations and
@@ -40,8 +40,8 @@ repository whose collections mint and look up handles.
 
 Handles combine record fields with applicable commands:
 
-- A resource creates descendants at a relative path, moves, deletes, manages
-  its executable association, and invokes it.
+- A folder creates descendants at a relative path. Every resource updates and
+  deletes itself, and executable resources can be invoked.
 - A grant creates descendants at a relative path, replaces resource entries,
   issues tokens, and revokes.
 - A token revokes.
@@ -72,8 +72,8 @@ keyset cursors. A caller never needs to load the complete store.
 
 Storage adapters also load command-scoped records for mutations and
 authorization decisions. The core rule still receives every record needed to
-decide the command, while unrelated resources, grants, tokens, executables, and
-audit events remain outside the transaction's working set.
+decide the command, while unrelated resources, grants, tokens, and audit events
+remain outside the transaction's working set.
 
 Ordinary commands are asynchronous and JSON-compatible. Invocation returns
 `AsyncIterable<InvocationEvent>`, where events are `data` or `done`; runtime
@@ -131,12 +131,11 @@ The working set and write plan are specific to each command:
 
 | Command | Records loaded | Rows written |
 | --- | --- | --- |
-| Create resource path | Starting parent, occupied path prefixes, and candidate IDs. | Insert each missing prefix and one audit event per inserted resource. |
-| Move resource | Resource, destination parent, and destination ancestry. | Update one parent reference and insert one audit event. |
+| Create resource path | Starting folder, occupied path prefixes, executable definition, bindings, and candidate IDs. | Insert each missing folder, the leaf, its normalized executable rows when present, and one audit event per inserted resource. |
+| Update resource | Resource, children, destination folder and ancestry when moving, and bindings when executable changes. | Update one resource and its normalized executable rows, then insert one audit event. |
 | Delete resource | Resource and its descendant subtree. | Tombstone the subtree and insert one audit event. |
 | Create or amend grant | Relevant parent and child grants, their resource entries, and resources needed for containment. | Insert or replace the affected grant entries, revoke uncovered descendant branches, and insert one audit event. |
 | Issue or revoke | The affected grant, token, or grant branch. | Insert or update affected rows and insert one audit event. |
-| Set or delete executable | Resource and its executable association. | Upsert or delete one association and insert one audit event. |
 | Authorize | Token selected by hash, grant lineage, requested resource ancestry, and path prefixes required by lineage entries. | Insert one audit event. |
 | Resolve bearer | Token selected by hash and its grant lineage. | None. |
 | Record invocation | No repository snapshot. | Insert one audit event. |
@@ -152,14 +151,15 @@ rows. Ordinary commands never use those bulk paths.
 Rows are inserted parents before children so foreign keys hold after every
 statement. Issued bearer values are returned once; token rows contain hashes.
 
-The normalized schema stores one `executables` row per association, keyed by
+The domain model embeds an executable definition in its resource. The
+normalized schema stores the definition in one `executables` row, keyed by
 `resource_id`, and one ordered `executable_bindings` row per sealed top-level
 input field. Each binding stores the target resource ID and the grant lineage
-that authorized `bind`, or administrative provenance. `setExecutable` verifies
-that every resource is live and the runtime is registered, then atomically
-replaces the association, bindings, and audit event. `deleteExecutable`
-removes the association and its bindings and records the deletion. There is no
-executable tombstone or revision table.
+that authorized `bind`, or administrative provenance. Resource create and
+update verify that every resource is live and the runtime is registered, then
+atomically write the resource, executable rows, bindings, and audit event.
+Executable rows are removed only when their resource is deleted. There is no
+independent executable tombstone or revision table.
 
 | Table | Contents |
 | --- | --- |
@@ -168,7 +168,7 @@ executable tombstone or revision table.
 | `grant_resources` | Ordered resource-ID targets for each grant. |
 | `grant_resource_permissions` | Normalized permission sets for grant-resource entries. |
 | `tokens` | Token metadata and bearer hashes. |
-| `executables` | One resource-to-runtime association per executable resource. |
+| `executables` | The normalized runtime and sealed input of each executable resource. |
 | `executable_bindings` | Resource IDs and authority lineages sealed into top-level input fields. |
 | `audit` | Ordered authorization, mutation, and invocation events. |
 
@@ -177,7 +177,7 @@ executable tombstone or revision table.
 The token plane authorizes `invoke` on the executable resource. The
 orchestrator then:
 
-1. Resolves the executable association and registered runtime.
+1. Resolves the resource's executable definition and registered runtime.
 2. Revalidates every bound target and its recorded `bind` lineage.
 3. Rejects caller values for sealed fields, constructs input without prototype
    inheritance, inserts the bound resource ID strings, and parses the complete
@@ -221,12 +221,11 @@ The package generates:
 `HttpRgapStore` implements `RgapStore` over that generated SDK and reconstructs
 the same repository handles used by the local store.
 
-Executable operations map one-to-one:
+Resource and invocation operations map one-to-one:
 
 ```text
-GET    /resources/{id}/executable
-PUT    /resources/{id}/executable     { runtime, bind? }
-DELETE /resources/{id}/executable
+PATCH  /resources/{id}                { name?, parentId?, executable? }
+DELETE /resources/{id}
 POST   /resources/{id}/invoke         { input }
 ```
 

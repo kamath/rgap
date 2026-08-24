@@ -11,25 +11,34 @@ Invocation additionally depends on the same deployment-owned runtime registry.
 
 ## Records
 
-State is four normalized collections plus an ordered audit log.
+State is three normalized collections plus an ordered audit log.
 
 ```ts
 type State = {
   resources: Record<string, Resource>;
   grants: Record<string, Grant>;
   tokens: Record<string, Token>;
-  executables: Record<string, ExecutableDefinition>;
   audit: AuditEvent[];
 };
 ```
 
 ```ts
-type Resource = {
+type ResourceBase = {
   id: string;
   parentId: string | null;
   name: string;
   deletedAt: string | null;
 };
+
+type Folder = ResourceBase & {
+  executable: null;
+};
+
+type ExecutableResource = ResourceBase & {
+  executable: ExecutableDefinition;
+};
+
+type Resource = Folder | ExecutableResource;
 
 type GrantResource = {
   id: string;
@@ -60,8 +69,8 @@ type ExecutableBinding = {
 };
 
 type ExecutableDefinition = {
-  resourceId: string;
   runtime: string;
+  input: Record<string, JsonValue>;
   bind: Record<string, ExecutableBinding>;
 };
 
@@ -153,12 +162,11 @@ tests membership in the stored set.
 | Read a resource or list children | `read` on the resource |
 | Invoke a resource | `invoke` on the resource |
 | Bind a resource into an executable | `bind` on the bound resource |
-| Read an executable association | `read` on the resource |
-| Set an executable | `write` on the resource and `bind` on each direct binding |
-| Delete an executable | `write` on the resource |
+| Read a resource's executable definition | `read` on the resource |
+| Update a resource's name or executable | `write` on the resource and `bind` on each new direct binding |
 | Create a child | `write` on that child's parent |
 | Create at a path | `write` on the parent of each created resource |
-| Move a resource | `move` on the resource and `write` on the destination |
+| Update a resource's parent | `move` on the resource and `write` on the destination folder |
 | Delete a subtree | `delete` on its root |
 | Delegate a grant | The child downscopes the acting grant |
 | Create at a grant path | The parent of each created grant is the acting grant or a descendant of it |
@@ -346,48 +354,59 @@ must contain at least one segment.
 
 The command walks the path in one state transition. Each stored resource name
 is one segment and contains no `/`. Live prefixes are reused. Missing prefixes
-are created as ordinary resources. Each created record stores the parent ID
-derived from that walk. The leaf must not already exist; an occupied path is
-`duplicate_path`.
+are created as folders. Each created record stores the parent ID derived from
+that walk. An executable prefix is not traversable and cannot receive a child.
+The leaf must not already exist; an occupied path is `duplicate_path`.
 
 Each newly created resource receives an unused ID minted from its segment name
 and is audited as `resource.create`. Creating a new root is administrative.
 Creating a child requires `write` on that child's parent.
 
-Create may include an `executable` containing `runtime`, optional sealed
-`input`, and an optional `bind` map. The executable attaches only to the new
-leaf. The command validates the registered runtime, sealed input, live binding
-targets, and `bind` authority before it commits any missing resource or
-executable record. A successful command records both `resource.create` and
-`executable.set`; any failure records neither. Administrative create records
-administrative binding provenance.
+Create without `executable` creates a folder leaf. Create with an `executable`
+containing `runtime`, optional sealed `input`, and optional `bind` creates an
+executable leaf. The command validates the registered runtime, sealed input,
+live binding targets, and `bind` authority before it commits any resource.
+Administrative create records administrative binding provenance.
 
-### Move
+### Update
 
-A move requires a live resource and destination, rejects cycles, reparents the
-resource, and commits atomically. It never rewrites or revokes grants.
+Update accepts at least one of `name`, `parentId`, or `executable` and changes
+all supplied fields in one transition. `name` is one non-empty path segment.
+A new `parentId` must identify a live folder, and the move must not create a
+cycle or duplicate path. Updating `parentId` never rewrites or revokes grants.
+
+Supplying `executable` on an empty folder converts it to an executable
+resource. A folder with live children cannot become executable. Supplying
+`executable` on an executable resource replaces its definition and bindings.
+The field cannot be `null`, so an executable never converts into a folder.
+
+Renaming or changing `executable` requires `write` on the resource.
+Reparenting requires `move` on the resource and `write` on the destination
+folder. A supplied executable definition also requires `bind` on each direct
+binding. The update validates every applicable condition and commits one
+resource record and audit event atomically.
 
 ### Delete
 
 Deletion finds the live subtree, marks every member with `deletedAt`, and
 commits atomically. Grant-resource entries naming deleted resources become
-permanently ineffective.
+permanently ineffective. Deleting an executable means deleting the complete
+resource; executable definitions have no independent delete operation.
 
 ## Executables
 
-An executable definition attaches one registered runtime to one live resource,
-which remains the authorization target. It can seal JSON-compatible top-level
+An executable resource contains one registered runtime definition and remains
+the authorization target. Its definition can seal JSON-compatible top-level
 input values and pre-bind other top-level fields to ordinary resource ID
 strings. Configured and bound fields are sealed rather than caller-controlled
 invocation values.
 
-Resource create can attach an executable to its new leaf. Existing resources
-use
-`setExecutable(state, resourceId, { runtime, input, bind }, at, runtimes)`.
-Both forms trim and validate the runtime name, require that runtime to be
-registered, and atomically store the association together with its audit event.
-Setting an existing executable requires `write` on its resource. Both forms
-require `bind` on every directly bound resource. Each binding records the
+Resource create can make its new leaf executable. `resource.update` can convert
+an empty folder into an executable resource or replace an executable
+resource's definition. Both forms trim and validate the runtime name, require
+that runtime to be registered, and atomically store the resource together with
+its audit event. Updating an existing resource requires `write` on it. Both
+forms require `bind` on every directly bound resource. Each binding records the
 complete grant lineage that authorized it. Administrative bindings record
 administrative provenance.
 
@@ -413,13 +432,12 @@ flattened: A's frame does not gain a direct edge to C. Every hop is revalidated
 when the call chain runs.
 
 Bindings are live references to resource identity. A frame resolves the
-target's current executable definition. Replacing that definition changes the
+target's current executable definition. Updating that definition changes the
 behavior observed through every binding to the resource.
 
-Deleting an executable removes its association and records the deletion
-atomically. It leaves resource and audit records intact, and a later set may
-create another association. Reading requires `read`; deletion requires
-`write`.
+An executable definition cannot be removed independently. Deleting it requires
+`resource.delete`, which tombstones the complete resource. Reading the embedded
+definition requires `read`; deleting the resource requires `delete`.
 
 The runtime registry is immutable deployment configuration from the
 repository's perspective. Repository commands cannot register, replace, or
@@ -531,25 +549,28 @@ An implementation conforms when:
 9. Resource operations and grant amendments commit atomically with audit.
 10. Deleted resources remain as unreadable tombstones.
 11. Commands are exposed only through explicit token or administrative planes.
-12. Setting an executable binding requires `bind` on its direct resource
-    through the complete lineage and records that lineage with the edge.
-13. Invocation revalidates every binding lineage and live target before
+12. Every resource is a folder or executable; only folders have children and
+    every executable contains its definition.
+13. Creating or updating an executable binding requires `bind` on its direct
+    resource through the complete lineage and records that lineage with the
+    edge.
+14. Invocation revalidates every binding lineage and live target before
     inserting sealed resource ID strings into runtime input.
-14. An executable persists one resource-to-runtime association and its sealed
-    direct bindings; deletion removes the association and bindings.
-15. Binding authority is delegable through `invoke`, follows the target's live
+15. An executable definition is updated through its resource and can only be
+    deleted by deleting that resource.
+16. Binding authority is delegable through `invoke`, follows the target's live
     executable definition, and never flattens transitive edges into a caller.
-16. Runtime registration, schemas, and behavior are deployment configuration
+17. Runtime registration, schemas, and behavior are deployment configuration
     that repository commands cannot mutate.
-17. Invocation resolves one runtime, rejects sealed input collisions, parses
+18. Invocation resolves one runtime, rejects sealed input collisions, parses
     input after safely inserting bound fields,
     authorizes arbitrary nested resource IDs against caller authority or the
     current frame's direct edges, follows valid edges transitively across
     frames, rejects active cycles and depths above 32, normalizes results into
     `data` and automatic `done` events, propagates cancellation, and records
     each call in the chain.
-18. Audit records, errors, and logs exclude inputs and outputs while retaining
+19. Audit records, errors, and logs exclude inputs and outputs while retaining
     the IDs, runtime, timing, and result needed for accountability.
-19. An implementation may load and persist command-scoped records when the
+20. An implementation may load and persist command-scoped records when the
     command remains atomic and observably equivalent to one complete state
     transition.

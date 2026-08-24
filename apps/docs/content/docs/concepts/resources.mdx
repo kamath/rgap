@@ -4,20 +4,32 @@ description: Stable resource identities inside a mutable hierarchy.
 icon: FolderTree
 ---
 
-Resources form a tree. Each record stores only a stable ID, parent ID, name,
-and deletion marker.
+Resources form a file tree. A resource is either a folder or an executable.
+Folders organize the tree and may have children. Executables contain their
+runtime definition and are always terminal resources.
 
 ```ts
-type Resource = {
+type ResourceBase = {
   id: ResourceId;
   parentId: ResourceId | null;
   name: string;
   deletedAt: string | null;
 };
+
+type Folder = ResourceBase & {
+  executable: null;
+};
+
+type ExecutableResource = ResourceBase & {
+  executable: ExecutableDefinition;
+};
+
+type Resource = Folder | ExecutableResource;
 ```
 
-RGAP does not assign resource kinds. Applications decide whether a resource
-represents a server, folder, tool, prompt, or document.
+An empty folder remains a folder even though it currently has no children.
+Resource type follows the `executable` field rather than the current child
+count.
 
 ## Create at a path
 
@@ -29,22 +41,31 @@ created, and the command returns the leaf.
 ```ts
 const design = await admin.resources.create({
   name: 'acme/platform/docs/design',
+  executable: {
+    runtime: 'renderDesign',
+  },
 });
 ```
 
 `design.name` is `design`. `design.parentId` is the `docs` resource. The
-derived path of `design` is `acme/platform/docs/design`.
+derived path of `design` is `acme/platform/docs/design`. Missing `acme`,
+`platform`, and `docs` prefixes are folders. The returned `design` resource is
+executable.
 
 The same command creates a relative path under an existing resource:
 
 ```ts
 const platform = await admin.resources.create({ name: 'acme/platform' });
-const design = await platform.create({ name: 'docs/design' });
+const design = await platform.create({
+  name: 'docs/design',
+  executable: { runtime: 'renderDesign' },
+});
 ```
 
 Each stored resource name is one segment. Missing prefixes become ordinary
-resources. Live prefixes are reused. The leaf must be absent: a second create
-at an occupied path fails with `duplicate_path`.
+folders. Live folder prefixes are reused. An executable cannot be traversed or
+receive children. The leaf must be absent: a second create at an occupied path
+fails with `duplicate_path`.
 
 Create is one state transition. Each newly created resource is audited as
 `resource.create` and receives a stable ID minted from its segment name.
@@ -54,6 +75,32 @@ Creating a new root resource is administrative. Creating a child requires
 the forest root: it refuses a path that would create a new root, and it
 requires `write` on the parent of every resource it creates. Existing prefixes
 need no additional permission.
+
+## Update
+
+`resource.update` changes a resource's name, parent, executable definition, or
+any combination of those fields atomically:
+
+```ts
+const updated = await design.update({
+  name: 'architecture',
+  executable: {
+    runtime: 'renderArchitecture',
+    input: { format: 'markdown' },
+  },
+});
+```
+
+An update must provide at least one field. Supplying `executable` on an empty
+folder converts it into an executable resource. A folder with live children
+cannot become executable. Supplying `executable` on an executable resource
+replaces its runtime definition and bindings.
+
+There is no update that removes `executable` or converts an executable into a
+folder. Delete the resource instead. Renaming or replacing an executable
+requires `write` on the resource. Reparenting requires `move` on the resource
+and `write` on the destination folder. Setting direct bindings also requires
+`bind` on every bound resource.
 
 ## Identity and location
 
@@ -74,11 +121,11 @@ occupies the old location.
 ## Subtree semantics
 
 Every grant resource reaches its target and all current descendants. A grant on
-a container therefore includes children created later.
+a folder therefore includes children created later.
 
 <Callout type="info">
-  Grant leaves instead of a container when future children must not inherit the
-  entry's authority.
+  Grant executable resources instead of a folder when future children must not
+  inherit the entry's authority.
 </Callout>
 
 ## Path normalization
@@ -90,21 +137,13 @@ Resource and grant creation accept presentation paths and materialize them in
 their respective trees. Other operational commands and grant-resource entries
 use stable IDs.
 
-## Moves
-
-Moving a resource requires:
-
-1. `move` on the resource.
-2. `write` on the destination parent.
-
-Authority is required at both ends because relocation changes who can reach the
-resource. Moves update the tree and audit event atomically and never rewrite
-grants.
-
 ## Deletion
 
 Deletion marks a resource and all descendants as deleted. Records remain as
 tombstones so IDs are never reused.
+
+Deleting an executable means deleting its resource. There is no independent
+executable deletion operation.
 
 - Deleted resources appear in no listing.
 - No path resolves to a deleted resource.
