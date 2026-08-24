@@ -17,7 +17,6 @@ import {
 } from '@rgap/core';
 import {
   AuditEventSchema,
-  AuthorityViewSchema,
   AuthorizationHeaderSchema,
   AuthorizeSchema,
   ExecutableDefinitionSchema,
@@ -29,7 +28,6 @@ import {
   GrantSchema,
   GrantWriteSchema,
   IdParamsSchema,
-  InspectTokenSchema,
   IssuedTokenSchema,
   MoveResourceSchema,
   PageQuerySchema,
@@ -208,13 +206,6 @@ const authorizeRoute = commandRoute({
   request: { body: jsonBody(AuthorizeSchema) },
   responses: { 200: jsonResponse(DecisionSchema, 'Authorization decision'), ...errors },
 });
-const inspectTokenRoute = commandRoute({
-  method: 'post',
-  path: '/tokens/inspect',
-  operationId: 'inspectToken',
-  request: { body: jsonBody(InspectTokenSchema) },
-  responses: { 200: jsonResponse(AuthorityViewSchema, 'Token authority'), ...errors },
-});
 const resetRoute = commandRoute({
   method: 'post',
   path: '/reset',
@@ -243,9 +234,6 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
 
     const admin = adminToken !== undefined && secretsEqual(bearer, adminToken);
     const repository = admin ? store.admin() : store.as(tokenValue(bearer));
-    if (!admin && !(await repository.inspectToken(tokenValue(bearer))).valid) {
-      return apiError(c, 401, 'unauthorized', 'The bearer token is unknown, expired, or revoked.');
-    }
     c.set('repository', repository);
     c.set('admin', admin);
     await next();
@@ -253,6 +241,9 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
 
   base.onError((error, c) => {
     if (error instanceof RgapError) {
+      if (error.code === 'invalid_bearer') {
+        return apiError(c, 401, 'unauthorized', error.message);
+      }
       const status = error.code === 'unauthorized'
         ? 403
         : error.code.startsWith('missing_') ? 404 : 409;
@@ -384,10 +375,6 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
     .openapi(authorizeRoute, async (c) => {
       const { token, resourceId: id, permission } = c.req.valid('json');
       return c.json(await repository(c).authorize(tokenValue(token), resourceId(id), permission), 200);
-    })
-    .openapi(inspectTokenRoute, async (c) => {
-      const { token } = c.req.valid('json');
-      return c.json(await repository(c).inspectToken(tokenValue(token)), 200);
     })
     .openapi(resetRoute, async (c) => {
       await repository(c).reset();

@@ -34,7 +34,6 @@ const expectedOperations = [
   'revokeToken',
   'listAudit',
   'authorize',
-  'inspectToken',
   'reset',
 ] as const;
 
@@ -332,7 +331,6 @@ describe('RGAP Hono API', () => {
     expect((await sdk.getToken({ client, headers, path: { id: tokenRecord.id } })).data?.label).toBe('sdk');
     expect((await sdk.listTokens({ client, headers, query: { grantId } })).data?.[0].id)
       .toBe(tokenRecord.id);
-    expect((await sdk.inspectToken({ client, headers, body: { token: bearer } })).data?.valid).toBe(true);
     expect((await sdk.authorize({
       client,
       headers,
@@ -405,7 +403,6 @@ describe('RGAP Hono API', () => {
     expect(delegated.parentId).toBe(grant.id);
     expect((await guarded.resources.list()).map((resource) => resource.id))
       .toEqual([root.id, child.id]);
-    expect((await guarded.inspectToken(issued.value)).valid).toBe(true);
     await expect(admin.resources.get(resourceId('missing'))).rejects.toMatchObject({
       code: 'missing_resource',
     });

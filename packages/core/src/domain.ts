@@ -11,7 +11,7 @@ export type ResourceId = Identity<'ResourceId'>;
 export type GrantId = Identity<'GrantId'>;
 /** A token record's stable identity. Not the bearer secret. */
 export type TokenId = Identity<'TokenId'>;
-/** The bearer secret returned once at issue. `store.as`, `authorize`, and `inspectToken` take this. */
+/** The bearer secret returned once at issue. `store.as` and `authorize` take this. */
 export type TokenValue = Identity<'TokenValue'>;
 /** The stored hash of a bearer secret. The bearer itself is never stored. */
 export type TokenHash = Identity<'TokenHash'>;
@@ -95,15 +95,13 @@ export type Decision = {
   lineage: GrantId[];
 };
 
+export type BearerContext = {
+  grantId: GrantId;
+  lineage: GrantId[];
+};
+
 export type CreateGrantInput = Omit<Grant, 'id' | 'revokedAt'>;
 export type CreateResourceInput = Omit<Resource, 'id' | 'deletedAt'>;
-export type AuthorityView = {
-  valid: boolean;
-  detail: string;
-  grantId: GrantId | null;
-  lineage: GrantId[];
-  permissions: Record<string, Permission[]>;
-};
 
 export class RgapError extends Error {
   constructor(public code: string, message: string) {
@@ -564,26 +562,17 @@ export function authorize(state: State, hash: TokenHash, id: ResourceId, permiss
   };
 }
 
-export function inspectAuthority(state: State, hash: TokenHash, at: string): AuthorityView {
+/** Resolves the active principal used internally by a guarded repository. */
+export function resolveBearer(state: State, hash: TokenHash, at: string): BearerContext {
   const token = Object.values(state.tokens).find((item) => item.hash === hash);
   if (!token || !active(token, at)) {
-    return { valid: false, detail: 'Token is unknown, expired, or revoked.', grantId: null, lineage: [], permissions: {} };
+    throw new RgapError('invalid_bearer', 'Token is unknown, expired, or revoked.');
   }
   const chain = lineage(state, token.grantId);
   if (chain.some((grant) => !active(grant, at))) {
-    return { valid: false, detail: 'A grant in the delegation chain is expired or revoked.', grantId: token.grantId, lineage: chain.map((grant) => grant.id), permissions: {} };
+    throw new RgapError('invalid_bearer', 'A grant in the delegation chain is expired or revoked.');
   }
-  const effective = Object.fromEntries(liveResources(state.resources).map((resource) => resource.id).flatMap((id) => {
-    const allowed = permissions.filter((permission) => authorize(state, hash, id, permission, at).allowed);
-    return allowed.length ? [[id, allowed]] : [];
-  }));
-  return {
-    valid: true,
-    detail: `${Object.keys(effective).length} resources are visible through ${chain[0].name}.`,
-    grantId: token.grantId,
-    lineage: chain.map((grant) => grant.id),
-    permissions: effective,
-  };
+  return { grantId: token.grantId, lineage: chain.map((grant) => grant.id) };
 }
 
 export const pathParts = (path: string) => path.split('/').map((part) => part.trim()).filter(Boolean);

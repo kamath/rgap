@@ -1,9 +1,9 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import {
   authorize, availableGrantId, availableId, covers, createAtPath, createGrant, createGrantAtPath, createResource,
-  deleteResource, grantId, grantIdAtPath, inspectAuthority, InvalidParentError, isLive, isWithin, liveResources,
+  deleteResource, grantId, grantIdAtPath, InvalidParentError, isLive, isWithin, liveResources,
   moveResource, normalizePath, permissions, recordToken, requireResourceId, resourceId, resourceIdAtPath,
-  resourcePath, revokeGrant, revokeToken, RgapError, setResources,
+  resolveBearer, resourcePath, revokeGrant, revokeToken, RgapError, setResources,
   stateIntegrity, tryResourcePath, tokenHash, tokenId, type GrantResource, type GrantResourceConfig, type CreateGrantInput,
   type GrantId, type PathResource, type Resource, type IdResource, type ResourceId, type State, type Token,
 } from './domain';
@@ -675,31 +675,22 @@ describe('authorization decisions', () => {
   });
 });
 
-describe('inspecting the authority behind a token', () => {
-  it('reports the effective permissions of a valid token', () => {
-    const view = inspectAuthority(fixture(), demo, at);
-
-    expect(view.valid).toBe(true);
-    expect(view.detail).toBe('2 resources are visible through Coordinator.');
-    expect(view.lineage).toEqual(['coordinator']);
-    expect(view.permissions).toEqual({
-      'search-files': ['read', 'invoke'],
-      'create-issue': ['read', 'invoke'],
+describe('resolving a bearer internally', () => {
+  it('returns the selected grant and active lineage', () => {
+    expect(resolveBearer(fixture(), demo, at)).toEqual({
+      grantId: 'coordinator',
+      lineage: ['coordinator'],
     });
   });
 
-  it('reports no authority for a token it does not know or a chain that is broken', () => {
-    expect(inspectAuthority(fixture(), tokenHash('unknown-hash'), at)).toEqual({
-      valid: false, detail: 'Token is unknown, expired, or revoked.', grantId: null, lineage: [], permissions: {},
-    });
+  it('rejects an unknown bearer or inactive lineage', () => {
+    expect(() => resolveBearer(fixture(), tokenHash('unknown-hash'), at))
+      .toThrow('Token is unknown, expired, or revoked.');
 
     const state = fixture();
     state.tokens.demo.grantId = g('researcher');
-    const view = inspectAuthority(revokeGrant(state, g('coordinator'), at), demo, at);
-
-    expect(view.valid).toBe(false);
-    expect(view.detail).toBe('A grant in the delegation chain is expired or revoked.');
-    expect(view.permissions).toEqual({});
+    expect(() => resolveBearer(revokeGrant(state, g('coordinator'), at), demo, at))
+      .toThrow('A grant in the delegation chain is expired or revoked.');
   });
 
   it('lists every permission the contract understands', () => {

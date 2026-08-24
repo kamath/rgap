@@ -15,7 +15,6 @@ import {
   grantIdAtPath,
   getAuthorizedLineage,
   guardCommands,
-  inspectAuthority,
   invokeExecutable,
   isPathResource,
   moveResource as move,
@@ -26,6 +25,7 @@ import {
   recordToken,
   resourceId,
   resourceIdAtPath,
+  resolveBearer as resolve,
   revokeGrant as revokeGrantBranch,
   revokeToken as revokeTokenRecord,
   RuntimeRegistry,
@@ -84,7 +84,11 @@ export class SqliteRgapStore implements RgapStore {
   }
 
   as(token: TokenValue): RgapRepository {
-    return guardCommands(repositoryFrom(this.repository), token);
+    return guardCommands(
+      repositoryFrom(this.repository),
+      token,
+      (bearer) => this.repository.resolveBearer(bearer),
+    );
   }
 
   /** Releases the connection. A `:memory:` database ceases to exist with it. */
@@ -412,8 +416,20 @@ class SqliteBackingRepository implements RgapCommands {
     });
   }
 
-  async inspectToken(token: TokenValue) {
-    return this.db.transaction(() => inspectAuthority(this.read(), digest(token), now()));
+  async resolveBearer(token: TokenValue) {
+    const at = now();
+    const hash = digest(token);
+    return this.db.transaction(() => {
+      const state = this.workingState();
+      const row = this.db.select().from(schema.tokens)
+        .where(eq(schema.tokens.hash, hash)).orderBy(asc(schema.tokens.id)).get();
+      if (row) {
+        const record = tokenRecord(row);
+        state.tokens[record.id] = record;
+        this.loadGrantLineage(state, record.grantId);
+      }
+      return resolve(state, hash, at);
+    });
   }
 
   async reset() {

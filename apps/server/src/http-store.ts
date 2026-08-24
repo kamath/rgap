@@ -30,7 +30,6 @@ import {
   getGrant,
   getResource,
   getToken,
-  inspectToken,
   issueToken,
   listAudit,
   listGrants,
@@ -279,15 +278,6 @@ class HttpRgapCommands implements RgapCommands {
       ...decision,
       grantId: decision.grantId === null ? null : grantId(decision.grantId),
       lineage: decision.lineage.map(grantId),
-    };
-  }
-
-  async inspectToken(token: TokenValue) {
-    const view = unwrap(await inspectToken(this.options({ body: { token } })));
-    return {
-      ...view,
-      grantId: view.grantId === null ? null : grantId(view.grantId),
-      lineage: view.lineage.map(grantId),
     };
   }
 
