@@ -1,6 +1,6 @@
 import {
   authorize, grantId, resolveBearer, resourceId, tokenHash, tokenId, tokenValue,
-  type GrantResource, type Resource, type State,
+  type GrantBinding, type Resource, type State,
 } from './domain';
 import { paginateRecords, repositoryFrom, type RgapCommands } from './repository';
 
@@ -15,12 +15,12 @@ export function fixture(): State {
     grants: {
       coordinator: {
         id: grantId('coordinator'), name: 'Coordinator', parentId: null,
-        resources: [cap('search-files'), cap('create-issue')],
+        bindings: [cap('search-files'), cap('create-issue')],
         expiresAt: '2027-08-21T23:00:00.000Z', revokedAt: null,
       },
       researcher: {
         id: grantId('researcher'), name: 'Researcher', parentId: grantId('coordinator'),
-        resources: [cap('search-files')],
+        bindings: [cap('search-files')],
         expiresAt: '2027-08-21T22:00:00.000Z', revokedAt: null,
       },
     },
@@ -40,7 +40,7 @@ const resource = (id: string, parent: string | null): Resource => ({
   executable: null,
 });
 
-const cap = (id: string): GrantResource => ({
+const cap = (id: string): GrantBinding => ({
   id: resourceId(id), permissions: ['read', 'invoke'],
 });
 
@@ -118,8 +118,8 @@ export function stubCommands(state: State, at: string) {
       })();
     },
     createGrant: (input) => record('createGrant', [input], { ...input, id: grantId('created'), revokedAt: null }),
-    setResources: (id, resources) =>
-      record('setResources', [id, resources], { ...state.grants[id], resources }),
+    setBindings: (id, bindings) =>
+      record('setBindings', [id, bindings], { ...state.grants[id], bindings }),
     issueToken: (id, label) => record('issueToken', [id, label], {
       record: {
         id: tokenId('issued'), grantId: id, label, hash: tokenHash('issued-hash'), expiresAt: null, revokedAt: null,

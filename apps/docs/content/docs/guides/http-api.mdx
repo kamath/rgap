@@ -76,7 +76,7 @@ curl http://localhost:3000/resources \
 `name` and return the leaf. The path is the location; the body does not include
 `parentId`. Missing resource prefixes are folders created from the forest root.
 The resource leaf is a folder when `executable` is absent and an executable
-resource when it is present. A grant write also carries the leaf resource set
+resource when it is present. A grant write also carries the leaf binding set
 and expiration; every grant created in that walk stores those fields.
 
 `PATCH /resources/{id}` accepts any non-empty combination of `name` and
@@ -84,6 +84,15 @@ and expiration; every grant created in that walk stores those fields.
 belongs to `POST /resources` only: a definition is sealed by create, cannot be
 patched afterward, and is retired by deleting the resource with
 `DELETE /resources/{id}`.
+
+Grant bindings can be replaced as one atomic set:
+
+```http
+PUT /grants/{id}/bindings
+Content-Type: application/json
+
+{"bindings":[{"id":"resource_id","permissions":["read"]}]}
+```
 
 Successful requests return the JSON-compatible RGAP records and decisions
 described by the generated schema. Commands with no response value return

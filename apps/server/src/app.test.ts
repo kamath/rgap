@@ -23,7 +23,7 @@ const expectedOperations = [
   'getGrant',
   'listGrants',
   'createGrant',
-  'setResources',
+  'setBindings',
   'issueToken',
   'revokeGrant',
   'getToken',
@@ -114,7 +114,7 @@ describe('RGAP Hono API', () => {
       headers: { authorization, 'content-type': 'application/json' },
       body: JSON.stringify({
         name: 'writer',
-        resources: [{ path: 'acme/docs', permissions: ['read'] }],
+        bindings: [{ path: 'acme/docs', permissions: ['read'] }],
         expiresAt: null,
       }),
     });
@@ -153,7 +153,7 @@ describe('RGAP Hono API', () => {
     const root = await (await request('/resources', { name: 'acme' })).json() as { id: string };
     const grant = await (await request('/grants', {
       name: 'writer',
-      resources: [{ id: root.id, permissions: ['write'] }],
+      bindings: [{ id: root.id, permissions: ['write'] }],
       expiresAt: null,
     })).json() as { id: string };
     const issued = await (await request(`/grants/${grant.id}/tokens`, { label: 'guarded' })).json() as {
@@ -164,12 +164,12 @@ describe('RGAP Hono API', () => {
     expect((await request('/resources', { name: 'other' }, issued.value)).status).toBe(403);
     expect((await request('/grants', {
       name: 'writer/child',
-      resources: [],
+      bindings: [],
       expiresAt: null,
     }, issued.value)).status).toBe(200);
     expect((await request('/grants', {
       name: 'root',
-      resources: [],
+      bindings: [],
       expiresAt: null,
     }, issued.value)).status).toBe(403);
   });
@@ -233,7 +233,7 @@ describe('RGAP Hono API', () => {
       .toEqual([{ type: 'done' }]);
     const readerGrant = await (await request('/grants', 'POST', {
       name: 'reader',
-      resources: [{ id: executable.id, permissions: ['read'] }],
+      bindings: [{ id: executable.id, permissions: ['read'] }],
       expiresAt: null,
     })).json() as { id: string };
     const reader = await (await request(`/grants/${readerGrant.id}/tokens`, 'POST', {
@@ -322,7 +322,7 @@ describe('RGAP Hono API', () => {
       headers,
       body: {
         name: 'Acme admin',
-        resources: [{ id: root.data!.id, permissions: ['read', 'write', 'delete', 'move', 'invoke'] }],
+        bindings: [{ id: root.data!.id, permissions: ['read', 'write', 'delete', 'move', 'invoke'] }],
         expiresAt: null,
       },
     });
@@ -331,12 +331,12 @@ describe('RGAP Hono API', () => {
       .toBe('Acme admin');
     expect((await sdk.listGrants({ client, headers, query: { parentId: null } })).data?.[0].id)
       .toBe(grantId);
-    expect((await sdk.setResources({
+    expect((await sdk.setBindings({
       client,
       headers,
       path: { id: grantId },
-      body: { resources: [{ id: root.data!.id, permissions: ['invoke'] }] },
-    })).data?.resources[0]).toMatchObject({ permissions: ['read', 'invoke'] });
+      body: { bindings: [{ id: root.data!.id, permissions: ['invoke'] }] },
+    })).data?.bindings[0]).toMatchObject({ permissions: ['read', 'invoke'] });
 
     const issued = await sdk.issueToken({
       client,
@@ -413,7 +413,7 @@ describe('RGAP Hono API', () => {
     const root = await admin.resources.create({ name: 'acme' });
     const grant = await admin.grants.create({
       name: 'writer',
-      resources: [{ id: root.id, permissions: ['read', 'write'] }],
+      bindings: [{ id: root.id, permissions: ['read', 'write'] }],
       expiresAt: null,
     });
     const issued = await grant.tokens.create({ label: 'remote' });
@@ -421,7 +421,7 @@ describe('RGAP Hono API', () => {
     const child = await (await guarded.resources.get(root.id)).create({ name: 'docs' });
     const delegated = await guarded.grants.create({
       name: 'writer/reader',
-      resources: [{ id: root.id, permissions: ['read'] }],
+      bindings: [{ id: root.id, permissions: ['read'] }],
       expiresAt: null,
     });
 

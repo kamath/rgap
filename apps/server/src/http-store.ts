@@ -7,7 +7,7 @@ import {
   tokenId,
   tokenValue,
   type AuditEvent,
-  type GrantResource,
+  type GrantBinding,
   type ExecutableDefinition,
   type InvocationEvent,
   type JsonValue,
@@ -38,13 +38,13 @@ import {
   reset,
   revokeGrant,
   revokeToken,
-  setResources,
+  setBindings,
 } from './client/generated/sdk.gen';
 import { createClient, type Client } from './client/generated/client';
 import type {
   ApiError,
   AuditEvent as HttpAuditEvent,
-  GrantResource as HttpGrantResource,
+  GrantBinding as HttpGrantBinding,
   ExecutableDefinition as HttpExecutableDefinition,
   Grant as HttpGrant,
   Resource as HttpResource,
@@ -215,7 +215,7 @@ class HttpRgapCommands implements RgapCommands {
       ? input.name
       : `${await this.grantPathOf(input.parentId)}/${input.name}`;
     return asGrant(unwrap(await createGrant(this.options({
-      body: { name, resources: input.resources.map(asHttpGrantResource), expiresAt: input.expiresAt },
+      body: { name, bindings: input.bindings.map(asHttpGrantBinding), expiresAt: input.expiresAt },
     }))));
   }
 
@@ -230,10 +230,10 @@ class HttpRgapCommands implements RgapCommands {
     return names.join('/');
   }
 
-  async setResources(id: ReturnType<typeof grantId>, resources: GrantResource[]) {
-    return asGrant(unwrap(await setResources(this.options({
+  async setBindings(id: ReturnType<typeof grantId>, bindings: GrantBinding[]) {
+    return asGrant(unwrap(await setBindings(this.options({
       path: { id },
-      body: { resources: resources.map(asHttpGrantResource) },
+      body: { bindings: bindings.map(asHttpGrantBinding) },
     }))));
   }
 
@@ -353,16 +353,16 @@ function asGrant(record: HttpGrant): Grant {
     ...record,
     id: grantId(record.id),
     parentId: record.parentId === null ? null : grantId(record.parentId),
-    resources: record.resources.map(asGrantResource),
+    bindings: record.bindings.map(asGrantBinding),
   };
 }
 
-function asGrantResource(entry: HttpGrantResource): GrantResource {
-  return { ...entry, id: resourceId(entry.id) };
+function asGrantBinding(binding: HttpGrantBinding): GrantBinding {
+  return { ...binding, id: resourceId(binding.id) };
 }
 
-function asHttpGrantResource(entry: GrantResource): HttpGrantResource {
-  return entry;
+function asHttpGrantBinding(binding: GrantBinding): HttpGrantBinding {
+  return binding;
 }
 
 function asToken(record: HttpToken): Token {

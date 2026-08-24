@@ -61,7 +61,7 @@ const scripts = await admin.resources.create({
 });
 const author = await admin.grants.create({
   name: 'users/alice/script-author',
-  resources: [
+  bindings: [
     { id: scripts.id, permissions: ['write', 'invoke'] },
     { id: profile.id, permissions: ['bind'] },
   ],
@@ -81,7 +81,7 @@ const script = await (await alice.resources.get(scripts.id)).create({
 const actingAuthor = await alice.grants.get(author.id);
 const consumer = await actingAuthor.create({
   name: 'profile-consumer',
-  resources: [{ id: script.id, permissions: ['invoke'] }],
+  bindings: [{ id: script.id, permissions: ['invoke'] }],
   expiresAt: null,
 });
 const consumerToken = await consumer.tokens.create({ label: 'consumer' });

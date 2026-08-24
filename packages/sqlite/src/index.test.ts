@@ -67,7 +67,7 @@ const resourceRecord = (resource: {
 });
 
 const rootGrant = (repository: RgapRepository) =>
-  repository.grants.create({ name: 'Acme admin', resources: [], expiresAt: null });
+  repository.grants.create({ name: 'Acme admin', bindings: [], expiresAt: null });
 
 async function all<T extends { id: string }>(
   list: (query: { cursor?: string; limit?: number }) => Promise<T[]>,
@@ -119,7 +119,7 @@ describe('SqliteRgapStore', () => {
   it('round-trips a complete state through SQL', async () => {
     const repository = open({ initialState: acme() }).admin();
     const grant = await rootGrant(repository);
-    await grant.resources.set([
+    await grant.bindings.set([
       { id: resourceId('acme'), permissions: ['read', 'write'] },
       { id: resourceId('drive'), permissions: ['invoke'] },
     ]);
@@ -127,7 +127,7 @@ describe('SqliteRgapStore', () => {
 
     const state = await queriedState(repository);
     expect(state.resources.drive.parentId).toBe('acme');
-    expect(state.grants[grant.id].resources).toEqual([
+    expect(state.grants[grant.id].bindings).toEqual([
       { id: resourceId('acme'), permissions: ['read', 'write'] },
       { id: resourceId('drive'), permissions: ['read', 'invoke'] },
     ]);
@@ -138,7 +138,7 @@ describe('SqliteRgapStore', () => {
     const repository = open({ initialState: acme() }).admin();
     const employee = await repository.grants.create({
       name: 'company/team/employee',
-      resources: [],
+      bindings: [],
       expiresAt: null,
     });
     const team = await repository.grants.get(employee.parentId!);
@@ -155,13 +155,13 @@ describe('SqliteRgapStore', () => {
     const repository = open({ initialState: acme() }).admin();
     const company = await repository.grants.create({
       name: 'company',
-      resources: [{ id: resourceId('acme'), permissions: ['read'] }],
+      bindings: [{ id: resourceId('acme'), permissions: ['read'] }],
       expiresAt: null,
     });
 
     const employee = await repository.grants.create({
       name: 'company/team/employee',
-      resources: [{ id: resourceId('drive'), permissions: ['read'] }],
+      bindings: [{ id: resourceId('drive'), permissions: ['read'] }],
       expiresAt: null,
     });
     const team = await repository.grants.get(employee.parentId!);
@@ -175,14 +175,14 @@ describe('SqliteRgapStore', () => {
     const repository = open({ initialState: acme() }).admin();
     await repository.grants.create({
       name: 'company',
-      resources: [{ id: resourceId('drive'), permissions: ['read'] }],
+      bindings: [{ id: resourceId('drive'), permissions: ['read'] }],
       expiresAt: null,
     });
     const before = await queriedState(repository);
 
     await expect(repository.grants.create({
       name: 'company/team/employee',
-      resources: [{ id: resourceId('acme'), permissions: ['write'] }],
+      bindings: [{ id: resourceId('acme'), permissions: ['write'] }],
       expiresAt: null,
     })).rejects.toMatchObject({ code: 'authority_expands' });
 
@@ -193,7 +193,7 @@ describe('SqliteRgapStore', () => {
     const repository = open().admin();
     const nested = await repository.grants.create({
       name: 'same/same',
-      resources: [],
+      bindings: [],
       expiresAt: null,
     });
 
@@ -364,16 +364,16 @@ describe('SqliteRgapStore', () => {
     expect(await collect(admin.invoke(resourceId('drive'), { input: {} }))).toEqual([{ type: 'done' }]);
 
     const grant = await rootGrant(admin);
-    await grant.resources.set([{ id: resourceId('drive'), permissions: ['read'] }]);
+    await grant.bindings.set([{ id: resourceId('drive'), permissions: ['read'] }]);
     const { value } = await grant.tokens.create({ label: 'reader' });
     await expect(collect(store.as(value).invoke(resourceId('drive'), { input: {} })))
       .rejects.toMatchObject({ code: 'unauthorized' });
 
     const invoker = await admin.grants.create({
-      name: 'Acme invoker', resources: [], expiresAt: null,
+      name: 'Acme invoker', bindings: [], expiresAt: null,
     });
-    const invoked = await invoker.resources.set([{ id: resourceId('drive'), permissions: ['invoke'] }]);
-    expect(invoked.resources[0].permissions).toEqual(['read', 'invoke']);
+    const invoked = await invoker.bindings.set([{ id: resourceId('drive'), permissions: ['invoke'] }]);
+    expect(invoked.bindings[0].permissions).toEqual(['read', 'invoke']);
     const allowed = await invoker.tokens.create({ label: 'invoker' });
     expect(await collect(store.as(allowed.value).invoke(resourceId('drive'), { input: {} })))
       .toEqual([{ type: 'done' }]);
@@ -391,7 +391,7 @@ describe('SqliteRgapStore', () => {
 
     const author = await admin.grants.create({
       name: 'Author',
-      resources: [{ id: resourceId('acme'), permissions: ['write', 'bind'] }],
+      bindings: [{ id: resourceId('acme'), permissions: ['write', 'bind'] }],
       expiresAt: null,
     });
     const authorToken = await author.tokens.create({ label: 'author' });
@@ -404,7 +404,7 @@ describe('SqliteRgapStore', () => {
 
     const consumer = await admin.grants.create({
       name: 'Consumer',
-      resources: [{ id: resourceId('drive'), permissions: ['invoke'] }],
+      bindings: [{ id: resourceId('drive'), permissions: ['invoke'] }],
       expiresAt: null,
     });
     const consumerToken = await consumer.tokens.create({ label: 'consumer' });
@@ -426,22 +426,22 @@ describe('SqliteRgapStore', () => {
   it('reads a permission set in the protocol canonical order', async () => {
     const repository = open({ initialState: acme() }).admin();
     const grant = await rootGrant(repository);
-    const amended = await grant.resources.set([
+    const amended = await grant.bindings.set([
       { id: resourceId('acme'), permissions: ['invoke', 'delete', 'read'] },
     ]);
-    expect(amended.resources[0].permissions).toEqual(['read', 'invoke', 'delete']);
+    expect(amended.bindings[0].permissions).toEqual(['read', 'invoke', 'delete']);
   });
 
   it('authorizes and delegates across focused ID target loads', async () => {
     const repository = open({ initialState: acme() }).admin();
     const parent = await repository.grants.create({
       name: 'Acme reader',
-      resources: [{ id: resourceId('acme'), permissions: ['read'] }],
+      bindings: [{ id: resourceId('acme'), permissions: ['read'] }],
       expiresAt: null,
     });
     const child = await parent.create({
       name: 'Drive ID reader',
-      resources: [{ id: resourceId('drive'), permissions: ['read'] }],
+      bindings: [{ id: resourceId('drive'), permissions: ['read'] }],
       expiresAt: null,
     });
     const issued = await child.tokens.create({ label: 'reader' });
@@ -453,21 +453,21 @@ describe('SqliteRgapStore', () => {
     const repository = open({ initialState: acme() }).admin();
     const parent = await repository.grants.create({
       name: 'Acme reader',
-      resources: [{ id: resourceId('acme'), permissions: ['read'] }],
+      bindings: [{ id: resourceId('acme'), permissions: ['read'] }],
       expiresAt: null,
     });
     const child = await parent.create({
       name: 'Drive reader',
-      resources: [{ id: resourceId('drive'), permissions: ['read'] }],
+      bindings: [{ id: resourceId('drive'), permissions: ['read'] }],
       expiresAt: null,
     });
     const grandchild = await child.create({
       name: 'Nested drive reader',
-      resources: [{ id: resourceId('drive'), permissions: ['read'] }],
+      bindings: [{ id: resourceId('drive'), permissions: ['read'] }],
       expiresAt: null,
     });
 
-    await parent.resources.set([]);
+    await parent.bindings.set([]);
 
     expect((await repository.grants.get(child.id)).revokedAt).not.toBeNull();
     expect((await repository.grants.get(grandchild.id)).revokedAt).not.toBeNull();
@@ -553,16 +553,16 @@ describe('SqliteRgapStore', () => {
   it('writes nothing when a command is refused', async () => {
     const repository = open({ initialState: acme() }).admin();
     const parent = await rootGrant(repository);
-    await parent.resources.set([
+    await parent.bindings.set([
       { id: resourceId('drive'), permissions: ['read'] },
     ]);
     const child = await parent.create({
-      name: 'Drive read', resources: [], expiresAt: null,
+      name: 'Drive read', bindings: [], expiresAt: null,
     });
     const before = await queriedState(repository);
 
     await expect(
-      child.resources.set([
+      child.bindings.set([
         { id: resourceId('acme'), permissions: ['write'] },
       ]),
     ).rejects.toThrow(RgapError);
@@ -573,7 +573,7 @@ describe('SqliteRgapStore', () => {
   it('records an authorization decision in the audit log, newest first', async () => {
     const repository = open({ initialState: acme() }).admin();
     const grant = await rootGrant(repository);
-    await grant.resources.set([
+    await grant.bindings.set([
       { id: resourceId('acme'), permissions: ['read'] },
     ]);
     const { value } = await grant.tokens.create({ label: 'cli' });
@@ -606,7 +606,7 @@ describe('SqliteRgapStore', () => {
   it('does not revoke grants when resources move or are deleted', async () => {
     const repository = open({ initialState: acme() }).admin();
     const grant = await rootGrant(repository);
-    await grant.resources.set([
+    await grant.bindings.set([
       { id: resourceId('drive'), permissions: ['read'] },
     ]);
 
@@ -620,7 +620,7 @@ describe('SqliteRgapStore', () => {
     const store = open({ initialState: acme() });
     const repository = store.admin();
     const grant = await rootGrant(repository);
-    await grant.resources.set([
+    await grant.bindings.set([
       { id: resourceId('acme'), permissions: ['write'] },
     ]);
     const { value } = await grant.tokens.create({ label: 'cli' });
@@ -632,10 +632,10 @@ describe('SqliteRgapStore', () => {
     const handleChild = await (await guarded.resources.get(resourceId('acme'))).create({ name: 'mcp' });
     expect(handleChild.parentId).toBe('acme');
     const child = await guarded.grants.create({
-      name: 'Acme admin/Drive write', resources: [], expiresAt: null,
+      name: 'Acme admin/Drive write', bindings: [], expiresAt: null,
     });
     expect(child.parentId).toBe(grant.id);
-    await child.resources.set([{ id: resourceId('acme'), permissions: ['write'] }]);
+    await child.bindings.set([{ id: resourceId('acme'), permissions: ['write'] }]);
     await expect((await guarded.resources.get(resourceId('acme'))).delete()).rejects.toThrow();
   });
 

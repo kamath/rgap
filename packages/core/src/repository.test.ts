@@ -33,16 +33,16 @@ describe('repositoryFrom', () => {
     await notes.update({ parentId: resourceId('drive') });
     await notes.delete();
 
-    const grant = await repository.grants.create({ name: 'Admin', resources: [], expiresAt: null });
-    const child = await grant.create({ name: 'Reader', resources: [], expiresAt: null });
-    await child.resources.set([]);
+    const grant = await repository.grants.create({ name: 'Admin', bindings: [], expiresAt: null });
+    const child = await grant.create({ name: 'Reader', bindings: [], expiresAt: null });
+    await child.bindings.set([]);
     const issued = await grant.tokens.create({ label: 'cli' });
     await issued.revoke();
     await child.revoke();
 
     expect(calls.map((call) => call.method)).toEqual([
       'createResource', 'createResource', 'updateResource', 'deleteResource',
-      'createGrant', 'createGrant', 'setResources', 'issueToken', 'revokeToken', 'revokeGrant',
+      'createGrant', 'createGrant', 'setBindings', 'issueToken', 'revokeToken', 'revokeGrant',
     ]);
     expect(calls[0].args[0]).toEqual({ name: 'acme', parentId: null });
     expect(calls[1].args[0]).toEqual({ name: 'notes', parentId: resourceId('created') });
