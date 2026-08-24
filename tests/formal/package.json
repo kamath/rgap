@@ -1,0 +1,21 @@
+{
+  "name": "@rgap/formal-tests",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@rgap/core": "workspace:*",
+    "@rgap/sqlite": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "fast-check": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}
