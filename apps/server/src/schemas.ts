@@ -49,16 +49,16 @@ export const InvocationEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('done') }).strict(),
 ]).openapi('InvocationEvent');
 
-export const GrantResourceSchema = z.object({
+export const GrantBindingSchema = z.object({
   id: IdSchema,
   permissions: z.array(PermissionSchema),
-}).strict().openapi('GrantResource');
+}).strict().openapi('GrantBinding');
 
 export const GrantSchema = z.object({
   id: IdSchema,
   name: z.string(),
   parentId: NullableIdSchema,
-  resources: z.array(GrantResourceSchema),
+  bindings: z.array(GrantBindingSchema),
   expiresAt: NullableTimestampSchema,
   revokedAt: NullableTimestampSchema,
 }).openapi('Grant');
@@ -141,12 +141,12 @@ export const MoveResourceSchema = z.object({
 
 export const GrantWriteSchema = z.object({
   name: z.string().min(1),
-  resources: z.array(GrantResourceSchema),
+  bindings: z.array(GrantBindingSchema),
   expiresAt: NullableTimestampSchema,
 }).strict();
 
-export const SetResourcesSchema = z.object({
-  resources: z.array(GrantResourceSchema),
+export const SetBindingsSchema = z.object({
+  bindings: z.array(GrantBindingSchema),
 }).strict();
 
 export const TokenWriteSchema = z.object({

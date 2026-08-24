@@ -3,11 +3,11 @@ import {
   grantId,
   pathParts,
   permissions,
-  resourceAuthorizes,
+  bindingAuthorizes,
   tokenId,
   type AuditEvent,
   type BearerContext,
-  type GrantResource,
+  type GrantBinding,
   type GrantId,
   type Permission,
   type Resource,
@@ -130,20 +130,20 @@ export function guardCommands(
   }
 
   const wrapGrant = (grant: GrantHandle): GrantHandle => {
-    const resources = Object.assign([...grant.resources], {
-      async set(entries: GrantResource[]) {
+    const bindings = Object.assign([...grant.bindings], {
+      async set(entries: GrantBinding[]) {
         await bearerContext();
-        if (!grant.parentId) administrative("Setting a root grant's resources");
+        if (!grant.parentId) administrative("Setting a root grant's bindings");
         if (grant.id === (await actingGrantId())) {
-          throw new RgapError('unauthorized', 'A token may not set the resources of its own grant.');
+          throw new RgapError('unauthorized', 'A token may not set the bindings of its own grant.');
         }
         await withinActingGrant(grant.id);
-        return wrapGrant(await grant.resources.set(entries));
+        return wrapGrant(await grant.bindings.set(entries));
       },
     });
     return {
       ...grant,
-      resources,
+      bindings,
       async create(input: GrantWrite) {
         await withinActingGrant(grant.id);
         return wrapGrant(await grant.create(input));
@@ -197,7 +197,7 @@ export function guardCommands(
     for (const resource of resources) {
       const reached = permissions.some((permission) =>
         grants.every((grant) =>
-          grant.resources.some((entry) => resourceAuthorizes(entry, resourceState, resource.id, permission))
+          grant.bindings.some((binding) => bindingAuthorizes(binding, resourceState, resource.id, permission))
         )
       );
       if (!reached) continue;

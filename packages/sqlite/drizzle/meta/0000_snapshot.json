@@ -189,8 +189,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "grant_resource_permissions": {
-      "name": "grant_resource_permissions",
+    "grant_binding_permissions": {
+      "name": "grant_binding_permissions",
       "columns": {
         "grant_id": {
           "name": "grant_id",
@@ -216,10 +216,10 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "grant_resource_permissions_grant_id_position_grant_resources_grant_id_position_fk": {
-          "name": "grant_resource_permissions_grant_id_position_grant_resources_grant_id_position_fk",
-          "tableFrom": "grant_resource_permissions",
-          "tableTo": "grant_resources",
+        "grant_binding_permissions_grant_id_position_grant_bindings_grant_id_position_fk": {
+          "name": "grant_binding_permissions_grant_id_position_grant_bindings_grant_id_position_fk",
+          "tableFrom": "grant_binding_permissions",
+          "tableTo": "grant_bindings",
           "columnsFrom": [
             "grant_id",
             "position"
@@ -233,20 +233,20 @@
         }
       },
       "compositePrimaryKeys": {
-        "grant_resource_permissions_grant_id_position_permission_pk": {
+        "grant_binding_permissions_grant_id_position_permission_pk": {
           "columns": [
             "grant_id",
             "position",
             "permission"
           ],
-          "name": "grant_resource_permissions_grant_id_position_permission_pk"
+          "name": "grant_binding_permissions_grant_id_position_permission_pk"
         }
       },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "grant_resources": {
-      "name": "grant_resources",
+    "grant_bindings": {
+      "name": "grant_bindings",
       "columns": {
         "grant_id": {
           "name": "grant_id",
@@ -272,9 +272,9 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "grant_resources_grant_id_grants_id_fk": {
-          "name": "grant_resources_grant_id_grants_id_fk",
-          "tableFrom": "grant_resources",
+        "grant_bindings_grant_id_grants_id_fk": {
+          "name": "grant_bindings_grant_id_grants_id_fk",
+          "tableFrom": "grant_bindings",
           "tableTo": "grants",
           "columnsFrom": [
             "grant_id"
@@ -285,9 +285,9 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "grant_resources_id_resources_id_fk": {
-          "name": "grant_resources_id_resources_id_fk",
-          "tableFrom": "grant_resources",
+        "grant_bindings_id_resources_id_fk": {
+          "name": "grant_bindings_id_resources_id_fk",
+          "tableFrom": "grant_bindings",
           "tableTo": "resources",
           "columnsFrom": [
             "id"
@@ -300,12 +300,12 @@
         }
       },
       "compositePrimaryKeys": {
-        "grant_resources_grant_id_position_pk": {
+        "grant_bindings_grant_id_position_pk": {
           "columns": [
             "grant_id",
             "position"
           ],
-          "name": "grant_resources_grant_id_position_pk"
+          "name": "grant_bindings_grant_id_position_pk"
         }
       },
       "uniqueConstraints": {},

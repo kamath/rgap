@@ -26,15 +26,15 @@ CREATE TABLE `executables` (
 	FOREIGN KEY (`resource_id`) REFERENCES `resources`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `grant_resource_permissions` (
+CREATE TABLE `grant_binding_permissions` (
 	`grant_id` text NOT NULL,
 	`position` integer NOT NULL,
 	`permission` text NOT NULL,
 	PRIMARY KEY(`grant_id`, `position`, `permission`),
-	FOREIGN KEY (`grant_id`,`position`) REFERENCES `grant_resources`(`grant_id`,`position`) ON UPDATE no action ON DELETE no action
+	FOREIGN KEY (`grant_id`,`position`) REFERENCES `grant_bindings`(`grant_id`,`position`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `grant_resources` (
+CREATE TABLE `grant_bindings` (
 	`grant_id` text NOT NULL,
 	`position` integer NOT NULL,
 	`id` text NOT NULL,
