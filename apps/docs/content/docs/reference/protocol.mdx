@@ -327,14 +327,14 @@ tree.
 always name one parent ID or `null`; there is no unscoped flat resource list.
 The administrative plane lists every live root for `parentId: null`. A guarded
 plane lists only the live top-level ancestors that lead to one of the acting
-grant's resource IDs.
+grant's binding resource IDs.
 
-Every grant-resource entry carries `read`, and each child grant entry is
-contained by an entry on every ancestor grant. For a contextual ancestor above
-a granted resource, a guarded child read contains only the next live children
-on paths toward granted resources. At or below a granted resource, it contains
-the requested parent's live children. Callers recursively page these
-parent-scoped reads to present the visible hierarchy.
+Every grant binding carries `read`, and each child grant binding is contained
+by a binding on every ancestor grant. For a contextual ancestor above a bound
+resource, a guarded child read contains only the next live children on paths
+toward bound resources. At or below a bound resource, it contains the requested
+parent's live children. Callers recursively page these parent-scoped reads to
+present the visible hierarchy.
 
 The guard follows parent links from grant targets and requested parents. It
 does not enumerate a complete visible subtree, unrelated resource branches, or
