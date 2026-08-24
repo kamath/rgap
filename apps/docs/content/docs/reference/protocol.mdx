@@ -487,3 +487,6 @@ An implementation conforms when:
     automatic `done` events, propagates cancellation, and records its result.
 16. Audit records, errors, and logs exclude inputs and outputs while retaining
     the IDs, runtime, timing, and result needed for accountability.
+16. An implementation may load and persist command-scoped records when the
+    command remains atomic and observably equivalent to one complete state
+    transition.
