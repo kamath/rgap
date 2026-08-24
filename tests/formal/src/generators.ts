@@ -34,7 +34,11 @@ export const entrySeeds = fc.record({
   usePath: fc.boolean(),
 });
 
-export type EntrySeed = fc.ArbitraryValue<typeof entrySeeds>;
+export type EntrySeed = {
+  target: number;
+  permissionMask: number;
+  usePath: boolean;
+};
 
 export function entryFromSeed(
   resources: State['resources'],
