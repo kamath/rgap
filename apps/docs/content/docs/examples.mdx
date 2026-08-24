@@ -10,24 +10,32 @@ and assigns stable IDs to servers, tools, prompts, and MCP resources.
 
 ## Invoke OpenAI through a resource
 
-Provider credentials stay in a deployment-owned runtime. The runtime reads
-`OPENAI_API_KEY`, uses AI SDK `generateText` with the OpenAI provider, and
-returns only generated text through RGAP:
+Provider credentials and model names live behind RGAP resource IDs in
+deployment-owned stores. The runtime receives those IDs through sealed input
+fields, resolves their values, and returns only generated text:
 
 ```ts
 import { createOpenAI } from '@ai-sdk/openai';
 import { generateText } from 'ai';
 
+const OpenAIInputSchema = z.object({
+  apiKey: z.string(),
+  model: z.string(),
+  prompt: z.string().min(1),
+});
+
 const openai: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
   inputSchema: OpenAIInputSchema,
   outputSchema: OpenAIOutputSchema,
   async invoke({ input, signal }) {
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = apiKeys.get(input.apiKey);
     if (!apiKey) throw new Error('OPENAI_API_KEY is required.');
+    const model = modelNames.get(input.model);
+    if (!model) throw new Error('OpenAI model is unavailable.');
 
     const provider = createOpenAI({ apiKey });
     const { text } = await generateText({
-      model: provider(process.env.OPENAI_MODEL ?? 'gpt-5-mini'),
+      model: provider(model),
       prompt: input.prompt,
       abortSignal: signal,
     });
@@ -36,22 +44,37 @@ const openai: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
 };
 ```
 
-The deployment registers that runtime, associates it with a resource, and
-grants an agent `invoke` on that resource. The stored entry also includes
-`read`, so the agent can look up the model before calling it:
+The deployment creates binding resources for the credential and model name.
+Creating the executable resource accepts its runtime and sealed bindings in
+the same atomic command:
 
 ```ts
-const model = await admin.resources.create({ name: 'acme/models/openai' });
-await model.executable.set({ runtime: 'openai' });
+const apiKey = await admin.resources.create({ name: 'secrets/openai/api-key' });
+apiKeys.set(apiKey.id, process.env.OPENAI_API_KEY);
+const modelName = await admin.resources.create({
+  name: 'models/openai/gpt-5.6-sol',
+});
+modelNames.set(modelName.id, 'gpt-5.6-sol');
 
-const agentGrant = await admin.grants.create({
-  name: 'company/openai-agent',
+const model = await admin.resources.create({
+  name: 'openai/gpt-5.6-sol',
+  executable: {
+    runtime: 'openai',
+    bind: {
+      apiKey: apiKey.id,
+      model: modelName.id,
+    },
+  },
+});
+
+const employeeGrant = await admin.grants.create({
+  name: 'company/platform-team/employee',
   resources: [{ id: model.id, permissions: ['invoke'] }],
   expiresAt: null,
 });
-const agentToken = await agentGrant.tokens.create({ label: 'openai-agent' });
-const agent = store.as(agentToken.value);
-const authorizedModel = await agent.resources.get(model.id);
+const employeeToken = await employeeGrant.tokens.create({ label: 'employee' });
+const employee = store.as(employeeToken.value);
+const authorizedModel = await employee.resources.get(model.id);
 
 for await (const event of authorizedModel.invoke({
   input: { prompt: 'Summarize why capability attenuation matters.' },
@@ -60,10 +83,10 @@ for await (const event of authorizedModel.invoke({
 }
 ```
 
-The guarded repository exposes the model because the agent holds `read` and
-`invoke`. The agent receives the RGAP token and output events. It never receives
-`OPENAI_API_KEY`. The complete executable version lives in
-`examples/openai.ts`.
+The employee receives only `invoke` on the executable model resource. The
+credential and model-name bindings retain the provenance of the administrator
+that configures them, and callers cannot replace either sealed field. The
+complete executable version lives in `examples/openai.ts`.
 
 ## Compose a secret-backed resource
 
