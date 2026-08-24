@@ -29,12 +29,14 @@ or renaming a resource changes its position without changing its identity.
 ## Grants describe where authority comes from
 
 A grant contains resource entries and may delegate authority to child grants.
+Create accepts a slash-separated location and materializes missing prefixes,
+the same way resource create does.
 
 ```text
-Company: acme, all permissions
-└── Platform: platform, read/write/invoke
-    └── Agent: docs, read
-        └── Sub-agent: design, read
+company: acme, all permissions
+└── platform: platform, read/write/invoke
+    └── agent: docs, read
+        └── subagent: design, read
 ```
 
 Each edge in this tree is a proof of attenuation. The child grant cannot reach

@@ -41,14 +41,14 @@ Handles combine record fields with applicable commands:
 
 - A resource creates descendants at a relative path, moves, deletes, manages
   its executable association, and invokes it.
-- A grant creates child grants, replaces resource entries, issues tokens, and
-  revokes.
+- A grant creates descendants at a relative path, replaces resource entries,
+  issues tokens, and revokes.
 - A token revokes.
 
 Adapters implement an ID-based `RgapCommands` sink.
-`repositoryFrom(commands)` builds the handle surface. Create accepts a
-slash-separated location and materializes missing prefixes. Path rendering and
-normalization remain pure helpers.
+`repositoryFrom(commands)` builds the handle surface. Resource and grant create
+accept a slash-separated location and materialize missing prefixes. Path
+rendering and normalization remain pure helpers.
 
 ### Repository planes
 

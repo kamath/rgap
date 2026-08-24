@@ -5,16 +5,22 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit",
+    "secret-store": "tsx secret-store/index.ts",
     "prestart": "pnpm --filter @rgap/server generate",
     "start": "tsx index.ts"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^4.0.46",
+    "@hono/node-server": "^2.1.1",
     "@rgap/core": "workspace:*",
     "@rgap/server": "workspace:*",
     "@rgap/sqlite": "workspace:*",
+    "ai": "^7.0.77",
+    "better-sqlite3": "^13.0.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "latest",
     "tsx": "latest",
     "typescript": "latest"

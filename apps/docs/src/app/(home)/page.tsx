@@ -80,26 +80,17 @@ export default function HomePage() {
               delegate.ts
             </span>
           </div>
-          <pre className="overflow-x-auto p-5 text-[13px] leading-7 text-fd-muted-foreground sm:p-7 sm:text-sm">
-            <code>
-              <span className="text-fd-primary">const</span>{' '}
-              team = <span className="text-fd-foreground">await</span>{' '}
-              company.grants.create({'{\n'}
-              {'  '}name: <span className="rgap-code-string">&apos;Docs team&apos;</span>,
-              resources: [{'{\n'}
-              {'    '}path: <span className="rgap-code-string">&apos;acme/platform/docs&apos;</span>,
-              permissions: [<span className="rgap-code-string">&apos;read&apos;</span>,{' '}
-              <span className="rgap-code-string">&apos;write&apos;</span>],{'\n'}
-              {'  }'}],{'\n'}
-              {'}'});{'\n\n'}
-              <span className="text-fd-primary">const</span>{' '}
-              agent = <span className="text-fd-foreground">await</span>{' '}
-              team.grants.create({'{'} resources: readOnly {'}'});{'\n'}
-              <span className="text-fd-primary">const</span>{' '}
-              token = <span className="text-fd-foreground">await</span>{' '}
-              agent.tokens.create({'{'} label:{' '}
-              <span className="rgap-code-string">&apos;research-agent&apos;</span> {'}'});
-            </code>
+          <pre className="whitespace-pre-wrap break-words p-5 text-[13px] leading-7 text-fd-muted-foreground sm:p-7 sm:text-sm">
+            <code>{`const model = await company.resources.create({
+  name: 'acme/models/openai',
+  executable: { runtime: 'openai' },
+});
+
+const response = await model.invoke({
+  input: {
+    prompt: 'Summarize the design notes.',
+  },
+});`}</code>
           </pre>
         </div>
       </section>

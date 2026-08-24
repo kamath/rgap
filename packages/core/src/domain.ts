@@ -262,13 +262,16 @@ export function covers(parent: GrantResource, child: GrantResource, resources: S
 function normalizeResources(entries: GrantResource[], resources: State['resources']) {
   return entries.map((entry) => {
     if (!entry.permissions.length) throw new RgapError('invalid_grant_resource', 'Select at least one permission.');
+    const normalizedPermissions = permissions.filter((permission) =>
+      permission === 'read' || entry.permissions.includes(permission)
+    );
     if (isPathResource(entry)) {
       if ('id' in entry) {
         throw new RgapError('invalid_grant_resource', 'Grant resource must name an id or a path.');
       }
       const path = normalizePath(entry.path);
       if (!path) throw new RgapError('invalid_grant_resource', 'Grant resource path is required.');
-      return { ...structuredClone(entry), path };
+      return { ...structuredClone(entry), path, permissions: normalizedPermissions };
     }
     if (!('id' in entry)) {
       throw new RgapError('invalid_grant_resource', 'Grant resource must name an id or a path.');
@@ -276,7 +279,7 @@ function normalizeResources(entries: GrantResource[], resources: State['resource
     if (!isLive(resources[entry.id])) {
       throw new RgapError('missing_resource', 'Grant resource does not exist.');
     }
-    return structuredClone(entry);
+    return { ...structuredClone(entry), permissions: normalizedPermissions };
   });
 }
 
@@ -396,6 +399,14 @@ export function deleteResource(state: State, id: ResourceId, at: string) {
 
 export function createGrant(state: State, input: CreateGrantInput, id: GrantId, at: string) {
   if (!input.name.trim()) throw new RgapError('invalid_grant', 'Grant name is required.');
+  if (input.name.includes('/')) throw new RgapError('invalid_grant', 'Grant names cannot contain slashes.');
+  if (Object.values(state.grants).some((grant) =>
+    grant.parentId === input.parentId &&
+    grant.name === input.name.trim() &&
+    active(grant, at)
+  )) {
+    throw new RgapError('duplicate_path', 'A grant already exists at that path.');
+  }
   const resources = normalizeResources(input.resources, state.resources);
   if (input.parentId) {
     const parent = requireActiveParent(state, input.parentId, at);
@@ -413,6 +424,63 @@ export function createGrant(state: State, input: CreateGrantInput, id: GrantId, 
     ...input, resources, id, name: input.name.trim(), revokedAt: null,
   };
   audit(next, { at, action: input.parentId ? 'grant.delegate' : 'grant.create', target: id, result: 'recorded', detail: `Created ${input.name}.` });
+  return next;
+}
+
+/** Resolves an active grant path from the forest root or an existing parent. */
+export function grantIdAtPath(
+  grants: State['grants'],
+  path: string,
+  parentId: GrantId | null,
+  at: string,
+) {
+  const parts = pathParts(path);
+  if (!parts.length) return null;
+  let current = parentId;
+  for (const name of parts) {
+    const match = Object.values(grants).find((grant) =>
+      grant.parentId === current &&
+      grant.name === name &&
+      active(grant, at)
+    );
+    if (!match) return null;
+    current = match.id;
+  }
+  return current;
+}
+
+/**
+ * Walks a slash-separated grant location, reuses active prefixes, and creates every missing
+ * segment with the submitted authority and expiration in one state transition.
+ */
+export function createGrantAtPath(
+  state: State,
+  input: Omit<CreateGrantInput, 'parentId'>,
+  parentId: GrantId | null,
+  at: string,
+) {
+  const parts = pathParts(input.name);
+  if (!parts.length) throw new RgapError('invalid_grant', 'Grant name is required.');
+  if (parentId) requireActiveParent(state, parentId, at);
+  let currentParent = parentId;
+  let next = state;
+  parts.forEach((name, index) => {
+    const existing = Object.values(next.grants).find((grant) =>
+      grant.parentId === currentParent &&
+      grant.name === name &&
+      active(grant, at)
+    );
+    if (existing) {
+      if (index === parts.length - 1) {
+        throw new RgapError('duplicate_path', 'A grant already exists at that path.');
+      }
+      currentParent = existing.id;
+      return;
+    }
+    const id = availableGrantId(next, name);
+    next = createGrant(next, { ...input, name, parentId: currentParent }, id, at);
+    currentParent = id;
+  });
   return next;
 }
 
@@ -526,5 +594,14 @@ export function availableId(state: State, name: string) {
   let id = resourceId(base);
   let suffix = 2;
   while (state.resources[id]) id = resourceId(`${base}-${suffix++}`);
+  return id;
+}
+
+/** Mints a readable, unused stable ID from a grant name. */
+export function availableGrantId(state: State, name: string) {
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'grant';
+  let id = grantId(base);
+  let suffix = 2;
+  while (state.grants[id]) id = grantId(`${base}-${suffix++}`);
   return id;
 }

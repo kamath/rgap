@@ -16,6 +16,92 @@ Alice: read/write/delete projects/alpha
 Bob cannot grant write access, reach outside `projects/alpha/docs`, or create a
 child that outlives Bob's grant.
 
+## Create at a path
+
+Create accepts a slash-separated location in `name`. The path is the location,
+so the write does not include a parent ID. Collection create walks from the
+grant forest root. Handle create walks from that grant. Missing active prefixes
+are created, and the command returns the leaf.
+
+```ts
+const subagent = await admin.grants.create({
+  name: 'company/team/employee/agent/subagent',
+  resources: [{
+    id: design.id,
+    permissions: ['read'],
+  }],
+  expiresAt: null,
+});
+```
+
+`subagent.name` is `subagent`. `subagent.parentId` is the `agent` grant. The
+derived path of `subagent` is `company/team/employee/agent/subagent`.
+
+The same command creates a relative path under an existing grant:
+
+```ts
+const company = await admin.grants.create({
+  name: 'company',
+  resources: [{ id: acme.id, permissions: ['read', 'write', 'invoke'] }],
+  expiresAt: null,
+});
+const subagent = await company.create({
+  name: 'team/employee/agent/subagent',
+  resources: [{
+    id: design.id,
+    permissions: ['read'],
+  }],
+  expiresAt: null,
+});
+```
+
+Each stored grant name is one segment. Missing prefixes become ordinary grants
+and receive the submitted resource set and expiration. Active prefixes are
+reused and keep their current records. The leaf must be absent: a second create
+at an occupied path fails with `duplicate_path`.
+
+Active sibling names are unique under one parent. A revoked or expired name may
+be reused by a new grant with a new ID.
+
+Create is one state transition. Each newly created grant is audited as
+`grant.create` or `grant.delegate` and receives a stable ID minted from its
+segment name. Each new child still proves coverage and expiration against its
+parent. When several grants are created in one walk, they share the submitted
+resource set, so each new child is covered by the new parent.
+
+Creating a new root grant is administrative. Creating a child requires that the
+child downscopes its immediate parent.
+
+## Authorized create routes
+
+`store.as(token).grants.create` accepts a full path but may only create beneath
+the acting grant. The path walk must reach the acting grant through existing
+active ancestors before it encounters a missing segment. From that point,
+existing segments must remain descendants of the acting grant, and every
+created grant must have the acting grant or one of its descendants as its
+parent.
+
+For a token referencing `company`, this route is authorized:
+
+```ts
+await companyPlane.grants.create({
+  name: 'company/platform-team/employee',
+  resources: [{ id: platform.id, permissions: ['read'] }],
+  expiresAt: null,
+});
+```
+
+The same token cannot create `other/employee`, `company-peer/employee`, or any
+path with a missing segment before `company`. It also cannot use a similarly
+named grant from another branch: authorization compares stable grant IDs while
+walking the route.
+
+A grant handle starts its route at that grant, so
+`company.create({ name: 'platform-team/employee', ... })` applies the same rule
+without restating the ancestors. Existing prefixes need no additional
+authority. Every missing child still proves resource coverage and expiration
+against its immediate parent before the complete transition commits.
+
 ## Resource entries
 
 A grant aggregates one or more resource entries:
@@ -47,9 +133,10 @@ covers(parent, child, resources) =
 Both entries target live resources by stable ID. Coverage compares their
 current ancestry in the resource tree.
 
-<Callout type="info" title="Permissions are plain sets">
-  No permission implies another. `write` does not imply `read`, and `read` is
-  not included by holding any other permission.
+<Callout type="info" title="Every entry includes read">
+  A resource entry always includes `read`. Submitting `['invoke']` stores
+  `['read', 'invoke']`. `write`, `invoke`, `move`, and `delete` remain
+  independent of each other.
 </Callout>
 
 ## The complete lineage matters
@@ -75,9 +162,9 @@ with its descendants.
 ```text
 Before                         After parent narrows
 
-Team: docs + tools             Team: docs
-├── Writer: docs               └── Writer: docs
-└── Runner: tools                  Runner: revoked
+team: docs + tools             team: docs
+├── writer: docs               └── writer: docs
+└── runner: tools                  runner: revoked
 ```
 
 ## Empty grants

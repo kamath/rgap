@@ -86,8 +86,9 @@ a container therefore includes children created later.
 Paths are canonicalized by splitting on `/`, trimming segments, and discarding
 empty segments. `Acme`, `Acme/`, and `/Acme//` identify the same location.
 
-Create accepts a presentation path and materializes it. Operational commands
-and grant-resource entries use stable resource IDs.
+Resource and grant creation accept presentation paths and materialize them in
+their respective trees. Other operational commands and grant-resource entries
+use stable IDs.
 
 ## Moves
 

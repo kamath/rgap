@@ -8,10 +8,11 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import {
   authorize as decide,
   createAtPath,
-  createGrant as addGrant,
+  createGrantAtPath,
   deleteExecutable as removeExecutable,
   deleteResource as removeResource,
   grantId,
+  grantIdAtPath,
   getAuthorizedLineage,
   guardCommands,
   inspectAuthority,
@@ -230,11 +231,14 @@ class SqliteBackingRepository implements RgapCommands {
   }
 
   async createGrant(input: CreateGrantInput) {
-    const id = grantId(randomUUID());
-    return this.commit((state) => ({
-      state: addGrant(state, input, id, now()),
-      pick: (committed) => committed.grants[id],
-    }));
+    return this.commit((state) => {
+      const at = now();
+      const { parentId, ...write } = input;
+      const next = createGrantAtPath(state, write, parentId, at);
+      const id = grantIdAtPath(next.grants, input.name, parentId, at);
+      if (!id) throw new RgapError('invalid_grant', 'Grant name is required.');
+      return { state: next, pick: (committed) => committed.grants[id] };
+    });
   }
 
   async setResources(id: GrantId, resources: GrantResource[]) {
