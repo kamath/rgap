@@ -17,9 +17,9 @@ export const grants = sqliteTable('grants', {
   revokedAt: text('revoked_at'),
 });
 
-/** A grant resource has no ID of its own, so it is keyed by its grant and its position in that grant's set. */
-export const grantResources = sqliteTable(
-  'grant_resources',
+/** A grant binding has no ID of its own, so it is keyed by its grant and its position in that grant's set. */
+export const grantBindings = sqliteTable(
+  'grant_bindings',
   {
     grantId: text('grant_id').notNull().references(() => grants.id),
     position: integer('position').notNull(),
@@ -30,9 +30,9 @@ export const grantResources = sqliteTable(
   ],
 );
 
-/** One row per permission an entry carries, so a permission set is a relation rather than an encoded value. */
-export const grantResourcePermissions = sqliteTable(
-  'grant_resource_permissions',
+/** One row per permission a binding carries, so a permission set is a relation rather than an encoded value. */
+export const grantBindingPermissions = sqliteTable(
+  'grant_binding_permissions',
   {
     grantId: text('grant_id').notNull(),
     position: integer('position').notNull(),
@@ -42,7 +42,7 @@ export const grantResourcePermissions = sqliteTable(
     primaryKey({ columns: [table.grantId, table.position, table.permission] }),
     foreignKey({
       columns: [table.grantId, table.position],
-      foreignColumns: [grantResources.grantId, grantResources.position],
+      foreignColumns: [grantBindings.grantId, grantBindings.position],
     }),
   ],
 );

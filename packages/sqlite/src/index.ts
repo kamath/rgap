@@ -28,13 +28,13 @@ import {
   revokeGrant as revokeGrantBranch,
   revokeToken as revokeTokenRecord,
   RuntimeRegistry,
-  setResources as amendResources,
+  setBindings as amendBindings,
   tokenHash,
   tokenId,
   tokenValue,
   repositoryFrom,
   RgapError,
-  type GrantResource,
+  type Binding,
   type AuditEvent,
   type CreateGrantInput,
   type ExecutableDefinition,
@@ -302,9 +302,9 @@ class SqliteBackingRepository implements RgapCommands {
             const state = repository.workingState();
             repository.loadResourceAncestry(state, resource);
             recorded.forEach((grant) => repository.loadGrant(state, grant));
-            repository.loadGrantResourceTargets(
+            repository.loadBindingTargets(
               state,
-              recorded.flatMap((grant) => state.grants[grant]?.resources ?? []),
+              recorded.flatMap((grant) => state.grants[grant]?.bindings ?? []),
             );
             const decision = authorizeLineage(state, recorded, resource, permission, now());
             if (!decision.allowed) throw new RgapError('unauthorized', decision.detail);
@@ -323,9 +323,9 @@ class SqliteBackingRepository implements RgapCommands {
       const at = now();
       const state = this.workingState();
       this.prepareGrantPath(state, input.name, input.parentId, at);
-      this.loadGrantResourceTargets(state, [
-        ...input.resources,
-        ...Object.values(state.grants).flatMap((grant) => grant.resources),
+      this.loadBindingTargets(state, [
+        ...input.bindings,
+        ...Object.values(state.grants).flatMap((grant) => grant.bindings),
       ]);
       const before = new Set(Object.keys(state.grants));
       const { parentId, ...write } = input;
@@ -337,13 +337,13 @@ class SqliteBackingRepository implements RgapCommands {
         Object.fromEntries(created.map((grant) => [grant.id, grant])),
         'grant_cycle',
       ).map(grantRow));
-      created.forEach((grant) => this.replaceGrantResources(grant));
+      created.forEach((grant) => this.replaceGrantBindings(grant));
       this.persistAuditDelta(state, next);
       return this.grantRecord(this.db.select().from(schema.grants).where(eq(schema.grants.id, id)).get()!);
     });
   }
 
-  async setResources(id: GrantId, resources: GrantResource[]) {
+  async setBindings(id: GrantId, bindings: Binding[]) {
     return this.db.transaction(() => {
       const state = this.workingState();
       const grant = this.loadGrant(state, id);
@@ -351,13 +351,13 @@ class SqliteBackingRepository implements RgapCommands {
       this.loadGrantBranch(state, id);
       const directChildren = Object.values(state.grants)
         .filter((candidate) => candidate.parentId === id);
-      this.loadGrantResourceTargets(state, [
-        ...resources,
-        ...(grant?.parentId ? state.grants[grant.parentId]?.resources ?? [] : []),
-        ...directChildren.flatMap((child) => child.resources),
+      this.loadBindingTargets(state, [
+        ...bindings,
+        ...(grant?.parentId ? state.grants[grant.parentId]?.bindings ?? [] : []),
+        ...directChildren.flatMap((child) => child.bindings),
       ]);
-      const next = amendResources(state, id, resources, now());
-      this.replaceGrantResources(next.grants[id]);
+      const next = amendBindings(state, id, bindings, now());
+      this.replaceGrantBindings(next.grants[id]);
       Object.values(next.grants).forEach((candidate) => {
         if (candidate.revokedAt !== state.grants[candidate.id]?.revokedAt) {
           this.db.update(schema.grants).set({ revokedAt: candidate.revokedAt })
@@ -432,9 +432,9 @@ class SqliteBackingRepository implements RgapCommands {
           state.tokens[record.id] = record;
           this.loadGrantLineage(state, record.grantId);
           this.loadResourceAncestry(state, id);
-          this.loadGrantResourceTargets(
+          this.loadBindingTargets(
             state,
-            Object.values(state.grants).flatMap((grant) => grant.resources),
+            Object.values(state.grants).flatMap((grant) => grant.bindings),
           );
         }
       }
@@ -617,7 +617,7 @@ class SqliteBackingRepository implements RgapCommands {
       id: grantId(row.id),
       name: row.name,
       parentId: row.parentId ? grantId(row.parentId) : null,
-      resources: [],
+      bindings: [],
       expiresAt: row.expiresAt,
       revokedAt: row.revokedAt,
     };
@@ -705,26 +705,26 @@ class SqliteBackingRepository implements RgapCommands {
     }
   }
 
-  private loadGrantResourceTargets(state: State, entries: GrantResource[]) {
+  private loadBindingTargets(state: State, entries: Binding[]) {
     entries.forEach((entry) => {
       this.loadResourceAncestry(state, entry.id);
     });
   }
 
-  private replaceGrantResources(grant: State['grants'][string]) {
-    this.db.delete(schema.grantResourcePermissions)
-      .where(eq(schema.grantResourcePermissions.grantId, grant.id)).run();
-    this.db.delete(schema.grantResources)
-      .where(eq(schema.grantResources.grantId, grant.id)).run();
-    const entries = grant.resources.map((entry, position) => ({
+  private replaceGrantBindings(grant: State['grants'][string]) {
+    this.db.delete(schema.grantBindingPermissions)
+      .where(eq(schema.grantBindingPermissions.grantId, grant.id)).run();
+    this.db.delete(schema.grantBindings)
+      .where(eq(schema.grantBindings.grantId, grant.id)).run();
+    const entries = grant.bindings.map((entry, position) => ({
       grantId: grant.id,
       position,
       id: entry.id,
     }));
-    const carried = grant.resources.flatMap((entry, position) =>
+    const carried = grant.bindings.flatMap((entry, position) =>
       entry.permissions.map((permission) => ({ grantId: grant.id, position, permission })));
-    insert(this.db, schema.grantResources, entries);
-    insert(this.db, schema.grantResourcePermissions, carried);
+    insert(this.db, schema.grantBindings, entries);
+    insert(this.db, schema.grantBindingPermissions, carried);
   }
 
   private persistAuditDelta(before: State, after: State) {
@@ -744,17 +744,17 @@ class SqliteBackingRepository implements RgapCommands {
   }
 
   private grantRecord(row: typeof schema.grants.$inferSelect) {
-    const permissionRows = this.db.select().from(schema.grantResourcePermissions)
-      .where(eq(schema.grantResourcePermissions.grantId, row.id)).all();
+    const permissionRows = this.db.select().from(schema.grantBindingPermissions)
+      .where(eq(schema.grantBindingPermissions.grantId, row.id)).all();
     const held = new Map<number, Set<Permission>>();
     permissionRows.forEach(({ position, permission }) => {
       const set = held.get(position) ?? new Set<Permission>();
       set.add(permission);
       held.set(position, set);
     });
-    const resources: GrantResource[] = this.db.select().from(schema.grantResources)
-      .where(eq(schema.grantResources.grantId, row.id))
-      .orderBy(asc(schema.grantResources.position)).all()
+    const bindings: Binding[] = this.db.select().from(schema.grantBindings)
+      .where(eq(schema.grantBindings.grantId, row.id))
+      .orderBy(asc(schema.grantBindings.position)).all()
       .map((entry) => {
         const permissions = canonicalPermissions.filter((permission) => held.get(entry.position)?.has(permission));
         return { id: resourceId(entry.id), permissions };
@@ -763,7 +763,7 @@ class SqliteBackingRepository implements RgapCommands {
       id: grantId(row.id),
       name: row.name,
       parentId: row.parentId ? grantId(row.parentId) : null,
-      resources,
+      bindings,
       expiresAt: row.expiresAt,
       revokedAt: row.revokedAt,
     };
@@ -796,8 +796,8 @@ class SqliteBackingRepository implements RgapCommands {
 
   /** Replaces the stored rows with one complete state, writing parents before children. */
   private replace(state: State) {
-    this.db.delete(schema.grantResourcePermissions).run();
-    this.db.delete(schema.grantResources).run();
+    this.db.delete(schema.grantBindingPermissions).run();
+    this.db.delete(schema.grantBindings).run();
     this.db.delete(schema.tokens).run();
     this.db.delete(schema.executableBindings).run();
     this.db.delete(schema.executables).run();
@@ -814,10 +814,10 @@ class SqliteBackingRepository implements RgapCommands {
       revokedAt: grant.revokedAt,
     })));
 
-    const entries: (typeof schema.grantResources)['$inferInsert'][] = [];
-    const carried: (typeof schema.grantResourcePermissions)['$inferInsert'][] = [];
+    const entries: (typeof schema.grantBindings)['$inferInsert'][] = [];
+    const carried: (typeof schema.grantBindingPermissions)['$inferInsert'][] = [];
     Object.values(state.grants).forEach((grant) => {
-      grant.resources.forEach((entry, position) => {
+      grant.bindings.forEach((entry, position) => {
         entries.push({
           grantId: grant.id,
           position,
@@ -828,8 +828,8 @@ class SqliteBackingRepository implements RgapCommands {
         });
       });
     });
-    insert(this.db, schema.grantResources, entries);
-    insert(this.db, schema.grantResourcePermissions, carried);
+    insert(this.db, schema.grantBindings, entries);
+    insert(this.db, schema.grantBindingPermissions, carried);
 
     insert(this.db, schema.tokens, Object.values(state.tokens));
     insert(this.db, schema.executables, Object.values(state.executables).map((definition) => ({

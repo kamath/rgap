@@ -62,8 +62,8 @@ acme/                           company
 ```
 
 A resource keeps the same stable identity when it moves. A grant carries one
-or more resource entries over stable IDs. A child grant can only
-narrow its parent's resources, permissions, constraints, and expiration.
+or more bindings over stable resource IDs. A child grant can only
+narrow its parent's bindings, permissions, constraints, and expiration.
 
 ## Why RGAP
 
@@ -83,7 +83,7 @@ narrower token—not the parent token and never the provider credential.
   />
   <Card
     title="Provable attenuation"
-    description="Every child resource entry is covered by a parent entry."
+    description="Every child binding is covered by a parent binding."
     href="/docs/concepts/delegation"
   />
   <Card

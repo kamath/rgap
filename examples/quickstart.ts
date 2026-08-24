@@ -13,7 +13,7 @@ try {
 
   const agent = await admin.grants.create({
     name: 'company/documentation-agent',
-    resources: [{
+    bindings: [{
       id: design.id,
       permissions: ['read'],
     }],

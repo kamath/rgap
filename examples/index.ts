@@ -5,7 +5,7 @@
  * This file walks company → team → employee → agent → subagent. Company is created first so
  * it can hold the broad `acme` grant. The rest of the chain is one create at
  * `company/team/employee/agent/subagent`. Intermediate grants then receive narrower
- * resource sets, and each step issues a token.
+ * bindings, and each step issues a token.
  *
  * `pnpm scratch` runs this file against examples/scratch.db. Replace the store-construction line
  * with `new HttpRgapStore(...)` to run the same walkthrough against the Hono API. The local SQLite
@@ -57,7 +57,7 @@ await root.reset();
 const acme = await root.resources.create({ name: 'acme' });
 const companyGrant = await root.grants.create({
   name: 'company',
-  resources: [{
+  bindings: [{
     id: acme.id,
     permissions: ['read', 'write', 'delete', 'move', 'invoke', 'bind'],
   }],
@@ -84,15 +84,15 @@ console.log('\n\n');
 
 const subagentGrant = await company.grants.create({
   name: 'company/team/employee/agent/subagent',
-  resources: [{ id: design.id, permissions: ['read'] }],
+  bindings: [{ id: design.id, permissions: ['read'] }],
   expiresAt: null,
 });
 const agentGrant = await company.grants.get(subagentGrant.parentId!);
 const employeeGrant = await company.grants.get(agentGrant.parentId!);
 const teamGrant = await company.grants.get(employeeGrant.parentId!);
-await teamGrant.resources.set([{ id: platform.id, permissions: ['read', 'write', 'invoke'] }]);
-await employeeGrant.resources.set([{ id: docs.id, permissions: ['read', 'write'] }]);
-await agentGrant.resources.set([{ id: docs.id, permissions: ['read'] }]);
+await teamGrant.bindings.set([{ id: platform.id, permissions: ['read', 'write', 'invoke'] }]);
+await employeeGrant.bindings.set([{ id: docs.id, permissions: ['read', 'write'] }]);
+await agentGrant.bindings.set([{ id: docs.id, permissions: ['read'] }]);
 const teamToken = await teamGrant.tokens.create({ label: 'team' });
 const employeeToken = await employeeGrant.tokens.create({ label: 'employee' });
 const agentToken = await agentGrant.tokens.create({ label: 'agent' });
@@ -127,7 +127,7 @@ await check('subagent', subagentToken.value, search.id, 'invoke');
 
 const invokerGrant = await company.grants.create({
   name: 'company/invoker',
-  resources: [{ id: search.id, permissions: ['invoke'] }],
+  bindings: [{ id: search.id, permissions: ['invoke'] }],
   expiresAt: null,
 });
 const invokerToken = await invokerGrant.tokens.create({ label: 'invoker' });

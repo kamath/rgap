@@ -91,7 +91,7 @@ export default function HomePage() {
 
 const grant = await admin.grants.create({
   name: 'company/platform-team/employee',
-  resources: [{ id: model.id, permissions: ['invoke'] }],
+  bindings: [{ id: model.id, permissions: ['invoke'] }],
   expiresAt: null,
 });
 

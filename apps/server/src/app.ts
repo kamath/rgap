@@ -7,7 +7,7 @@ import {
   RgapError,
   tokenId,
   tokenValue,
-  type GrantResource,
+  type Binding,
   type GrantHandle,
   type InvocationEvent,
   type JsonValue,
@@ -36,7 +36,7 @@ import {
   ResourceListQuerySchema,
   ResourceSchema,
   ResourceWriteSchema,
-  SetResourcesSchema,
+  SetBindingsSchema,
   TokenListQuerySchema,
   TokenSchema,
   TokenWriteSchema,
@@ -151,11 +151,11 @@ const createGrantRoute = commandRoute({
   request: { body: jsonBody(GrantWriteSchema) },
   responses: { 200: jsonResponse(GrantSchema, 'Created grant'), ...errors },
 });
-const setResourcesRoute = commandRoute({
+const setBindingsRoute = commandRoute({
   method: 'put',
-  path: '/grants/{id}/resources',
-  operationId: 'setResources',
-  request: { params: IdParamsSchema, body: jsonBody(SetResourcesSchema) },
+  path: '/grants/{id}/bindings',
+  operationId: 'setBindings',
+  request: { params: IdParamsSchema, body: jsonBody(SetBindingsSchema) },
   responses: { 200: jsonResponse(GrantSchema, 'Updated grant'), ...errors },
 });
 const issueTokenRoute = commandRoute({
@@ -347,16 +347,16 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
       return c.json(records, 200);
     })
     .openapi(createGrantRoute, async (c) => {
-      const { resources, ...input } = c.req.valid('json');
-      const write = { ...input, resources: brandedResources(resources) };
+      const { bindings, ...input } = c.req.valid('json');
+      const write = { ...input, bindings: brandedBindings(bindings) };
       const record = await repository(c).grants.create(write);
       return c.json(grantRecord(record), 200);
     })
-    .openapi(setResourcesRoute, async (c) => {
+    .openapi(setBindingsRoute, async (c) => {
       const { id } = c.req.valid('param');
-      const { resources } = c.req.valid('json');
+      const { bindings } = c.req.valid('json');
       const record = await repository(c).grants.get(grantId(id))
-        .then((grant) => grant.resources.set(brandedResources(resources)));
+        .then((grant) => grant.bindings.set(brandedBindings(bindings)));
       return c.json(grantRecord(record), 200);
     })
     .openapi(issueTokenRoute, async (c) => {
@@ -540,8 +540,8 @@ function resourceRecord(record: ResourceHandle) {
 }
 
 function grantRecord(record: GrantHandle) {
-  const { id, name, parentId, resources, expiresAt, revokedAt } = record;
-  return { id, name, parentId, resources: [...resources], expiresAt, revokedAt };
+  const { id, name, parentId, bindings, expiresAt, revokedAt } = record;
+  return { id, name, parentId, bindings: [...bindings], expiresAt, revokedAt };
 }
 
 function tokenRecord(record: TokenHandle) {
@@ -549,9 +549,9 @@ function tokenRecord(record: TokenHandle) {
   return { id, grantId: owningGrantId, label, hash, expiresAt, revokedAt };
 }
 
-function brandedResources(
-  entries: Array<{ permissions: GrantResource['permissions']; id: string }>,
-): GrantResource[] {
+function brandedBindings(
+  entries: Array<{ permissions: Binding['permissions']; id: string }>,
+): Binding[] {
   return entries.map((entry) => ({ ...entry, id: resourceId(entry.id) }));
 }
 

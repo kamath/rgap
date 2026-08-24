@@ -94,7 +94,7 @@ Publishing a wrapper is an intentional capability transfer:
 const actingAuthor = await authorPlane.grants.get(authorGrant.id);
 const consumer = await actingAuthor.create({
   name: 'consumer',
-  resources: [
+  bindings: [
     { id: summary.id, permissions: ['invoke'] },
   ],
   expiresAt: null,

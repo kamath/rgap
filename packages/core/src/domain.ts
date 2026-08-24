@@ -53,17 +53,18 @@ export type Resource = {
   deletedAt: string | null;
 };
 
-export type GrantResourceConfig = {
+export type BindingConfig = {
   permissions: Permission[];
 };
 
-export type GrantResource = GrantResourceConfig & { id: ResourceId };
+/** A grant binding attaches that grant to one resource identity with a permission set. */
+export type Binding = BindingConfig & { id: ResourceId };
 
 export type Grant = {
   id: GrantId;
   name: string;
   parentId: GrantId | null;
-  resources: GrantResource[];
+  bindings: Binding[];
   expiresAt: string | null;
   revokedAt: string | null;
 };
@@ -187,7 +188,7 @@ export function stateIntegrity(state: State) {
     if (grant.parentId && !state.grants[grant.parentId]) {
       problems.push(`Grant ${grant.id} refers to missing parent ${grant.parentId}.`);
     }
-    grant.resources.forEach((entry) => {
+    grant.bindings.forEach((entry) => {
       if (!state.resources[entry.id]) {
         problems.push(`Grant ${grant.id} refers to missing resource ${entry.id}.`);
       }
@@ -244,9 +245,9 @@ export function requireResourceId(resources: ResourceCollection, path: string) {
 
 export const normalizePath = (path: string) => pathParts(path).join('/');
 
-/** Whether one entry authorizes a request against the current live resource tree. */
-export function resourceAuthorizes(
-  entry: GrantResource,
+/** Whether one binding authorizes a request against the current live resource tree. */
+export function bindingAuthorizes(
+  entry: Binding,
   resources: State['resources'],
   id: ResourceId,
   permission: Permission,
@@ -255,25 +256,25 @@ export function resourceAuthorizes(
   return isLive(resources[entry.id]) && isWithin(resources, id, entry.id);
 }
 
-/** Whether every request the child entry currently authorizes is also authorized by the parent. */
-export function covers(parent: GrantResource, child: GrantResource, resources: State['resources']) {
+/** Whether every request the child binding currently authorizes is also authorized by the parent. */
+export function covers(parent: Binding, child: Binding, resources: State['resources']) {
   return isLive(resources[parent.id])
     && isLive(resources[child.id])
     && isWithin(resources, child.id, parent.id)
     && child.permissions.every((permission) => parent.permissions.includes(permission));
 }
 
-function normalizeResources(entries: GrantResource[], resources: State['resources']) {
+function normalizeBindings(entries: Binding[], resources: State['resources']) {
   return entries.map((entry) => {
-    if (!entry.permissions.length) throw new RgapError('invalid_grant_resource', 'Select at least one permission.');
+    if (!entry.permissions.length) throw new RgapError('invalid_binding', 'Select at least one permission.');
     if (!('id' in entry) || 'path' in entry) {
-      throw new RgapError('invalid_grant_resource', 'Grant resource must name one resource id.');
+      throw new RgapError('invalid_binding', 'Binding must name one resource id.');
     }
     const normalizedPermissions = permissions.filter((permission) =>
       permission === 'read' || entry.permissions.includes(permission)
     );
     if (!isLive(resources[entry.id])) {
-      throw new RgapError('missing_resource', 'Grant resource does not exist.');
+      throw new RgapError('missing_resource', 'Binding target does not exist.');
     }
     return { id: entry.id, permissions: normalizedPermissions };
   });
@@ -403,21 +404,21 @@ export function createGrant(state: State, input: CreateGrantInput, id: GrantId, 
   )) {
     throw new RgapError('duplicate_path', 'A grant already exists at that path.');
   }
-  const resources = normalizeResources(input.resources, state.resources);
+  const bindings = normalizeBindings(input.bindings, state.resources);
   if (input.parentId) {
     const parent = requireActiveParent(state, input.parentId, at);
     if (parent.expiresAt && (!input.expiresAt || input.expiresAt > parent.expiresAt)) {
       throw new RgapError('expiration_expands', 'Child expiration must not exceed its parent.');
     }
-    resources.forEach((entry) => {
-      if (!parent.resources.some((parentEntry) => covers(parentEntry, entry, state.resources))) {
-        throw new RgapError('authority_expands', 'Child resource is not covered by its parent.');
+    bindings.forEach((entry) => {
+      if (!parent.bindings.some((parentEntry) => covers(parentEntry, entry, state.resources))) {
+        throw new RgapError('authority_expands', 'Child binding is not covered by its parent.');
       }
     });
   }
   const next = copy(state);
   next.grants[id] = {
-    ...input, resources, id, name: input.name.trim(), revokedAt: null,
+    ...input, bindings, id, name: input.name.trim(), revokedAt: null,
   };
   audit(next, { at, action: input.parentId ? 'grant.delegate' : 'grant.create', target: id, result: 'recorded', detail: `Created ${input.name}.` });
   return next;
@@ -481,37 +482,37 @@ export function createGrantAtPath(
 }
 
 /**
- * Replaces a grant's whole resource set in one transition. Identity, parent, and expiry
- * are fixed at issue; what a grant reaches is not, so this runs the same downscoping proof as issue
+ * Replaces a grant's whole binding set in one transition. Identity, parent, and expiry
+ * are fixed at issue; what a grant is bound to is not, so this runs the same downscoping proof as issue
  * at the moment the set changes, and revokes any child the new set no longer covers.
  */
-export function setResources(state: State, grantId: GrantId, resources: GrantResource[], at: string) {
+export function setBindings(state: State, grantId: GrantId, bindings: Binding[], at: string) {
   const grant = state.grants[grantId];
   if (!grant) throw new RgapError('missing_grant', 'Grant does not exist.');
   if (!active(grant, at)) throw new RgapError('inactive_grant', 'A revoked or expired grant is not amended.');
-  const normalized = normalizeResources(resources, state.resources);
+  const normalized = normalizeBindings(bindings, state.resources);
   if (grant.parentId) {
     const parent = requireActiveParent(state, grant.parentId, at);
     normalized.forEach((entry) => {
-      if (!parent.resources.some((parentEntry) => covers(parentEntry, entry, state.resources))) {
-        throw new RgapError('authority_expands', 'Resource is not covered by the parent grant.');
+      if (!parent.bindings.some((parentEntry) => covers(parentEntry, entry, state.resources))) {
+        throw new RgapError('authority_expands', 'Binding is not covered by the parent grant.');
       }
     });
   }
   const next = copy(state);
-  next.grants[grantId] = { ...grant, resources: normalized };
+  next.grants[grantId] = { ...grant, bindings: normalized };
   // Only direct children are checked: a deeper grant is covered against its own parent, unchanged here.
   const orphaned = Object.values(state.grants).filter((child) =>
     child.parentId === grantId &&
     active(child, at) &&
-    child.resources.some((entry) => !normalized.some((kept) => covers(kept, entry, state.resources))),
+    child.bindings.some((entry) => !normalized.some((kept) => covers(kept, entry, state.resources))),
   );
   orphaned.forEach((child) => revokeBranch(next, child.id, at));
   audit(next, {
-    at, action: 'grant.resources', target: grantId, result: 'recorded',
+    at, action: 'grant.bindings', target: grantId, result: 'recorded',
     detail: orphaned.length
-      ? `Set ${normalized.length} entries on ${grant.name}, revoking ${orphaned.map((child) => child.name).join(', ')}.`
-      : `Set ${normalized.length} entries on ${grant.name}.`,
+      ? `Set ${normalized.length} bindings on ${grant.name}, revoking ${orphaned.map((child) => child.name).join(', ')}.`
+      : `Set ${normalized.length} bindings on ${grant.name}.`,
   });
   return next;
 }
@@ -550,11 +551,11 @@ export function authorize(state: State, hash: TokenHash, id: ResourceId, permiss
     return { allowed: false, detail: 'A grant in the delegation chain is expired or revoked.', grantId: token.grantId, lineage: chain.map((grant) => grant.id) };
   }
   const allowed = chain.every((grant) =>
-    grant.resources.some((entry) => resourceAuthorizes(entry, state.resources, id, permission)),
+    grant.bindings.some((entry) => bindingAuthorizes(entry, state.resources, id, permission)),
   );
   return {
     allowed,
-    detail: allowed ? `${permission} is covered by every grant in the chain.` : `No ${permission} resource survives the complete grant chain.`,
+    detail: allowed ? `${permission} is covered by every grant in the chain.` : `No ${permission} binding survives the complete grant chain.`,
     grantId: token.grantId,
     lineage: chain.map((grant) => grant.id),
   };
@@ -597,13 +598,13 @@ export function authorizeLineage(
     };
   }
   const allowed = chain.every((grant) =>
-    grant.resources.some((entry) => resourceAuthorizes(entry, state.resources, id, permission))
+    grant.bindings.some((entry) => bindingAuthorizes(entry, state.resources, id, permission))
   );
   return {
     allowed,
     detail: allowed
       ? `${permission} is covered by every grant in the recorded chain.`
-      : `No ${permission} resource survives the recorded grant chain.`,
+      : `No ${permission} binding survives the recorded grant chain.`,
     grantId: leaf,
     lineage: current,
   };
