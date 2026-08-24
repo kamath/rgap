@@ -1,5 +1,5 @@
 {
-  "name": "@rgap/credential-store",
+  "name": "@rgap/local-credential-store",
   "private": true,
   "version": "0.0.0",
   "type": "module",

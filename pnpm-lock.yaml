@@ -120,9 +120,9 @@ importers:
       '@rgap/core':
         specifier: workspace:*
         version: link:../packages/core
-      '@rgap/credential-store':
+      '@rgap/local-credential-store':
         specifier: workspace:*
-        version: link:../packages/credential-store
+        version: link:../packages/local-credential-store
       '@rgap/server':
         specifier: workspace:*
         version: link:../apps/server
@@ -161,7 +161,7 @@ importers:
         specifier: latest
         version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.11)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
-  packages/credential-store:
+  packages/local-credential-store:
     dependencies:
       better-sqlite3:
         specifier: latest

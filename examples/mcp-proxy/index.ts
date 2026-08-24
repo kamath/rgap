@@ -8,7 +8,7 @@ import {
   type ResourceId,
   type RgapRepository,
 } from '@rgap/core';
-import { SqliteCredentialStore } from '@rgap/credential-store';
+import { SqliteCredentialStore } from '@rgap/local-credential-store';
 import { createApp as createRgapApp } from '@rgap/server';
 import { SqliteRgapStore } from '@rgap/sqlite';
 import { Hono } from 'hono';

@@ -5,7 +5,7 @@ import type { InvokeRuntime } from '@rgap/core';
 import {
   SqliteCredentialStore,
   type CredentialStore,
-} from '@rgap/credential-store';
+} from '@rgap/local-credential-store';
 import { createApp } from '@rgap/server';
 import { SqliteRgapStore } from '@rgap/sqlite';
 import { z } from 'zod';
