@@ -73,12 +73,17 @@ Focused collection queries list resources, grants, tokens, and audit events.
 They return ordered arrays of serializable records with bounded page sizes and
 keyset cursors. A caller never needs to load the complete store.
 
-The guarded resource view starts from the acting grant's resource IDs. It uses
-parent-filtered collection pages to visit live descendants and direct ID reads
-to include their live ancestors. Its work is proportional to the granted roots,
-visible descendants, and required ancestors; unrelated resource branches stay
-outside the working set. This traversal uses the ordinary repository interface
-and does not require recursive SQL.
+Every resource list query includes `parentId`, including `null` for a root
+page. There is no unscoped resource list. The guarded plane derives contextual
+ancestor edges by following parent links from the acting grant's resource IDs.
+For a requested parent, it either returns those contextual child edges or
+forwards one parent-filtered page when the parent sits at or below a grant
+target. Direct resource reads use the same bounded ancestry check. No guarded
+read materializes or sorts the complete visible subtree.
+
+This traversal uses ordinary ID and parent-filtered repository reads. Its work
+is proportional to grant entries, ancestry depth, and the requested page; it
+does not require recursive SQL.
 
 Storage adapters also load command-scoped records for mutations and
 authorization decisions. The core rule still receives every record needed to

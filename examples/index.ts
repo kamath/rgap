@@ -17,7 +17,9 @@ import {
   resourcePath,
   type InvokeRuntime,
   type Permission,
+  type Resource,
   type ResourceId,
+  type RgapRepository,
   type TokenValue,
 } from '@rgap/core';
 import { HttpRgapStore } from '@rgap/server';
@@ -76,7 +78,7 @@ await search.executable.set({
 });
 const payroll = await company.resources.create({ name: 'acme/finance/payroll' });
 
-const companyResources = await company.resources.list({ limit: 100 });
+const companyResources = await listResourceTree(company);
 
 console.log("RESOURCE TREE");
 printPaths(companyResources);
@@ -98,7 +100,7 @@ const employeeToken = await employeeGrant.tokens.create({ label: 'employee' });
 const agentToken = await agentGrant.tokens.create({ label: 'agent' });
 const subagentToken = await subagentGrant.tokens.create({ label: 'subagent' });
 
-const resources = await company.resources.list({ limit: 100 });
+const resources = await listResourceTree(company);
 const grants = await company.grants.list({ limit: 100 });
 const path = (id: ResourceId) => resourcePath(resources, id);
 
@@ -145,10 +147,9 @@ const tokens = [
 ] as const;
 
 for (const [label, token] of tokens) {
-  // A guarded view contains descendants of this grant's resource IDs and the ancestors needed to
-  // display them. For example, the subagent sees acme/platform/docs/design and its ancestors, but
-  // not the unrelated acme/finance/payroll branch.
-  const visible = await store.as(token).resources.list({ limit: 100 });
+  // Begin with the visible root page, then recursively request each visible parent's children.
+  // The subagent reaches acme/platform/docs/design without seeing acme/finance/payroll.
+  const visible = await listResourceTree(store.as(token));
   console.log(`\n${label} resource view:`);
   visible.forEach(({ id }) => {
     console.log(`  ${path(id)}`);
@@ -162,9 +163,25 @@ for await (const event of search.invoke({
   console.log(event);
 }
 
-// console.log(await root.resources.list({ limit: 100 }));
+// console.log(await listResourceTree(root));
 
 store.close();
+
+async function listResourceTree(repository: RgapRepository): Promise<Resource[]> {
+  const resources: Resource[] = [];
+  const visit = async (parentId: ResourceId | null) => {
+    let cursor: string | undefined;
+    while (true) {
+      const page = await repository.resources.list({ parentId, cursor, limit: 100 });
+      resources.push(...page);
+      for (const child of page) await visit(child.id);
+      if (page.length < 100) return;
+      cursor = page.at(-1)!.id;
+    }
+  };
+  await visit(null);
+  return resources;
+}
 
 function printPaths<Id extends string>(nodes: readonly TreeNode<Id>[]) {
   const visit = (currentId: Id | null, pathSoFar: string[]) => {
