@@ -254,39 +254,41 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
     return apiError(c, 500, 'internal_error', 'Internal server error.');
   });
 
+  base.openapi(getResourceRoute, async (c) => {
+    const { id } = c.req.valid('param');
+    return c.json(resourceRecord(await repository(c).resources.get(resourceId(id))), 200);
+  });
+  base.openapi(listResourcesRoute, async (c) => {
+    const query = c.req.valid('query');
+    const records = await repository(c).resources.list({
+      ...query,
+      parentId: query.parentId === undefined ? undefined : query.parentId === null ? null : resourceId(query.parentId),
+      cursor: query.cursor ? resourceId(query.cursor) : undefined,
+    });
+    return c.json(records, 200);
+  });
+  base.openapi(createResourceRoute, async (c) => {
+    const { name, executable } = c.req.valid('json');
+    const record = await repository(c).resources.create({
+      name,
+      executable: executable
+        ? {
+          ...executable,
+          input: executableInput(executable.input),
+          bind: executable.bind
+            ? Object.fromEntries(
+              Object.entries(executable.bind)
+                .map(([binding, boundId]) => [binding, resourceId(boundId)]),
+            )
+            : undefined,
+        }
+        : undefined,
+    });
+    return c.json(resourceRecord(record), 200);
+  });
+
   const app = base
-    .openapi(getResourceRoute, async (c) => {
-      const { id } = c.req.valid('param');
-      return c.json(resourceRecord(await repository(c).resources.get(resourceId(id))), 200);
-    })
-    .openapi(listResourcesRoute, async (c) => {
-      const query = c.req.valid('query');
-      const records = await repository(c).resources.list({
-        ...query,
-        parentId: query.parentId === undefined ? undefined : query.parentId === null ? null : resourceId(query.parentId),
-        cursor: query.cursor ? resourceId(query.cursor) : undefined,
-      });
-      return c.json(records, 200);
-    })
-    .openapi(createResourceRoute, async (c) => {
-      const { name, executable } = c.req.valid('json');
-      const record = await repository(c).resources.create({
-        name,
-        executable: executable
-          ? {
-            ...executable,
-            input: executableInput(executable.input),
-            bind: executable.bind
-              ? Object.fromEntries(
-                Object.entries(executable.bind)
-                  .map(([binding, boundId]) => [binding, resourceId(boundId)]),
-              )
-              : undefined,
-          }
-          : undefined,
-      });
-      return c.json(resourceRecord(record), 200);
-    })
+    .openapi(moveResourceRoute, async (c) => {
     .openapi(moveResourceRoute, async (c) => {
       const { id } = c.req.valid('param');
       const { parentId } = c.req.valid('json');
