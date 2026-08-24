@@ -84,6 +84,61 @@ describe('command guard', () => {
     expect(listedParents).not.toContain(r('slack'));
   });
 
+  it('handles overlapping, deleted, cyclic, and orphaned visibility roots', async () => {
+    const initial = state();
+    initial.resources.deleted = {
+      id: r('deleted'), parentId: null, name: 'deleted', deletedAt: at,
+    };
+    initial.resources.orphan = {
+      id: r('orphan'), parentId: r('missing-parent'), name: 'orphan', deletedAt: null,
+    };
+    initial.resources.loop = {
+      id: r('loop'), parentId: r('loop'), name: 'loop', deletedAt: null,
+    };
+    initial.grants.coordinator.resources = [
+      cap('drive', ['read']),
+      cap('search-files', ['read']),
+      cap('deleted', ['read']),
+      cap('orphan', ['read']),
+      cap('loop', ['read']),
+    ];
+    const { commands, resolveBearer } = stubCommands(initial, at);
+    const guard = guardCommands(repositoryFrom(commands), bearer, resolveBearer);
+
+    expect((await guard.resources.list()).map(({ id }) => id))
+      .toEqual(['acme', 'drive', 'loop', 'orphan', 'read-file', 'search-files']);
+  });
+
+  it('propagates unexpected failures while loading visibility roots', async () => {
+    const initial = state();
+    const { commands, resolveBearer } = stubCommands(initial, at);
+    commands.getResource = async () => {
+      throw new Error('storage unavailable');
+    };
+    const guard = guardCommands(repositoryFrom(commands), bearer, resolveBearer);
+
+    await expect(guard.resources.list()).rejects.toThrow('storage unavailable');
+  });
+
+  it('pages through wide granted branches', async () => {
+    const initial = state();
+    for (let index = 0; index < 98; index += 1) {
+      const id = r(`child-${String(index).padStart(3, '0')}`);
+      initial.resources[id] = { id, parentId: r('drive'), name: id, deletedAt: null };
+    }
+    const { commands, resolveBearer } = stubCommands(initial, at);
+    const listResources = commands.listResources;
+    const queries: Parameters<typeof commands.listResources>[0][] = [];
+    commands.listResources = (query) => {
+      queries.push(query);
+      return listResources(query);
+    };
+    const guard = guardCommands(repositoryFrom(commands), bearer, resolveBearer);
+
+    expect(await guard.resources.list()).toHaveLength(50);
+    expect(queries.some((query) => query?.parentId === r('drive') && query.cursor !== undefined)).toBe(true);
+  });
+
   it('filters and paginates audit events by visible target type', async () => {
     const initial = state();
     for (let index = 0; index < 100; index++) {
