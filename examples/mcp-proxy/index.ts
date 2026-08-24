@@ -7,6 +7,7 @@ import {
   type ResourceHandle,
   type ResourceId,
   type RgapRepository,
+  type SetExecutableInput,
 } from '@rgap/core';
 import { SqliteCredentialStore } from '@rgap/local-credential-store';
 import { createApp as createRgapApp } from '@rgap/server';
@@ -88,18 +89,18 @@ const credential = await ensureResource(
 if (!await credentialStore.get(credential.id)) {
   await credentialStore.set(credential.id, {});
 }
-const connectionResource = await ensureResource(
+const connectionResource = await ensureExecutableResource(
   admin,
   `acme/mcp/connections/${serverName}-default`,
-);
-await connectionResource.executable.set({
-  runtime: 'mcp',
-  input: { serverUrl: serverUrl.toString() },
-  bind: {
-    server: serverResource.id,
-    credential: credential.id,
+  {
+    runtime: 'mcp',
+    input: { serverUrl: serverUrl.toString() },
+    bind: {
+      server: serverResource.id,
+      credential: credential.id,
+    },
   },
-});
+);
 
 const invoker = await admin.grants.create({
   name: `examples/mcp-proxy/invoker-${randomUUID()}`,
@@ -195,6 +196,27 @@ async function ensureResource(repository: RgapRepository, path: string) {
       : await repository.resources.create({ name }));
   }
   return parent!;
+}
+
+async function ensureExecutableResource(
+  repository: RgapRepository,
+  path: string,
+  executable: SetExecutableInput,
+) {
+  const segments = path.split('/');
+  const name = segments.pop();
+  if (!name || !segments.length) {
+    throw new Error('Executable resources require a parent folder.');
+  }
+  const parent = await ensureResource(repository, segments.join('/'));
+  const existing = await child(repository, parent.id, name);
+  if (existing) {
+    if (!existing.executable) {
+      throw new Error(`Resource ${path} exists as a folder.`);
+    }
+    return existing;
+  }
+  return parent.create({ name, executable });
 }
 
 async function child(
