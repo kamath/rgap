@@ -68,9 +68,9 @@ for await (const event of authorizedModel.invoke({
 }
 ```
 
-The employee receives only `invoke` on the executable model resource. Callers
-cannot replace its sealed model name. The complete executable version lives in
-`examples/openai.ts`.
+The employee receives `read` and `invoke` on the executable model resource.
+Callers cannot replace its sealed model name. The complete executable version
+lives in `examples/openai.ts`.
 
 ## Compose a secret-backed resource
 
@@ -253,8 +253,9 @@ Its expiration is earlier than the coordinator's expiration.
 
 To enforce application-specific argument restrictions—such as allowed Slack
 channels or Drive roots—register each protected scope as a resource and grant
-the applicable leaves. Submitted `invoke` entries store `read` as well.
-`write`, `invoke`, `bind`, `move`, and `delete` stay independent of each other.
+the applicable leaves. Submitted `read` or `invoke` entries store both
+permissions. `write`, `bind`, `move`, and `delete` stay independent of each
+other.
 
 ## Gateway request flow
 

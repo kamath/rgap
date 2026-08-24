@@ -117,11 +117,14 @@ await check('team', teamToken.value, payroll.id, 'read');
 await check('team', teamToken.value, docs.id, 'write');
 await check('team', teamToken.value, search.id, 'invoke');
 await check('employee', employeeToken.value, docs.id, 'write');
+await check('employee', employeeToken.value, design.id, 'invoke');
 await check('employee', employeeToken.value, search.id, 'invoke');
 await check('agent', agentToken.value, docs.id, 'write');
 await check('agent', agentToken.value, docs.id, 'read');
 await check('agent', agentToken.value, design.id, 'read');
+await check('agent', agentToken.value, design.id, 'invoke');
 await check('subagent', subagentToken.value, design.id, 'read');
+await check('subagent', subagentToken.value, design.id, 'invoke');
 await check('subagent', subagentToken.value, docs.id, 'read');
 await check('subagent', subagentToken.value, search.id, 'invoke');
 

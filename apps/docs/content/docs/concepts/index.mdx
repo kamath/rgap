@@ -35,8 +35,8 @@ the same way resource create does.
 ```text
 company: acme, all permissions
 └── platform: platform, read/write/invoke
-    └── agent: docs, read
-        └── subagent: design, read
+    └── agent: docs, read/invoke
+        └── subagent: design, read/invoke
 ```
 
 Each edge in this tree is a proof of attenuation. The child grant cannot reach

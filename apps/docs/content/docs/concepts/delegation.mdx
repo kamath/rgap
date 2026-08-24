@@ -8,9 +8,9 @@ Delegation creates a child grant beneath the acting grant. Every child resource
 entry must be covered by a parent resource entry.
 
 ```text
-Alice: read/write/delete projects/alpha
-└── Bob: read projects/alpha/docs
-    └── Carol: read projects/alpha/docs/design
+Alice: read/write/delete/invoke projects/alpha
+└── Bob: read/invoke projects/alpha/docs
+    └── Carol: read/invoke projects/alpha/docs/design
 ```
 
 Bob cannot grant write access, reach outside `projects/alpha/docs`, or create a
@@ -133,9 +133,9 @@ covers(parent, child, resources) =
 Both entries target live resources by stable ID. Coverage compares their
 current ancestry in the resource tree.
 
-<Callout type="info" title="Every entry includes read">
-  A resource entry always includes `read`. Submitting `['invoke']` stores
-  `['read', 'invoke']`. `write`, `invoke`, `bind`, `move`, and `delete` remain
+<Callout type="info" title="Every entry includes read and invoke">
+  A resource entry always includes `read` and `invoke`. Submitting `['read']`
+  stores `['read', 'invoke']`. `write`, `bind`, `move`, and `delete` remain
   independent of each other.
 </Callout>
 
