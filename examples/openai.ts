@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { createOpenAI } from '@ai-sdk/openai';
+import { openai } from '@ai-sdk/openai';
 import { generateText } from 'ai';
 import type { InvokeRuntime } from '@rgap/core';
 import { SqliteRgapStore } from '@rgap/sqlite';
@@ -19,12 +19,8 @@ const openai: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
   inputSchema: OpenAIInputSchema,
   outputSchema: OpenAIOutputSchema,
   async invoke({ input, signal }) {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error('OPENAI_API_KEY is required.');
-
-    const provider = createOpenAI({ apiKey });
     const { text } = await generateText({
-      model: provider(input.model),
+      model: openai(input.model),
       prompt: input.prompt,
       abortSignal: signal,
     });
