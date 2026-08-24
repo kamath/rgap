@@ -74,23 +74,23 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
     return (await this.#record()).clientInformation;
   }
 
-  saveClientInformation(
+  async saveClientInformation(
     clientInformation: StoredOAuthClientInformation,
     _context?: OAuthClientInformationContext,
   ) {
-    return this.#patch((record) => ({ ...record, clientInformation }));
+    await this.#patch((record) => ({ ...record, clientInformation }));
   }
 
   async tokens(_context?: OAuthClientInformationContext) {
     return (await this.#record()).tokens;
   }
 
-  saveTokens(tokens: StoredOAuthTokens, _context?: OAuthClientInformationContext) {
-    return this.#patch((record) => ({ ...record, tokens }));
+  async saveTokens(tokens: StoredOAuthTokens, _context?: OAuthClientInformationContext) {
+    await this.#patch((record) => ({ ...record, tokens }));
   }
 
-  redirectToAuthorization(authorizationUrl: URL) {
-    return this.#patch((record) => ({
+  async redirectToAuthorization(authorizationUrl: URL) {
+    await this.#patch((record) => ({
       ...record,
       pendingAuthorization: {
         ...this.#requiredPending(record),
@@ -99,8 +99,8 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
     }));
   }
 
-  saveCodeVerifier(codeVerifier: string) {
-    return this.#patch((record) => ({
+  async saveCodeVerifier(codeVerifier: string) {
+    await this.#patch((record) => ({
       ...record,
       pendingAuthorization: {
         ...this.#requiredPending(record),
@@ -115,16 +115,16 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
     return verifier;
   }
 
-  saveDiscoveryState(discoveryState: OAuthDiscoveryState) {
-    return this.#patch((record) => ({ ...record, discoveryState }));
+  async saveDiscoveryState(discoveryState: OAuthDiscoveryState) {
+    await this.#patch((record) => ({ ...record, discoveryState }));
   }
 
   async discoveryState() {
     return (await this.#record()).discoveryState;
   }
 
-  invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery') {
-    return this.#patch((record) => {
+  async invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery') {
+    await this.#patch((record) => {
       if (scope === 'all') return {};
       if (scope === 'client') {
         const { clientInformation: _, ...rest } = record;
