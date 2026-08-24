@@ -66,14 +66,24 @@ curl http://localhost:3000/resources \
   --request POST \
   --header 'Authorization: Bearer test' \
   --header 'Content-Type: application/json' \
-  --data '{"name":"acme/platform/docs/design"}'
+  --data '{
+    "name": "acme/platform/tools/search",
+    "executable": { "runtime": "search" }
+  }'
 ```
 
 `POST /resources` and `POST /grants` accept a slash-separated location in
 `name` and return the leaf. The path is the location; the body does not include
-`parentId`. Missing prefixes are created from the forest root. A grant write
-also carries the leaf binding set and expiration; every grant created in that
-walk stores those fields.
+`parentId`. Missing resource prefixes are folders created from the forest root.
+The resource leaf is a folder when `executable` is absent and an executable
+resource when it is present. A grant write also carries the leaf binding set
+and expiration; every grant created in that walk stores those fields.
+
+`PATCH /resources/{id}` accepts any non-empty combination of `name` and
+`parentId` and atomically renames or reparents the resource. `executable`
+belongs to `POST /resources` only: a definition is sealed by create, cannot be
+patched afterward, and is retired by deleting the resource with
+`DELETE /resources/{id}`.
 
 Grant bindings can be replaced as one atomic set:
 

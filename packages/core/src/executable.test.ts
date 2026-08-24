@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  deleteExecutable,
   getAuthorizedLineage,
   invokeExecutable,
-  setExecutable,
+  setResourceExecutable,
   withAuthorizedBindings,
   withAuthorizedLineage,
   type InvocationServices,
@@ -14,6 +13,13 @@ import { RuntimeRegistry, type InvokeRuntime } from './runtime';
 
 const at = '2026-08-22T00:00:00.000Z';
 const executableId = resourceId('search-files');
+const setExecutable = (
+  state: State,
+  id: ReturnType<typeof resourceId>,
+  input: Parameters<typeof setResourceExecutable>[2],
+  _at: string,
+  runtimes: RuntimeRegistry,
+) => setResourceExecutable(state, id, input, runtimes);
 const parse = <T>(value: T) => ({ parse: vi.fn(() => value) });
 const runtime = (
   over: Partial<InvokeRuntime> = {},
@@ -30,24 +36,18 @@ const collect = async <T>(values: AsyncIterable<T>) => {
   return result;
 };
 
-describe('executable associations', () => {
-  it('sets, replaces, and deletes a registered runtime association', () => {
+describe('embedded executable definitions', () => {
+  it('sets and replaces a registered runtime definition', () => {
     const runtimes = new RuntimeRegistry({ one: runtime(), two: runtime() });
     const first = setExecutable(fixture(), executableId, { runtime: ' one ' }, at, runtimes);
-    expect(first.executables[executableId]).toEqual({
-      resourceId: executableId,
+    expect(first.resources[executableId].executable).toEqual({
       runtime: 'one',
       input: {},
       bind: {},
     });
-    expect(first.audit[0].action).toBe('executable.set');
 
     const second = setExecutable(first, executableId, { runtime: 'two' }, at, runtimes);
-    expect(second.executables[executableId].runtime).toBe('two');
-    const deleted = deleteExecutable(second, executableId, at);
-    expect(deleted.executables[executableId]).toBeUndefined();
-    expect(deleted.audit[0].action).toBe('executable.delete');
-    expect(() => deleteExecutable(deleted, executableId, at)).toThrow('does not exist');
+    expect(second.resources[executableId].executable?.runtime).toBe('two');
   });
 
   it('requires a live resource, a name, and a registered runtime', () => {
@@ -60,13 +60,24 @@ describe('executable associations', () => {
       .toThrow('not registered');
   });
 
+  it('does not convert a folder with children into an executable', () => {
+    const runtimes = new RuntimeRegistry({ test: runtime() });
+    expect(() => setExecutable(
+      fixture(),
+      resourceId('drive'),
+      { runtime: 'test' },
+      at,
+      runtimes,
+    )).toThrow('A folder with children cannot become executable.');
+  });
+
   it('seals live bindings with administrative or recorded grant provenance', () => {
     const runtimes = new RuntimeRegistry({ test: runtime() });
     const admin = setExecutable(fixture(), executableId, {
       runtime: 'test',
       bind: { source: resourceId('read-file') },
     }, at, runtimes);
-    expect(admin.executables[executableId].bind.source).toEqual({
+    expect(admin.resources[executableId].executable?.bind.source).toEqual({
       resourceId: resourceId('read-file'),
       grantLineage: null,
     });
@@ -76,7 +87,7 @@ describe('executable associations', () => {
       bind: { source: resourceId('read-file') },
     }, { source: [grantId('researcher'), grantId('coordinator')] });
     const token = setExecutable(fixture(), executableId, authorized, at, runtimes);
-    expect(token.executables[executableId].bind.source.grantLineage).toEqual([
+    expect(token.resources[executableId].executable?.bind.source.grantLineage).toEqual([
       grantId('researcher'),
       grantId('coordinator'),
     ]);
@@ -133,7 +144,7 @@ describe('executable associations', () => {
         },
       },
     }, at, runtimes);
-    expect(configured.executables[executableId].input).toEqual({
+    expect(configured.resources[executableId].executable?.input).toEqual({
       options: {
         values: [null, true, 2],
       },
@@ -176,7 +187,7 @@ describe('runtime registry and invocation', () => {
   ): InvocationServices {
     let invocation = 0;
     return {
-      getDefinition: async (id) => state.executables[id],
+      getDefinition: async (id) => state.resources[id]?.executable ?? undefined,
       authorize: vi.fn(async (_id, _permission, lineage) => ({ lineage: lineage ?? [] })),
       runtimes: new RuntimeRegistry({ test: implementation }),
       createInvocationId: () => `invocation-${++invocation}`,
@@ -377,6 +388,7 @@ describe('runtime registry and invocation', () => {
         parentId: null,
         name: id,
         deletedAt: null,
+        executable: null,
       };
     });
     ids.forEach((id, index) => {

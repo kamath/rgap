@@ -30,7 +30,7 @@ describe('repositoryFrom', () => {
 
     const acme = await repository.resources.create({ name: 'acme' });
     const notes = await acme.create({ name: 'notes' });
-    await notes.move(resourceId('drive'));
+    await notes.update({ parentId: resourceId('drive') });
     await notes.delete();
 
     const grant = await repository.grants.create({ name: 'Admin', bindings: [], expiresAt: null });
@@ -41,7 +41,7 @@ describe('repositoryFrom', () => {
     await child.revoke();
 
     expect(calls.map((call) => call.method)).toEqual([
-      'createResource', 'createResource', 'moveResource', 'deleteResource',
+      'createResource', 'createResource', 'updateResource', 'deleteResource',
       'createGrant', 'createGrant', 'setBindings', 'issueToken', 'revokeToken', 'revokeGrant',
     ]);
     expect(calls[0].args[0]).toEqual({ name: 'acme', parentId: null });
@@ -80,26 +80,22 @@ describe('repositoryFrom', () => {
     expect(calls).toEqual([{ method: 'reset', args: [] }]);
   });
 
-  it('exposes executable and invocation commands on both surfaces', async () => {
+  it('embeds executable updates and exposes invocation on both surfaces', async () => {
     const state = fixture();
-    state.executables['search-files'] = {
-      resourceId: resourceId('search-files'), runtime: 'test', input: {}, bind: {},
+    state.resources['search-files'].executable = {
+      runtime: 'test', input: {}, bind: {},
     };
     const { commands, calls } = stubCommands(state, at);
     const repository = repositoryFrom(commands);
     const resource = await repository.resources.get(resourceId('search-files'));
 
-    expect((await resource.executable.get())?.runtime).toBe('test');
-    expect((await repository.executables.get(resource.id))?.resourceId).toBe(resource.id);
-    await resource.executable.set({ runtime: 'test' });
-    await repository.executables.set(resource.id, { runtime: 'test' });
-    await resource.executable.delete();
-    await repository.executables.delete(resource.id);
+    expect(resource.executable?.runtime).toBe('test');
+    const updated = await resource.update({ executable: { runtime: 'test' } });
+    expect(updated.executable?.runtime).toBe('test');
     expect(await collect(resource.invoke({ input: null }))).toEqual([{ type: 'done' }]);
     expect(await collect(repository.invoke(resource.id, { input: null }))).toEqual([{ type: 'done' }]);
     expect(calls.map(({ method }) => method)).toEqual([
-      'setExecutable', 'setExecutable', 'deleteExecutable', 'deleteExecutable',
-      'invoke', 'invoke',
+      'updateResource', 'invoke', 'invoke',
     ]);
   });
 });

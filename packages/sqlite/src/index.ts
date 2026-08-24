@@ -10,17 +10,16 @@ import {
   authorizeLineage,
   createAtPath,
   createGrantAtPath,
-  deleteExecutable as removeExecutable,
   deleteResource as removeResource,
   grantId,
   grantIdAtPath,
   guardCommands,
   invokeExecutable,
-  moveResource as move,
+  updateResource as update,
   pageLimit,
   pathParts,
   permissions as canonicalPermissions,
-  setExecutable as associateExecutable,
+  setResourceExecutable,
   recordToken,
   resourceId,
   resourceIdAtPath,
@@ -44,12 +43,12 @@ import {
   type JsonValue,
   type RuntimeRegistrations,
   type Permission,
-  type SetExecutableInput,
   type AuditListQuery,
   type RecordId,
   type ResourceId,
   type ResourceListQuery,
   type ResourceWrite,
+  type ResourceUpdate,
   type RgapCommands,
   type RgapRepository,
   type RgapStore,
@@ -121,7 +120,7 @@ class SqliteBackingRepository implements RgapCommands {
 
   async getResource(id: ResourceId) {
     const row = this.db.select().from(schema.resources).where(eq(schema.resources.id, id)).get();
-    return row ? resourceRecord(row) : undefined;
+    return row ? this.resourceRecord(row) : undefined;
   }
 
   async listResources(query: ResourceListQuery = {}) {
@@ -132,7 +131,7 @@ class SqliteBackingRepository implements RgapCommands {
     const rows = this.db.select().from(schema.resources)
       .where(and(parent, isNull(schema.resources.deletedAt), query.cursor ? gt(schema.resources.id, query.cursor) : undefined))
       .orderBy(asc(schema.resources.id)).limit(limit).all();
-    return rows.map(resourceRecord);
+    return rows.map((row) => this.resourceRecord(row));
   }
 
   async getGrant(id: GrantId) {
@@ -195,28 +194,46 @@ class SqliteBackingRepository implements RgapCommands {
       const id = resourceIdAtPath(next.resources, input.name, input.parentId);
       if (!id) throw new RgapError('invalid_name', 'Resource name is required.');
       if (input.executable) {
-        next = associateExecutable(next, id, input.executable, at, this.runtimes);
+        next = setResourceExecutable(next, id, input.executable, this.runtimes);
       }
       const created = Object.values(next.resources).filter((resource) => !before.has(resource.id));
       insert(this.db, schema.resources, parentsFirst(
         Object.fromEntries(created.map((resource) => [resource.id, resource])),
         'resource_cycle',
-      ));
-      if (input.executable) this.storeExecutable(next.executables[id]);
+      ).map(resourceRow));
+      if (next.resources[id].executable) this.storeExecutable(id, next.resources[id].executable);
       this.persistAuditDelta(state, next);
-      return resourceRecord(this.db.select().from(schema.resources).where(eq(schema.resources.id, id)).get()!);
+      return this.resourceRecord(this.db.select().from(schema.resources).where(eq(schema.resources.id, id)).get()!);
     });
   }
 
-  async moveResource(id: ResourceId, parentId: ResourceId | null) {
+  async updateResource(id: ResourceId, input: ResourceUpdate) {
     return this.db.transaction(() => {
+      const at = now();
       const state = this.workingState();
-      this.loadResource(state, id);
-      if (parentId) this.loadResourceAncestry(state, parentId);
-      const next = move(state, id, parentId, now());
-      this.db.update(schema.resources).set({ parentId }).where(eq(schema.resources.id, id)).run();
+      const resource = this.loadResource(state, id);
+      if (!resource) throw new RgapError('missing_resource', 'Resource does not exist.');
+      const destination = input.parentId === undefined ? resource.parentId : input.parentId;
+      if (destination) this.loadResourceAncestry(state, destination);
+      this.loadResourceChildren(state, destination);
+      if (input.executable) {
+        this.loadResourceChildren(state, id);
+        Object.values(input.executable.bind ?? {}).forEach((boundId) => this.loadResource(state, boundId));
+      }
+      const metadata = input.name === undefined && input.parentId === undefined
+        ? { name: resource.name }
+        : { name: input.name, parentId: input.parentId };
+      let next = update(state, id, metadata, at);
+      if (input.executable) {
+        next = setResourceExecutable(next, id, input.executable, this.runtimes);
+      }
+      const updated = next.resources[id];
+      this.db.update(schema.resources)
+        .set({ name: updated.name, parentId: updated.parentId })
+        .where(eq(schema.resources.id, id)).run();
+      if (updated.executable) this.storeExecutable(id, updated.executable);
       this.persistAuditDelta(state, next);
-      return resourceRecord(this.db.select().from(schema.resources).where(eq(schema.resources.id, id)).get()!);
+      return this.resourceRecord(this.db.select().from(schema.resources).where(eq(schema.resources.id, id)).get()!);
     });
   }
 
@@ -232,58 +249,14 @@ class SqliteBackingRepository implements RgapCommands {
             .where(eq(schema.resources.id, resource.id)).run();
         }
       });
-      this.persistAuditDelta(state, next);
-    });
-  }
-
-  async getExecutable(id: ResourceId) {
-    const row = this.db.select().from(schema.executables).where(eq(schema.executables.resourceId, id)).get();
-    if (!row) return undefined;
-    const bind = Object.fromEntries(this.db.select().from(schema.executableBindings)
-      .where(eq(schema.executableBindings.executableResourceId, id))
-      .orderBy(asc(schema.executableBindings.name)).all()
-      .map((binding) => [binding.name, {
-        resourceId: resourceId(binding.resourceId),
-        grantLineage: binding.grantLineage === null
-          ? null
-          : parseGrantLineage(binding.grantLineage),
-      }]));
-    return {
-      resourceId: resourceId(row.resourceId),
-      runtime: row.runtime,
-      input: parseExecutableInput(row.input),
-      bind,
-    };
-  }
-
-  async setExecutable(id: ResourceId, input: SetExecutableInput) {
-    return this.db.transaction(() => {
-      const state = this.workingState();
-      this.loadResource(state, id);
-      Object.values(input.bind ?? {}).forEach((boundId) => this.loadResource(state, boundId));
-      const next = associateExecutable(state, id, input, now(), this.runtimes);
-      const definition = next.executables[id];
-      this.storeExecutable(definition);
-      this.persistAuditDelta(state, next);
-      return structuredClone(definition);
-    });
-  }
-
-  async deleteExecutable(id: ResourceId) {
-    this.db.transaction(() => {
-      const state = this.workingState();
-      const row = this.db.select().from(schema.executables)
-        .where(eq(schema.executables.resourceId, id)).get();
-      if (row) state.executables[id] = {
-        resourceId: id,
-        runtime: row.runtime,
-        input: parseExecutableInput(row.input),
-        bind: {},
-      };
-      const next = removeExecutable(state, id, now());
-      this.db.delete(schema.executableBindings)
-        .where(eq(schema.executableBindings.executableResourceId, id)).run();
-      this.db.delete(schema.executables).where(eq(schema.executables.resourceId, id)).run();
+      const removed = Object.values(next.resources).filter((resource) =>
+        resource.deletedAt !== state.resources[resource.id]?.deletedAt
+      );
+      removed.forEach((resource) => {
+        this.db.delete(schema.executableBindings)
+          .where(eq(schema.executableBindings.executableResourceId, resource.id)).run();
+        this.db.delete(schema.executables).where(eq(schema.executables.resourceId, resource.id)).run();
+      });
       this.persistAuditDelta(state, next);
     });
   }
@@ -292,7 +265,7 @@ class SqliteBackingRepository implements RgapCommands {
     const repository = this;
     return (async function* () {
       yield* invokeExecutable({
-        getDefinition: (resource) => repository.getExecutable(resource),
+        getDefinition: async (resource) => (await repository.getResource(resource))?.executable ?? undefined,
         authorize: async (resource, permission, recorded) => {
           if (recorded === null) {
             repository.requireLiveResource(resource);
@@ -513,7 +486,7 @@ class SqliteBackingRepository implements RgapCommands {
   private loadResource(state: State, id: ResourceId) {
     const row = this.db.select().from(schema.resources).where(eq(schema.resources.id, id)).get();
     if (!row) return undefined;
-    const resource = resourceRecord(row);
+    const resource = this.resourceRecord(row);
     state.resources[id] = resource;
     return resource;
   }
@@ -528,6 +501,18 @@ class SqliteBackingRepository implements RgapCommands {
     }
   }
 
+  private loadResourceChildren(state: State, parentId: ResourceId | null) {
+    const rows = this.db.select().from(schema.resources).where(
+      parentId === null
+        ? isNull(schema.resources.parentId)
+        : eq(schema.resources.parentId, parentId),
+    ).orderBy(asc(schema.resources.id)).all();
+    rows.forEach((row) => {
+      const resource = this.resourceRecord(row);
+      state.resources[resource.id] = resource;
+    });
+  }
+
   private loadResourcePath(state: State, path: string, parentId: ResourceId | null = null) {
     let current = parentId;
     for (const name of pathParts(path)) {
@@ -537,7 +522,7 @@ class SqliteBackingRepository implements RgapCommands {
         isNull(schema.resources.deletedAt),
       )).orderBy(asc(schema.resources.id)).get();
       if (!row) break;
-      const resource = resourceRecord(row);
+      const resource = this.resourceRecord(row);
       state.resources[resource.id] = resource;
       current = resource.id;
     }
@@ -560,7 +545,7 @@ class SqliteBackingRepository implements RgapCommands {
           isNull(schema.resources.deletedAt),
         )).orderBy(asc(schema.resources.id)).get();
         if (row) {
-          const resource = resourceRecord(row);
+          const resource = this.resourceRecord(row);
           state.resources[resource.id] = resource;
           current = resource.id;
           continue;
@@ -576,7 +561,7 @@ class SqliteBackingRepository implements RgapCommands {
         const row = this.db.select().from(schema.resources)
           .where(eq(schema.resources.id, candidate)).get();
         if (!row) break;
-        state.resources[row.id] = resourceRecord(row);
+        state.resources[row.id] = this.resourceRecord(row);
         candidate = `${base}-${suffix++}`;
         while (reserved.has(candidate)) candidate = `${base}-${suffix++}`;
       }
@@ -601,7 +586,7 @@ class SqliteBackingRepository implements RgapCommands {
           cursor ? gt(schema.resources.id, cursor) : undefined,
         )).orderBy(asc(schema.resources.id)).limit(100).all();
         rows.forEach((row) => {
-          const child = resourceRecord(row);
+          const child = this.resourceRecord(row);
           state.resources[child.id] = child;
           queue.push(child.id);
         });
@@ -743,6 +728,30 @@ class SqliteBackingRepository implements RgapCommands {
     })));
   }
 
+  private executableDefinition(id: ResourceId): ExecutableDefinition | null {
+    const row = this.db.select().from(schema.executables)
+      .where(eq(schema.executables.resourceId, id)).get();
+    if (!row) return null;
+    const bind = Object.fromEntries(this.db.select().from(schema.executableBindings)
+      .where(eq(schema.executableBindings.executableResourceId, id))
+      .orderBy(asc(schema.executableBindings.name)).all()
+      .map((binding) => [binding.name, {
+        resourceId: resourceId(binding.resourceId),
+        grantLineage: binding.grantLineage === null
+          ? null
+          : parseGrantLineage(binding.grantLineage),
+      }]));
+    return {
+      runtime: row.runtime,
+      input: parseExecutableInput(row.input),
+      bind,
+    };
+  }
+
+  private resourceRecord(row: typeof schema.resources.$inferSelect) {
+    return resourceRecord(row, this.executableDefinition(resourceId(row.id)));
+  }
+
   private grantRecord(row: typeof schema.grants.$inferSelect) {
     const permissionRows = this.db.select().from(schema.grantBindingPermissions)
       .where(eq(schema.grantBindingPermissions.grantId, row.id)).all();
@@ -769,9 +778,9 @@ class SqliteBackingRepository implements RgapCommands {
     };
   }
 
-  private storeExecutable(definition: ExecutableDefinition) {
+  private storeExecutable(id: ResourceId, definition: ExecutableDefinition) {
     this.db.insert(schema.executables).values({
-      resourceId: definition.resourceId,
+      resourceId: id,
       runtime: definition.runtime,
       input: JSON.stringify(definition.input),
     })
@@ -783,9 +792,9 @@ class SqliteBackingRepository implements RgapCommands {
         },
       }).run();
     this.db.delete(schema.executableBindings)
-      .where(eq(schema.executableBindings.executableResourceId, definition.resourceId)).run();
+      .where(eq(schema.executableBindings.executableResourceId, id)).run();
     insert(this.db, schema.executableBindings, Object.entries(definition.bind).map(([name, binding]) => ({
-      executableResourceId: definition.resourceId,
+      executableResourceId: id,
       name,
       resourceId: binding.resourceId,
       grantLineage: binding.grantLineage === null
@@ -805,7 +814,7 @@ class SqliteBackingRepository implements RgapCommands {
     this.db.delete(schema.grants).run();
     this.db.delete(schema.resources).run();
 
-    insert(this.db, schema.resources, parentsFirst(state.resources, 'resource_cycle'));
+    insert(this.db, schema.resources, parentsFirst(state.resources, 'resource_cycle').map(resourceRow));
     insert(this.db, schema.grants, parentsFirst(state.grants, 'grant_cycle').map((grant) => ({
       id: grant.id,
       name: grant.name,
@@ -832,14 +841,17 @@ class SqliteBackingRepository implements RgapCommands {
     insert(this.db, schema.grantBindingPermissions, carried);
 
     insert(this.db, schema.tokens, Object.values(state.tokens));
-    insert(this.db, schema.executables, Object.values(state.executables).map((definition) => ({
-      resourceId: definition.resourceId,
+    const executableResources = Object.values(state.resources).flatMap((resource) =>
+      resource.executable ? [{ resource, definition: resource.executable }] : []
+    );
+    insert(this.db, schema.executables, executableResources.map(({ resource, definition }) => ({
+      resourceId: resource.id,
       runtime: definition.runtime,
       input: JSON.stringify(definition.input),
     })));
-    insert(this.db, schema.executableBindings, Object.values(state.executables).flatMap((definition) =>
+    insert(this.db, schema.executableBindings, executableResources.flatMap(({ resource, definition }) =>
       Object.entries(definition.bind).map(([name, binding]) => ({
-        executableResourceId: definition.resourceId,
+        executableResourceId: resource.id,
         name,
         resourceId: binding.resourceId,
         grantLineage: binding.grantLineage === null
@@ -864,7 +876,6 @@ const emptyState = (): State => ({
   resources: {},
   grants: {},
   tokens: {},
-  executables: {},
   audit: [],
 });
 const completeState = (state?: State): State => ({
@@ -915,11 +926,21 @@ const grantRow = (grant: State['grants'][string]) => ({
   expiresAt: grant.expiresAt,
   revokedAt: grant.revokedAt,
 });
-const resourceRecord = (row: typeof schema.resources.$inferSelect) => ({
+const resourceRecord = (
+  row: typeof schema.resources.$inferSelect,
+  executable: ExecutableDefinition | null = null,
+) => ({
   id: resourceId(row.id),
   parentId: row.parentId ? resourceId(row.parentId) : null,
   name: row.name,
   deletedAt: row.deletedAt,
+  executable,
+});
+const resourceRow = (resource: State['resources'][string]) => ({
+  id: resource.id,
+  parentId: resource.parentId,
+  name: resource.name,
+  deletedAt: resource.deletedAt,
 });
 const tokenRecord = (row: typeof schema.tokens.$inferSelect) => ({
   id: tokenId(row.id),

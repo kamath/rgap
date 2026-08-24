@@ -39,7 +39,6 @@ export type JsonValue =
   | { [key: string]: JsonValue };
 
 export type ExecutableDefinition = {
-  resourceId: ResourceId;
   runtime: string;
   input: Record<string, JsonValue>;
   bind: Record<string, ExecutableBinding>;
@@ -51,6 +50,8 @@ export type Resource = {
   name: string;
   /** Set when the resource is deleted. The record is retained so its stable ID is never reissued. */
   deletedAt: string | null;
+  /** Null identifies a folder. A definition identifies a terminal executable resource. */
+  executable: ExecutableDefinition | null;
 };
 
 export type GrantBindingConfig = {
@@ -90,7 +91,6 @@ export type State = {
   resources: Record<string, Resource>;
   grants: Record<string, Grant>;
   tokens: Record<string, Token>;
-  executables: Record<string, ExecutableDefinition>;
   audit: AuditEvent[];
 };
 
@@ -107,7 +107,11 @@ export type BearerContext = {
 };
 
 export type CreateGrantInput = Omit<Grant, 'id' | 'revokedAt'>;
-export type CreateResourceInput = Omit<Resource, 'id' | 'deletedAt'>;
+export type CreateResourceInput = Pick<Resource, 'name' | 'parentId'>;
+export type UpdateResourceInput = {
+  name?: string;
+  parentId?: ResourceId | null;
+};
 
 export class RgapError extends Error {
   constructor(public code: string, message: string) {
@@ -182,6 +186,26 @@ export function stateIntegrity(state: State) {
     if (resource.parentId && !state.resources[resource.parentId]) {
       problems.push(`Resource ${resource.id} refers to missing parent ${resource.parentId}.`);
     }
+    if (
+      resource.executable &&
+      Object.values(state.resources).some((candidate) =>
+        !candidate.deletedAt && candidate.parentId === resource.id
+      )
+    ) {
+      problems.push(`Executable resource ${resource.id} has children.`);
+    }
+    Object.entries(resource.executable?.bind ?? {}).forEach(([name, binding]) => {
+      if (!state.resources[binding.resourceId]) {
+        problems.push(
+          `Executable ${resource.id} binding ${name} refers to missing resource ${binding.resourceId}.`,
+        );
+      }
+      binding.grantLineage?.forEach((id) => {
+        if (!state.grants[id]) {
+          problems.push(`Executable ${resource.id} binding ${name} refers to missing grant ${id}.`);
+        }
+      });
+    });
   });
   Object.values(state.grants).forEach((grant) => {
     if (grant.parentId && !state.grants[grant.parentId]) {
@@ -195,25 +219,6 @@ export function stateIntegrity(state: State) {
   });
   Object.values(state.tokens).forEach((token) => {
     if (!state.grants[token.grantId]) problems.push(`Token ${token.id} refers to missing grant ${token.grantId}.`);
-  });
-  Object.values(state.executables).forEach((definition) => {
-    if (!state.resources[definition.resourceId]) {
-      problems.push(`Executable ${definition.resourceId} refers to a missing resource.`);
-    }
-    Object.entries(definition.bind).forEach(([name, binding]) => {
-      if (!state.resources[binding.resourceId]) {
-        problems.push(
-          `Executable ${definition.resourceId} binding ${name} refers to missing resource ${binding.resourceId}.`,
-        );
-      }
-      binding.grantLineage?.forEach((id) => {
-        if (!state.grants[id]) {
-          problems.push(
-            `Executable ${definition.resourceId} binding ${name} refers to missing grant ${id}.`,
-          );
-        }
-      });
-    });
   });
   return problems;
 }
@@ -327,12 +332,16 @@ export function createResource(
   if (!input.name.trim()) throw new RgapError('invalid_name', 'Resource name is required.');
   if (input.name.includes('/')) throw new RgapError('invalid_name', 'Resource names cannot contain slashes.');
   if (state.resources[id]) throw new RgapError('duplicate_id', `Resource ${id} already exists.`);
-  if (input.parentId && !isLive(state.resources[input.parentId])) throw new RgapError('missing_parent', 'Parent resource does not exist.');
+  if (input.parentId) {
+    const parent = state.resources[input.parentId];
+    if (!isLive(parent)) throw new RgapError('missing_parent', 'Parent resource does not exist.');
+    if (parent.executable) throw new RgapError('not_folder', 'Executable resources cannot contain children.');
+  }
   if (liveResources(state.resources).some((item) => item.parentId === input.parentId && item.name === input.name.trim())) {
     throw new RgapError('duplicate_path', 'A resource already exists at that path.');
   }
   const next = copy(state);
-  next.resources[id] = { ...input, id, name: input.name.trim(), deletedAt: null };
+  next.resources[id] = { ...input, id, name: input.name.trim(), deletedAt: null, executable: null };
   audit(next, { at, action: 'resource.create', target: id, result: 'recorded', detail: `Created ${input.name}.` });
   return next;
 }
@@ -348,6 +357,9 @@ export function createAtPath(state: State, path: string, parentId: ResourceId | 
   if (parentId && !isLive(state.resources[parentId])) {
     throw new RgapError('missing_parent', 'Parent resource does not exist.');
   }
+  if (parentId && state.resources[parentId].executable) {
+    throw new RgapError('not_folder', 'Executable resources cannot contain children.');
+  }
   let currentParent = parentId;
   let next = state;
   parts.forEach((name, index) => {
@@ -357,6 +369,9 @@ export function createAtPath(state: State, path: string, parentId: ResourceId | 
     if (existing) {
       if (index === parts.length - 1) {
         throw new RgapError('duplicate_path', 'A resource already exists at that path.');
+      }
+      if (existing.executable) {
+        throw new RgapError('not_folder', 'Executable resources cannot contain children.');
       }
       currentParent = existing.id;
       return;
@@ -368,16 +383,44 @@ export function createAtPath(state: State, path: string, parentId: ResourceId | 
   return next;
 }
 
-export function moveResource(state: State, id: ResourceId, parentId: ResourceId | null, at: string) {
+export function updateResource(
+  state: State,
+  id: ResourceId,
+  input: UpdateResourceInput,
+  at: string,
+) {
   const resource = state.resources[id];
   if (!isLive(resource)) throw new RgapError('missing_resource', 'Resource does not exist.');
-  if (parentId && !isLive(state.resources[parentId])) throw new RgapError('missing_parent', 'Parent resource does not exist.');
+  if (input.name === undefined && input.parentId === undefined) {
+    throw new RgapError('invalid_resource_update', 'Select at least one resource field to update.');
+  }
+  const name = input.name === undefined ? resource.name : input.name.trim();
+  if (!name) throw new RgapError('invalid_name', 'Resource name is required.');
+  if (name.includes('/')) throw new RgapError('invalid_name', 'Resource names cannot contain slashes.');
+  const parentId = input.parentId === undefined ? resource.parentId : input.parentId;
+  if (parentId) {
+    const parent = state.resources[parentId];
+    if (!isLive(parent)) throw new RgapError('missing_parent', 'Parent resource does not exist.');
+    if (parent.executable) throw new RgapError('not_folder', 'Executable resources cannot contain children.');
+  }
   if (parentId === id || (parentId && isWithin(state.resources, parentId, id))) {
     throw new RgapError('resource_cycle', 'A resource cannot move inside itself.');
   }
+  if (liveResources(state.resources).some((candidate) =>
+    candidate.id !== id && candidate.parentId === parentId && candidate.name === name
+  )) {
+    throw new RgapError('duplicate_path', 'A resource already exists at that path.');
+  }
   const next = copy(state);
   next.resources[id].parentId = parentId;
-  audit(next, { at, action: 'resource.move', target: id, result: 'recorded', detail: `Moved ${resource.name}.` });
+  next.resources[id].name = name;
+  audit(next, {
+    at,
+    action: 'resource.update',
+    target: id,
+    result: 'recorded',
+    detail: `Updated ${resource.name}.`,
+  });
   return next;
 }
 
@@ -388,7 +431,10 @@ export function deleteResource(state: State, id: ResourceId, at: string) {
     .filter((candidate) => isWithin(state.resources, candidate.id, id))
     .map((candidate) => candidate.id);
   const next = copy(state);
-  removed.forEach((removedId) => { next.resources[removedId].deletedAt = at; });
+  removed.forEach((removedId) => {
+    next.resources[removedId].deletedAt = at;
+    next.resources[removedId].executable = null;
+  });
   audit(next, { at, action: 'resource.delete', target: id, result: 'recorded', detail: `Deleted ${resource.name} and its descendants.` });
   return next;
 }

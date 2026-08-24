@@ -69,10 +69,12 @@ const company = store.as(companyToken.value);
 const platform = await company.resources.create({ name: 'acme/platform' });
 const docs = await platform.create({ name: 'docs' });
 const design = await docs.create({ name: 'design' });
-const search = await platform.create({ name: 'tools/search' });
-await search.executable.set({
-  runtime: 'echo',
-  bind: { searchWithin: docs.id },
+const search = await platform.create({
+  name: 'tools/search',
+  executable: {
+    runtime: 'echo',
+    bind: { searchWithin: docs.id },
+  },
 });
 const payroll = await company.resources.create({ name: 'acme/finance/payroll' });
 

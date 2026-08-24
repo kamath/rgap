@@ -71,7 +71,7 @@ describe('command guard', () => {
     for (let index = 0; index < 100; index++) {
       const id = r(`hidden-resource-${index.toString().padStart(3, '0')}`);
       initial.resources[id] = {
-        id, parentId: r('slack'), name: id, deletedAt: null,
+        id, parentId: r('slack'), name: id, deletedAt: null, executable: null,
       };
     }
     initial.audit = [
@@ -122,7 +122,7 @@ describe('command guard', () => {
       .rejects.toThrow('Creating a root resource is an administrative operation');
     await expect(guard.resources.create({ name: 'acme/notes' }))
       .rejects.toThrow('No write resource survives the complete grant chain.');
-    await expect(drive.move(null)).rejects.toThrow('Moving a resource to a root is an administrative');
+    await expect(drive.update({ parentId: null })).rejects.toThrow('Moving a resource to a root is an administrative');
     await expect((await guard.grants.get(g('coordinator'))).bindings.set([]))
       .rejects.toThrow("Setting a root grant's bindings is an administrative");
     await expect(guard.reset()).rejects.toThrow('Resetting the store is an administrative');
@@ -185,7 +185,7 @@ describe('command guard', () => {
     const initial = state();
     for (let index = 0; index < 100; index += 1) {
       const id = r(`sib-${String(index).padStart(3, '0')}`);
-      initial.resources[id] = { id, parentId: r('drive'), name: `sib-${index}`, deletedAt: null };
+      initial.resources[id] = { id, parentId: r('drive'), name: `sib-${index}`, deletedAt: null, executable: null };
     }
     const { commands, calls, resolveBearer } = stubCommands(initial, at);
     const guard = guardCommands(repositoryFrom(commands), bearer, resolveBearer);
@@ -196,15 +196,18 @@ describe('command guard', () => {
     ]);
   });
 
-  it('moves a resource only with move on the resource and write on the destination', async () => {
+  it('reparents a resource only with move on the resource and write on the destination', async () => {
     const { guard, calls } = guarded();
     const search = await guard.resources.get(r('search-files'));
 
-    expect((await search.move(r('read-file'))).parentId).toBe('read-file');
-    expect(calls).toEqual([{ method: 'moveResource', args: [r('search-files'), r('read-file')] }]);
+    expect((await search.update({ parentId: r('read-file') })).parentId).toBe('read-file');
+    expect(calls).toEqual([{
+      method: 'updateResource',
+      args: [r('search-files'), { parentId: r('read-file') }],
+    }]);
 
     await expect(guard.resources.get(r('post-message'))).rejects.toThrow('outside this token');
-    await expect((await guard.resources.get(r('search-files'))).move(r('slack')))
+    await expect((await guard.resources.get(r('search-files'))).update({ parentId: r('slack') }))
       .rejects.toThrow('No write resource survives the complete grant chain.');
   });
 
@@ -295,29 +298,23 @@ describe('command guard', () => {
     await expect(guard.grants.get(g('ghost'))).rejects.toThrow('outside this token');
   });
 
-  it('guards executable metadata, setting, and binding invocation', async () => {
+  it('guards embedded executable updates and invocation', async () => {
     const initial = state();
-    initial.executables['search-files'] = {
-      resourceId: r('search-files'), runtime: 'test', input: {}, bind: {},
+    initial.resources['search-files'].executable = {
+      runtime: 'test', input: {}, bind: {},
     };
     const { commands, calls, resolveBearer } = stubCommands(initial, at);
     const guard = guardCommands(repositoryFrom(commands), bearer, resolveBearer);
     const search = await guard.resources.get(r('search-files'));
 
-    expect((await guard.executables.get(r('search-files')))?.runtime).toBe('test');
-    expect((await search.executable.get())?.resourceId).toBe('search-files');
-    await guard.executables.set(r('search-files'), {
-      runtime: 'test',
-      bind: { source: r('read-file') },
+    expect(search.executable?.runtime).toBe('test');
+    await search.update({
+      executable: {
+        runtime: 'test',
+        bind: { source: r('read-file') },
+      },
     });
-    await guard.executables.set(r('search-files'), { runtime: 'test' });
-    await search.executable.set({
-      runtime: 'test',
-      bind: { source: r('read-file') },
-    });
-    await search.executable.set({ runtime: 'test' });
-    await guard.executables.delete(r('search-files'));
-    await search.executable.delete();
+    await search.update({ executable: { runtime: 'test' } });
     for await (const event of guard.invoke(r('search-files'), { input: {} })) {
       expect(event.type).toBe('done');
     }
@@ -325,16 +322,13 @@ describe('command guard', () => {
       expect(event.type).toBe('done');
     }
     expect(calls.map(({ method }) => method)).toEqual([
-      'setExecutable', 'setExecutable', 'setExecutable', 'setExecutable',
-      'deleteExecutable', 'deleteExecutable',
-      'invoke', 'invoke',
+      'updateResource', 'updateResource', 'invoke', 'invoke',
     ]);
   });
 
   it('does not treat caller input strings as binding authority', async () => {
     const initial = state();
-    initial.executables['search-files'] = {
-      resourceId: r('search-files'),
+    initial.resources['search-files'].executable = {
       runtime: 'test',
       input: {},
       bind: {},

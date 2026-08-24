@@ -27,9 +27,12 @@ escalation.
 The holder of `bind` can encapsulate a resource in another executable:
 
 ```ts
-await summary.executable.set({
-  runtime: 'profileSummary',
-  bind: { profile: githubProfile.id },
+const summary = await scripts.create({
+  name: 'profile-summary',
+  executable: {
+    runtime: 'profileSummary',
+    bind: { profile: githubProfile.id },
+  },
 });
 ```
 
@@ -56,8 +59,7 @@ authorization decision until that frame finishes. Every nested frame makes a
 new decision.
 
 Administrative bindings carry administrative provenance. They remain valid
-until an administrator changes the executable or the target resource ceases
-to be live.
+until the binding executable or the target resource ceases to be live.
 
 ## Transitive execution
 
@@ -196,16 +198,18 @@ Use these rules for every credential-backed runtime:
 5. Return operation results rather than credentials, authenticated clients, or
    raw upstream responses containing sensitive headers.
 
-## Live references
+## Sealed references
 
-A binding follows the current executable attached to its resource. Replacing
-B's runtime changes the behavior observed by every A that binds B. This live
-reference is deliberate and allows centrally managed functions to update
-without rewriting their consumers.
+A binding names B's identity, and B's executable definition is sealed when B is
+created. No principal can point A's binding at a different runtime, sealed
+input, or set of nested bindings, so what A reviewed when it bound B is what A
+keeps invoking.
 
-Only principals with `write` on B can change its executable association.
-Administrators review that authority as carefully as authority over B's
-implementation.
+Centrally managed behavior changes through the deployment's registered runtime
+implementation, which is configuration rather than a repository command.
+Changing an executable's definition means creating a new executable resource;
+consumers bind the replacement deliberately, because the retired resource's
+tombstone disables every existing edge to it.
 
 ## Configuration and execution safety
 
@@ -252,7 +256,7 @@ Before granting `bind` or publishing an executable:
 
 - Confirm that the executable exposes only intended operations and scopes.
 - Treat `bind` as authority to create and publish wrappers.
-- Limit `write` on live bound executables.
+- Review an executable's definition before binding it, since it is final.
 - Validate all caller-controlled arguments used with privileged adapters.
 - Keep credential values outside inputs, outputs, logs, and errors.
 - Verify that revoking the recorded binding lineage disables future use.

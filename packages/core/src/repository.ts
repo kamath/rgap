@@ -4,7 +4,6 @@ import {
   type AuditEvent,
   type GrantBinding,
   type Decision,
-  type ExecutableDefinition,
   type Grant,
   type GrantId,
   type Permission,
@@ -18,6 +17,11 @@ import type { InvokeInput, SetExecutableInput } from './executable';
 import type { InvocationEvent } from './runtime';
 
 export type ResourceWrite = { name: string; executable?: SetExecutableInput };
+export type ResourceUpdate = {
+  name?: string;
+  parentId?: ResourceId | null;
+  executable?: SetExecutableInput;
+};
 export type GrantWrite = { name: string; bindings: GrantBinding[]; expiresAt: string | null };
 export type TokenWrite = { label: string };
 
@@ -45,13 +49,8 @@ export function paginateRecords<T extends { id: string }>(records: T[], query: L
 
 export type ResourceHandle = Resource & {
   create(input: ResourceWrite): Promise<ResourceHandle>;
-  move(parentId: ResourceId | null): Promise<ResourceHandle>;
+  update(input: ResourceUpdate): Promise<ResourceHandle>;
   delete(): Promise<void>;
-  executable: {
-    get(): Promise<ExecutableDefinition | undefined>;
-    set(input: SetExecutableInput): Promise<ExecutableDefinition>;
-    delete(): Promise<void>;
-  };
   invoke(input: InvokeInput): AsyncIterable<InvocationEvent>;
 };
 
@@ -93,11 +92,8 @@ export interface RgapCommands {
   listTokens(query?: TokenListQuery): Promise<Page<Token>>;
   listAudit(query?: AuditListQuery): Promise<Page<AuditEvent>>;
   createResource(input: ResourceWrite & { parentId: ResourceId | null }): Promise<Resource>;
-  moveResource(id: ResourceId, parentId: ResourceId | null): Promise<Resource>;
+  updateResource(id: ResourceId, input: ResourceUpdate): Promise<Resource>;
   deleteResource(id: ResourceId): Promise<void>;
-  getExecutable(resourceId: ResourceId): Promise<ExecutableDefinition | undefined>;
-  setExecutable(resourceId: ResourceId, input: SetExecutableInput): Promise<ExecutableDefinition>;
-  deleteExecutable(resourceId: ResourceId): Promise<void>;
   invoke(resourceId: ResourceId, input: InvokeInput): AsyncIterable<InvocationEvent>;
   createGrant(input: GrantWrite & { parentId: GrantId | null }): Promise<Grant>;
   setBindings(grantId: GrantId, bindings: GrantBinding[]): Promise<Grant>;
@@ -113,11 +109,6 @@ export interface RgapRepository {
     create(input: ResourceWrite): Promise<ResourceHandle>;
     get(id: ResourceId): Promise<ResourceHandle>;
     list(query?: ResourceListQuery): Promise<Page<Resource>>;
-  };
-  executables: {
-    get(resourceId: ResourceId): Promise<ExecutableDefinition | undefined>;
-    set(resourceId: ResourceId, input: SetExecutableInput): Promise<ExecutableDefinition>;
-    delete(resourceId: ResourceId): Promise<void>;
   };
   invoke(resourceId: ResourceId, input: InvokeInput): AsyncIterable<InvocationEvent>;
   grants: {
@@ -142,11 +133,6 @@ export function repositoryFrom(commands: RgapCommands): RgapRepository {
       create: async (input) => asResource(commands, await commands.createResource({ ...input, parentId: null })),
       get: async (id) => asResource(commands, await requireResource(commands, id)),
       list: (query) => commands.listResources(query),
-    },
-    executables: {
-      get: (resourceId) => commands.getExecutable(resourceId),
-      set: (resourceId, input) => commands.setExecutable(resourceId, input),
-      delete: (resourceId) => commands.deleteExecutable(resourceId),
     },
     invoke: (resourceId, input) => commands.invoke(resourceId, input),
     grants: {
@@ -188,13 +174,8 @@ function asResource(commands: RgapCommands, resource: Resource): ResourceHandle 
   return {
     ...resource,
     create: async (input) => asResource(commands, await commands.createResource({ ...input, parentId: resource.id })),
-    move: async (parentId) => asResource(commands, await commands.moveResource(resource.id, parentId)),
+    update: async (input) => asResource(commands, await commands.updateResource(resource.id, input)),
     delete: () => commands.deleteResource(resource.id),
-    executable: {
-      get: () => commands.getExecutable(resource.id),
-      set: (input) => commands.setExecutable(resource.id, input),
-      delete: () => commands.deleteExecutable(resource.id),
-    },
     invoke: (input) => commands.invoke(resource.id, input),
   };
 }

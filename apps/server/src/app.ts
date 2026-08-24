@@ -20,7 +20,6 @@ import {
   AuditEventSchema,
   AuthorizationHeaderSchema,
   AuthorizeSchema,
-  ExecutableDefinitionSchema,
   InvocationEventSchema,
   InvokeSchema,
   DecisionSchema,
@@ -30,11 +29,10 @@ import {
   GrantWriteSchema,
   IdParamsSchema,
   IssuedTokenSchema,
-  MoveResourceSchema,
   PageQuerySchema,
-  SetExecutableSchema,
   ResourceListQuerySchema,
   ResourceSchema,
+  ResourceUpdateSchema,
   ResourceWriteSchema,
   SetBindingsSchema,
   TokenListQuerySchema,
@@ -85,12 +83,12 @@ const createResourceRoute = commandRoute({
   request: { body: jsonBody(ResourceWriteSchema) },
   responses: { 200: jsonResponse(ResourceSchema, 'Created resource'), ...errors },
 });
-const moveResourceRoute = commandRoute({
-  method: 'post',
-  path: '/resources/{id}/move',
-  operationId: 'moveResource',
-  request: { params: IdParamsSchema, body: jsonBody(MoveResourceSchema) },
-  responses: { 200: jsonResponse(ResourceSchema, 'Moved resource'), ...errors },
+const updateResourceRoute = commandRoute({
+  method: 'patch',
+  path: '/resources/{id}',
+  operationId: 'updateResource',
+  request: { params: IdParamsSchema, body: jsonBody(ResourceUpdateSchema) },
+  responses: { 200: jsonResponse(ResourceSchema, 'Updated resource'), ...errors },
 });
 const deleteResourceRoute = commandRoute({
   method: 'delete',
@@ -98,27 +96,6 @@ const deleteResourceRoute = commandRoute({
   operationId: 'deleteResource',
   request: { params: IdParamsSchema },
   responses: { 204: { description: 'Resource deleted' }, ...errors },
-});
-const getExecutableRoute = commandRoute({
-  method: 'get',
-  path: '/resources/{id}/executable',
-  operationId: 'getExecutable',
-  request: { params: IdParamsSchema },
-  responses: { 200: jsonResponse(ExecutableDefinitionSchema, 'Executable definition'), ...errors },
-});
-const setExecutableRoute = commandRoute({
-  method: 'put',
-  path: '/resources/{id}/executable',
-  operationId: 'setExecutable',
-  request: { params: IdParamsSchema, body: jsonBody(SetExecutableSchema) },
-  responses: { 200: jsonResponse(ExecutableDefinitionSchema, 'Executable definition'), ...errors },
-});
-const deleteExecutableRoute = commandRoute({
-  method: 'delete',
-  path: '/resources/{id}/executable',
-  operationId: 'deleteExecutable',
-  request: { params: IdParamsSchema },
-  responses: { 204: { description: 'Executable deleted' }, ...errors },
 });
 const invokeRoute = commandRoute({
   method: 'post',
@@ -288,39 +265,33 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
       });
       return c.json(resourceRecord(record), 200);
     })
-    .openapi(moveResourceRoute, async (c) => {
+    .openapi(updateResourceRoute, async (c) => {
       const { id } = c.req.valid('param');
-      const { parentId } = c.req.valid('json');
-      const moved = await repository(c).resources.get(resourceId(id))
-        .then((record) => record.move(parentId === null ? null : resourceId(parentId)));
-      return c.json(resourceRecord(moved), 200);
+      const { name, parentId, executable } = c.req.valid('json');
+      const updated = await repository(c).resources.get(resourceId(id))
+        .then((record) => record.update({
+          name,
+          parentId: parentId === undefined
+            ? undefined
+            : parentId === null ? null : resourceId(parentId),
+          executable: executable
+            ? {
+              ...executable,
+              input: executableInput(executable.input),
+              bind: executable.bind
+                ? Object.fromEntries(
+                  Object.entries(executable.bind)
+                    .map(([binding, boundId]) => [binding, resourceId(boundId)]),
+                )
+                : undefined,
+            }
+            : undefined,
+        }));
+      return c.json(resourceRecord(updated), 200);
     })
     .openapi(deleteResourceRoute, async (c) => {
       const { id } = c.req.valid('param');
       await repository(c).resources.get(resourceId(id)).then((record) => record.delete());
-      return c.body(null, 204);
-    })
-    .openapi(getExecutableRoute, async (c) => {
-      const { id } = c.req.valid('param');
-      const definition = await repository(c).executables.get(resourceId(id));
-      return c.json(requireRecord(definition, 'missing_executable', 'Executable does not exist.'), 200);
-    })
-    .openapi(setExecutableRoute, async (c) => {
-      const { id } = c.req.valid('param');
-      const { runtime, input, bind } = c.req.valid('json');
-      return c.json(await repository(c).executables.set(resourceId(id), {
-        runtime,
-        input: executableInput(input),
-        bind: bind
-          ? Object.fromEntries(
-            Object.entries(bind).map(([name, boundId]) => [name, resourceId(boundId)]),
-          )
-          : undefined,
-      }), 200);
-    })
-    .openapi(deleteExecutableRoute, async (c) => {
-      const { id } = c.req.valid('param');
-      await repository(c).executables.delete(resourceId(id));
       return c.body(null, 204);
     })
     .openapi(invokeRoute, async (c) => {
@@ -535,8 +506,8 @@ function requireRecord<T>(record: T | undefined, code: string, message: string):
 }
 
 function resourceRecord(record: ResourceHandle) {
-  const { id, parentId, name, deletedAt } = record;
-  return { id, parentId, name, deletedAt };
+  const { id, parentId, name, deletedAt, executable } = record;
+  return { id, parentId, name, deletedAt, executable };
 }
 
 function grantRecord(record: GrantHandle) {

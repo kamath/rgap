@@ -7,13 +7,6 @@ export const TimestampSchema = z.iso.datetime();
 export const NullableTimestampSchema = TimestampSchema.nullable();
 export const PermissionSchema = z.enum(permissions);
 
-export const ResourceSchema = z.object({
-  id: IdSchema,
-  parentId: NullableIdSchema,
-  name: z.string(),
-  deletedAt: NullableTimestampSchema,
-}).openapi('Resource');
-
 export const JsonValueSchema = z.union([
   z.null(),
   z.boolean(),
@@ -25,7 +18,6 @@ export const JsonValueSchema = z.union([
 const ExecutableInputSchema = z.record(z.string(), z.any());
 
 export const ExecutableDefinitionSchema = z.object({
-  resourceId: IdSchema,
   runtime: z.string(),
   input: ExecutableInputSchema,
   bind: z.record(z.string(), z.object({
@@ -39,6 +31,14 @@ export const SetExecutableSchema = z.object({
   input: ExecutableInputSchema.optional(),
   bind: z.record(z.string(), IdSchema).optional(),
 }).strict();
+
+export const ResourceSchema = z.object({
+  id: IdSchema,
+  parentId: NullableIdSchema,
+  name: z.string(),
+  deletedAt: NullableTimestampSchema,
+  executable: ExecutableDefinitionSchema.nullable(),
+}).openapi('Resource');
 
 export const InvokeSchema = z.object({
   input: JsonValueSchema,
@@ -135,9 +135,14 @@ export const ResourceWriteSchema = z.object({
   executable: SetExecutableSchema.optional(),
 }).strict();
 
-export const MoveResourceSchema = z.object({
-  parentId: NullableIdSchema,
-}).strict();
+export const ResourceUpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  parentId: NullableIdSchema.optional(),
+  executable: SetExecutableSchema.optional(),
+}).strict().refine(
+  (input) => input.name !== undefined || input.parentId !== undefined || input.executable !== undefined,
+  { message: 'Select at least one resource field to update.' },
+);
 
 export const GrantWriteSchema = z.object({
   name: z.string().min(1),
