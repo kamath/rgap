@@ -254,11 +254,11 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
     return apiError(c, 500, 'internal_error', 'Internal server error.');
   });
 
-  base.openapi(getResourceRoute, async (c) => {
+  const getResourceApp = base.openapi(getResourceRoute, async (c) => {
     const { id } = c.req.valid('param');
     return c.json(resourceRecord(await repository(c).resources.get(resourceId(id))), 200);
   });
-  base.openapi(listResourcesRoute, async (c) => {
+  const listResourcesApp = base.openapi(listResourcesRoute, async (c) => {
     const query = c.req.valid('query');
     const records = await repository(c).resources.list({
       ...query,
@@ -267,7 +267,7 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
     });
     return c.json(records, 200);
   });
-  base.openapi(createResourceRoute, async (c) => {
+  const createResourceApp = base.openapi(createResourceRoute, async (c) => {
     const { name, executable } = c.req.valid('json');
     const record = await repository(c).resources.create({
       name,
@@ -287,7 +287,7 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
     return c.json(resourceRecord(record), 200);
   });
 
-  const app = base
+  const resourceMutationApp = base
     .openapi(moveResourceRoute, async (c) => {
       const { id } = c.req.valid('param');
       const { parentId } = c.req.valid('json');
@@ -299,7 +299,9 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
       const { id } = c.req.valid('param');
       await repository(c).resources.get(resourceId(id)).then((record) => record.delete());
       return c.body(null, 204);
-    })
+    });
+
+  const executableApp = base
     .openapi(getExecutableRoute, async (c) => {
       const { id } = c.req.valid('param');
       const definition = await repository(c).executables.get(resourceId(id));
@@ -332,7 +334,9 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
         input,
         signal,
       })) as never;
-    })
+    });
+
+  const grantApp = base
     .openapi(getGrantRoute, async (c) => {
       const { id } = c.req.valid('param');
       return c.json(grantRecord(await repository(c).grants.get(grantId(id))), 200);
@@ -371,7 +375,9 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
       const { id } = c.req.valid('param');
       await repository(c).grants.get(grantId(id)).then((grant) => grant.revoke());
       return c.body(null, 204);
-    })
+    });
+
+  const tokenApp = base
     .openapi(getTokenRoute, async (c) => {
       const { id } = c.req.valid('param');
       return c.json(tokenRecord(await repository(c).tokens.get(tokenId(id))), 200);
@@ -389,7 +395,9 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
       const { id } = c.req.valid('param');
       await repository(c).tokens.get(tokenId(id)).then((token) => token.revoke());
       return c.body(null, 204);
-    })
+    });
+
+  const app = base
     .openapi(listAuditRoute, async (c) => {
       const query = c.req.valid('query');
       return c.json(await repository(c).audit.list(query), 200);
@@ -417,7 +425,14 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
   });
   app.get('/ui', swaggerUI({ url: '/openapi.json' }));
 
-  return app;
+  return app as typeof app &
+    typeof getResourceApp &
+    typeof listResourcesApp &
+    typeof createResourceApp &
+    typeof resourceMutationApp &
+    typeof executableApp &
+    typeof grantApp &
+    typeof tokenApp;
 }
 
 export type AppType = ReturnType<typeof createApp>;
