@@ -3,7 +3,6 @@ import {
   createGrant,
   deleteResource,
   grantId,
-  moveResource,
   permissions,
   recordToken,
   resourceId,
@@ -12,6 +11,7 @@ import {
   setBindings,
   tokenHash,
   tokenId,
+  updateResource,
   type GrantBinding,
   type State,
 } from '@rgap/core';
@@ -27,7 +27,6 @@ function initialState() {
     resources: {},
     grants: {},
     tokens: {},
-    executables: {},
     audit: [],
   };
   state = createAtPath(state, 'acme/docs/design', null, testTime);
@@ -131,7 +130,7 @@ function applyOperation(state: State, operation: Operation, step: number) {
       const destination = operation.mask % 4 === 0
         ? null
         : choose(liveResources, operation.second)?.id ?? null;
-      return moveResource(state, resource.id, destination, testTime);
+      return updateResource(state, resource.id, { parentId: destination }, testTime);
     }
     case 'delete': {
       const resource = choose(liveResources, operation.first);

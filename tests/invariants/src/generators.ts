@@ -22,6 +22,7 @@ export const resourceTrees = fc
         parentId,
         name: `node-${index}`,
         deletedAt: null,
+        executable: null,
       };
     });
     return resources;
