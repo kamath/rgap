@@ -259,7 +259,7 @@ export function guardCommands(
     if (relation === 'outside') {
       throw new RgapError('unauthorized', 'That resource is outside this token\'s view.');
     }
-    const children = [...(view.contextualChildren.get(query.parentId)?.values() ?? [])]
+    const children = [...view.contextualChildren.get(query.parentId)!.values()]
       .sort((left, right) => left.id.localeCompare(right.id));
     return paginateRecords(children, query);
   };

@@ -89,6 +89,34 @@ describe('command guard', () => {
     expect(listedParents).not.toContain(r('slack'));
   });
 
+  it('sorts and paginates contextual root and child pages', async () => {
+    const initial = state();
+    initial.resources.beta = {
+      id: r('beta'), parentId: null, name: 'beta', deletedAt: null,
+    };
+    initial.resources['beta-leaf'] = {
+      id: r('beta-leaf'), parentId: r('beta'), name: 'beta-leaf', deletedAt: null,
+    };
+    initial.grants.coordinator.resources = [
+      cap('drive', ['read']),
+      cap('create-issue', ['read']),
+      cap('beta-leaf', ['read']),
+    ];
+    const { commands, resolveBearer } = stubCommands(initial, at);
+    const guard = guardCommands(repositoryFrom(commands), bearer, resolveBearer);
+
+    expect((await guard.resources.list({ parentId: null, limit: 1 })).map(({ id }) => id))
+      .toEqual(['acme']);
+    expect((await guard.resources.list({
+      parentId: null, cursor: r('acme'), limit: 1,
+    })).map(({ id }) => id)).toEqual(['beta']);
+    expect((await guard.resources.list({ parentId: r('acme') })).map(({ id }) => id))
+      .toEqual(['create-issue', 'drive']);
+
+    initial.grants.coordinator.resources = [];
+    expect(await guard.resources.list({ parentId: null })).toEqual([]);
+  });
+
   it('handles overlapping, deleted, cyclic, and orphaned visibility roots', async () => {
     const initial = state();
     initial.resources.deleted = {
