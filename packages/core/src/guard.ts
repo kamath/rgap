@@ -2,8 +2,6 @@ import {
   RgapError,
   grantId,
   pathParts,
-  permissions,
-  bindingAuthorizes,
   tokenId,
   type AuditEvent,
   type BearerContext,
@@ -17,12 +15,14 @@ import {
 import {
   maximumPageLimit,
   pageLimit,
+  paginateRecords,
   type GrantHandle,
   type GrantWrite,
   type IssuedToken,
   type ListQuery,
   type Page,
   type ResourceHandle,
+  type ResourceListQuery,
   type ResourceWrite,
   type RgapRepository,
   type TokenHandle,
@@ -174,40 +174,70 @@ export function guardCommands(
     value: issued.value,
   });
 
-  const allResources = async () => {
-    const records: Resource[] = [];
-    let cursor: string | undefined;
-    while (true) {
-      const page = await repository.resources.list({ cursor, limit: maximumPageLimit });
-      records.push(...page);
-      if (page.length < maximumPageLimit) return records;
-      cursor = page.at(-1)!.id;
+  const resourceRecord = ({ id, parentId, name, deletedAt }: Resource): Resource => ({
+    id, parentId, name, deletedAt,
+  });
+
+  const liveResource = async (id: ResourceId) => {
+    try {
+      return resourceRecord(await repository.resources.get(id));
+    } catch (error) {
+      if (error instanceof RgapError && error.code === 'missing_resource') return undefined;
+      throw error;
     }
   };
 
-  const visibleResourceIds = async (context?: BearerContext) => {
+  const visibleResources = async (context?: BearerContext) => {
     const currentContext = context ?? await bearerContext();
-    const [resources, grants] = await Promise.all([
-      allResources(),
-      Promise.all(currentContext.lineage.map((id) => repository.grants.get(id))),
-    ]);
-    const byId = new Map(resources.map((resource) => [resource.id, resource]));
-    const resourceState = Object.fromEntries(resources.map((resource) => [resource.id, resource]));
-    const visible = new Set<string>();
-    for (const resource of resources) {
-      const reached = permissions.some((permission) =>
-        grants.every((grant) =>
-          grant.bindings.some((binding) => bindingAuthorizes(binding, resourceState, resource.id, permission))
-        )
-      );
-      if (!reached) continue;
-      for (let current: ResourceId | null = resource.id; current;) {
-        if (visible.has(current)) break;
-        visible.add(current);
-        current = byId.get(current)?.parentId ?? null;
+    const actingGrant = await repository.grants.get(currentContext.grantId);
+    const visible = new Map<ResourceId, Resource>();
+    const traversed = new Set<ResourceId>();
+
+    for (const { id } of actingGrant.bindings) {
+      const root = await liveResource(id);
+      if (!root) continue;
+
+      const queue = [root];
+      for (let index = 0; index < queue.length; index += 1) {
+        const resource = queue[index];
+        if (traversed.has(resource.id)) continue;
+        traversed.add(resource.id);
+        visible.set(resource.id, resource);
+
+        let cursor: string | undefined;
+        while (true) {
+          const page = await repository.resources.list({
+            parentId: resource.id,
+            cursor,
+            limit: maximumPageLimit,
+          });
+          page.forEach((child) => queue.push(resourceRecord(child)));
+          if (page.length < maximumPageLimit) break;
+          cursor = page.at(-1)!.id;
+        }
+      }
+
+      const ancestors = new Set<ResourceId>();
+      for (let current = root.parentId; current && !ancestors.has(current);) {
+        ancestors.add(current);
+        const resource = visible.get(current) ?? await liveResource(current);
+        if (!resource) break;
+        visible.set(resource.id, resource);
+        current = resource.parentId;
       }
     }
+
     return visible;
+  };
+
+  const visibleResourceIds = async (context?: BearerContext) =>
+    new Set((await visibleResources(context)).keys());
+
+  const listVisibleResources = async (query: ResourceListQuery = {}) => {
+    const resources = [...(await visibleResources()).values()]
+      .filter((resource) => query.parentId === undefined || resource.parentId === query.parentId)
+      .sort((left, right) => left.id.localeCompare(right.id));
+    return paginateRecords(resources, query);
   };
 
   const grantIsVisible = async (id: GrantId, context?: BearerContext) => {
@@ -329,10 +359,7 @@ export function guardCommands(
         if (!(await visibleResourceIds()).has(id)) throw new RgapError('unauthorized', 'That resource is outside this token\'s view.');
         return wrapResource(await repository.resources.get(id));
       },
-      async list(query) {
-        const visible = await visibleResourceIds();
-        return filtered(query, (page) => repository.resources.list(page), async (resource) => visible.has(resource.id));
-      },
+      list: listVisibleResources,
     },
     executables: {
       async get(resourceId) {

@@ -66,6 +66,24 @@ describe('command guard', () => {
     expect(calls).toEqual([]);
   });
 
+  it('builds resource views from granted roots without listing unrelated branches', async () => {
+    const initial = state();
+    const { commands, resolveBearer } = stubCommands(initial, at);
+    const listResources = commands.listResources;
+    const listedParents: Array<string | null | undefined> = [];
+    commands.listResources = (query) => {
+      listedParents.push(query?.parentId);
+      return listResources(query);
+    };
+    const guard = guardCommands(repositoryFrom(commands), bearer, resolveBearer);
+
+    expect((await guard.resources.list()).map(({ id }) => id))
+      .toEqual(['acme', 'drive', 'read-file', 'search-files']);
+    expect(listedParents).toEqual([r('drive'), r('read-file'), r('search-files')]);
+    expect(listedParents).not.toContain(undefined);
+    expect(listedParents).not.toContain(r('slack'));
+  });
+
   it('filters and paginates audit events by visible target type', async () => {
     const initial = state();
     for (let index = 0; index < 100; index++) {
