@@ -63,7 +63,7 @@ describe('RGAP domain', () => {
 
   it('reports missing executable binding resources and grant lineage', () => {
     const state = fixture();
-    state.resources.drive.executable = {
+    state.resources['search-files'].executable = {
       runtime: 'test',
       input: {},
       bind: {
@@ -74,11 +74,11 @@ describe('RGAP domain', () => {
       },
     };
     expect(stateIntegrity(state)).toEqual([
-      'Executable drive binding source refers to missing resource missing-bound-resource.',
-      'Executable drive binding source refers to missing grant missing-binding-grant.',
+      'Executable search-files binding source refers to missing resource missing-bound-resource.',
+      'Executable search-files binding source refers to missing grant missing-binding-grant.',
     ]);
 
-    state.resources.drive.executable!.bind = {
+    state.resources['search-files'].executable!.bind = {
       valid: {
         resourceId: r('read-file'),
         grantLineage: [g('coordinator')],
@@ -89,6 +89,12 @@ describe('RGAP domain', () => {
       },
     };
     expect(stateIntegrity(state)).toEqual([]);
+  });
+
+  it('reports an executable resource that has children', () => {
+    const state = fixture();
+    state.resources.drive.executable = { runtime: 'test', input: {}, bind: {} };
+    expect(stateIntegrity(state)).toContain('Executable resource drive has children.');
   });
 
   it('rejects delegation that expands permission', () => {
@@ -367,6 +373,15 @@ describe('creating a resource', () => {
 
     const deleted = deleteResource(fixture(), r('drive'), at);
     expect(() => createResource(deleted, input, r('notes'), at)).toThrow('Parent resource does not exist.');
+
+    const executableParent = fixture();
+    executableParent.resources['search-files'].executable = { runtime: 'test', input: {}, bind: {} };
+    expect(() => createResource(
+      executableParent,
+      { ...input, parentId: r('search-files') },
+      r('notes'),
+      at,
+    )).toThrow('Executable resources cannot contain children.');
   });
 
   it('refuses a second resource at the same path and trims the name it stores', () => {
@@ -415,9 +430,29 @@ describe('creating a resource at a path', () => {
     expect(() => createAtPath(fixture(), '  //  ', null, at)).toThrow('Resource name is required.');
     expect(() => createAtPath(fixture(), 'notes', r('ghost'), at)).toThrow('Parent resource does not exist.');
   });
+
+  it('does not create children under executable resources', () => {
+    const state = fixture();
+    state.resources['search-files'].executable = { runtime: 'test', input: {}, bind: {} };
+    expect(() => createAtPath(state, 'child', r('search-files'), at))
+      .toThrow('Executable resources cannot contain children.');
+    expect(() => createAtPath(state, 'acme/drive/search-files/child', null, at))
+      .toThrow('Executable resources cannot contain children.');
+  });
 });
 
-describe('moving a resource', () => {
+describe('updating a resource', () => {
+  it('requires a field and refuses duplicate names', () => {
+    expect(() => updateResource(fixture(), r('search-files'), {}, at))
+      .toThrow('Select at least one resource field');
+    expect(() => updateResource(fixture(), r('search-files'), { name: ' ' }, at))
+      .toThrow('Resource name is required.');
+    expect(() => updateResource(fixture(), r('search-files'), { name: 'other/name' }, at))
+      .toThrow('Resource names cannot contain slashes.');
+    expect(() => updateResource(fixture(), r('read-file'), { name: 'search-files' }, at))
+      .toThrow('A resource already exists at that path.');
+  });
+
   it('requires a destination that exists, and allows a move to the root', () => {
     expect(() => updateResource(fixture(), r('search-files'), { parentId: r('ghost') }, at)).toThrow('Parent resource does not exist.');
     expect(updateResource(fixture(), r('drive'), { parentId: null }, at).resources.drive.parentId).toBe(null);
@@ -426,6 +461,13 @@ describe('moving a resource', () => {
   it('refuses a move into the resource itself or into its own descendant', () => {
     expect(() => updateResource(fixture(), r('drive'), { parentId: r('drive') }, at)).toThrow('A resource cannot move inside itself.');
     expect(() => updateResource(fixture(), r('drive'), { parentId: r('search-files') }, at)).toThrow('A resource cannot move inside itself.');
+  });
+
+  it('requires the destination to be a folder', () => {
+    const state = fixture();
+    state.resources['create-issue'].executable = { runtime: 'test', input: {}, bind: {} };
+    expect(() => updateResource(state, r('search-files'), { parentId: r('create-issue') }, at))
+      .toThrow('Executable resources cannot contain children.');
   });
 
   it('keeps grant targets on the resource when it moves', () => {

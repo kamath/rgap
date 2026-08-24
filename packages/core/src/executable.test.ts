@@ -60,6 +60,17 @@ describe('embedded executable definitions', () => {
       .toThrow('not registered');
   });
 
+  it('does not convert a folder with children into an executable', () => {
+    const runtimes = new RuntimeRegistry({ test: runtime() });
+    expect(() => setExecutable(
+      fixture(),
+      resourceId('drive'),
+      { runtime: 'test' },
+      at,
+      runtimes,
+    )).toThrow('A folder with children cannot become executable.');
+  });
+
   it('seals live bindings with administrative or recorded grant provenance', () => {
     const runtimes = new RuntimeRegistry({ test: runtime() });
     const admin = setExecutable(fixture(), executableId, {
