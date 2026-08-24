@@ -1,0 +1,216 @@
+---
+title: OAuth MCP proxy walkthrough
+description: Connect an OAuth-protected MCP server, authorize it, and invoke its RPCs through RGAP.
+icon: Plug
+---
+
+The MCP proxy example turns one authenticated Streamable HTTP connection into
+an executable RGAP resource. RGAP authorizes the caller, while the proxy keeps
+the upstream OAuth credentials and MCP session.
+
+This walkthrough connects a remote MCP endpoint, completes OAuth when the
+server requires it, and sends `tools/list` and `tools/call` through the RGAP
+invoke API.
+
+## Before you start
+
+Clone the repository and install its workspace dependencies:
+
+```bash
+pnpm install
+```
+
+Choose a remote Streamable HTTP MCP endpoint. The endpoint may allow anonymous
+access or require the MCP OAuth authorization flow.
+
+The example listens on port `3003`. Its OAuth redirect URI is:
+
+```text
+http://127.0.0.1:3003/oauth/callback/<flow-id>
+```
+
+The authorization server must accept that callback URI. Use a public HTTPS
+origin for a remote deployment.
+
+## 1. Start the proxy
+
+Run the example from the repository root:
+
+```bash
+MCP_SERVER_URL=https://mcp.example.com/mcp \
+PUBLIC_BASE_URL=http://127.0.0.1:3003 \
+pnpm --filter @rgap/examples mcp-proxy
+```
+
+The app prints:
+
+```text
+MCP proxy listening on http://localhost:3003
+Upstream MCP server resource: <server-resource-id>
+Executable MCP connection: <connection-resource-id>
+RGAP bearer written to examples/mcp-proxy/invoker.token
+```
+
+The proxy creates this resource structure:
+
+```text
+acme/mcp/
+├── servers/<server>
+├── connections/<server>-default
+└── credentials/<server>-default
+```
+
+The executable connection seals the upstream URL and binds the server and
+credential resources. The generated grant contains `invoke` on the connection,
+and `invoker.token` contains its opaque bearer.
+
+## 2. Complete OAuth
+
+When the MCP server requires OAuth, the app also prints:
+
+```text
+Authorize the MCP connection: https://authorization.example.com/authorize?...
+```
+
+Open that URL in a browser and approve access. The authorization server returns
+the browser to the Hono callback. The callback:
+
+1. Locates the pending flow from its random flow ID.
+2. Compares the returned state with the stored state.
+3. Rejects expired or previously consumed flows.
+4. Gives the callback parameters to the MCP SDK.
+5. Lets the SDK validate the issuer and exchange the authorization code.
+6. Stores the resulting tokens and reconnects to the MCP server.
+
+The page displays `MCP authorization complete` when the connection succeeds.
+
+The proxy stores OAuth tokens, client registration, discovery state, and PKCE
+data in `examples/mcp-proxy/credentials.db`. The records are keyed by the RGAP
+credential resource ID. Credential values never enter RGAP invocation input,
+output, or audit records.
+
+<Callout type="warn" title="Local storage only">
+  The example SQLite credential store contains plaintext values. Use an
+  encrypted deployment-owned credential store for a deployed proxy.
+</Callout>
+
+## 3. List the upstream tools
+
+In another terminal, load the generated RGAP bearer:
+
+```bash
+TOKEN=$(<examples/mcp-proxy/invoker.token)
+```
+
+Copy the executable connection resource ID printed by the app, then invoke
+`tools/list`:
+
+```bash
+curl --no-buffer \
+  --header "Authorization: Bearer $TOKEN" \
+  --header "Content-Type: application/json" \
+  --data '{"input":{"method":"tools/list"}}' \
+  http://localhost:3003/resources/<connection-resource-id>/invoke
+```
+
+The response is an NDJSON invocation stream:
+
+```json
+{"type":"data","value":{"tools":[{"name":"example_tool"}]}}
+{"type":"done"}
+```
+
+The exact `value` comes from the upstream MCP server. RGAP validates `invoke`
+before the runtime resolves the credential binding or sends the MCP request.
+
+## 4. Call a tool
+
+Use a tool name and arguments returned by `tools/list`:
+
+```bash
+curl --no-buffer \
+  --header "Authorization: Bearer $TOKEN" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "input": {
+      "method": "tools/call",
+      "params": {
+        "name": "example_tool",
+        "arguments": {
+          "query": "authorization"
+        }
+      }
+    }
+  }' \
+  http://localhost:3003/resources/<connection-resource-id>/invoke
+```
+
+The connection accepts every client-to-server request supported by the
+negotiated MCP protocol. Change `method` and `params` to invoke prompts,
+resources, completion, or extension methods exposed by the server.
+
+The MCP SDK owns `initialize`, `server/discover`, protocol negotiation, and
+session lifecycle. Callers do not send those lifecycle requests through RGAP.
+
+## 5. Understand the authorization boundary
+
+The generated grant reaches the complete connection:
+
+```yaml
+resources:
+  - id: <connection-resource-id>
+    permissions: [invoke]
+```
+
+That authority intentionally covers the complete authenticated MCP server. The
+caller receives the RGAP bearer but never receives an upstream access token,
+refresh token, registered client secret, or PKCE verifier.
+
+To downscope authority, synchronize discovered operations into child resources:
+
+```text
+acme/mcp/connections/<connection>/
+├── tools/
+│   ├── search
+│   └── create_issue
+├── prompts/
+│   └── review
+└── resources/
+    └── repository
+```
+
+Each child seals its MCP method and operation name. A grant on one child then
+authorizes that operation without authorizing the complete connection or its
+siblings.
+
+## 6. Restart the example
+
+The RGAP database and credential database persist in
+`examples/mcp-proxy`. Starting the example with the same MCP URL finds the
+stable resources and reuses stored OAuth state. The app creates a fresh RGAP
+invoker grant and overwrites `invoker.token` with its bearer.
+
+Delete the local databases and bearer when you want a clean walkthrough:
+
+```bash
+rm -f \
+  examples/mcp-proxy/credentials.db \
+  examples/mcp-proxy/rgap.db \
+  examples/mcp-proxy/invoker.token
+```
+
+## Deployment checks
+
+The example receives its MCP URL from trusted deployment configuration. A
+service that accepts user-supplied URLs also:
+
+- permits HTTPS endpoints and explicitly configured loopback development URLs;
+- blocks private, loopback, and link-local destinations by default;
+- revalidates every redirect and DNS resolution;
+- applies connection, request, and response-size limits;
+- replaces the SQLite credential store with encrypted secret storage; and
+- places the RGAP administrative bearer behind an infrastructure boundary.
+
+Continue with [MCP and agent examples](/docs/examples) for the resource and
+delegation model, or [HTTP API](/docs/guides/http-api) for the complete RGAP
+command surface.

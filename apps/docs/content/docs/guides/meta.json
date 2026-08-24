@@ -1,5 +1,5 @@
 {
   "title": "Guides",
   "icon": "Route",
-  "pages": ["http-api"]
+  "pages": ["http-api", "mcp-proxy"]
 }
