@@ -1,14 +1,6 @@
 import assert from 'node:assert/strict';
-import { type Permission } from '@rgap/core';
+import { permissions } from '@rgap/core';
 import { SqliteRgapStore } from '@rgap/sqlite';
-
-const permissions: readonly Permission[] = [
-  'read',
-  'write',
-  'invoke',
-  'move',
-  'delete',
-];
 
 const store = new SqliteRgapStore({ url: ':memory:' });
 
