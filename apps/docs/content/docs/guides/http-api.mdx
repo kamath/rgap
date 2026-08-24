@@ -79,11 +79,11 @@ The resource leaf is a folder when `executable` is absent and an executable
 resource when it is present. A grant write also carries the leaf resource set
 and expiration; every grant created in that walk stores those fields.
 
-`PATCH /resources/{id}` accepts any non-empty combination of `name`, `parentId`,
-and `executable`. It atomically renames or reparents a resource, converts an
-empty folder into an executable resource, or replaces an executable
-definition. An executable definition cannot be removed independently; delete
-the resource with `DELETE /resources/{id}`.
+`PATCH /resources/{id}` accepts any non-empty combination of `name` and
+`parentId` and atomically renames or reparents the resource. `executable`
+belongs to `POST /resources` only: a definition is sealed by create, cannot be
+patched afterward, and is retired by deleting the resource with
+`DELETE /resources/{id}`.
 
 Successful requests return the JSON-compatible RGAP records and decisions
 described by the generated schema. Commands with no response value return

@@ -132,7 +132,7 @@ The working set and write plan are specific to each command:
 | Command | Records loaded | Rows written |
 | --- | --- | --- |
 | Create resource path | Starting folder, occupied path prefixes, executable definition, bindings, and candidate IDs. | Insert each missing folder, the leaf, its normalized executable rows when present, and one audit event per inserted resource. |
-| Update resource | Resource, children, destination folder and ancestry when moving, and bindings when executable changes. | Update one resource and its normalized executable rows, then insert one audit event. |
+| Update resource | Resource, siblings, and the destination folder and its ancestry when moving. | Update one resource row and insert one audit event. |
 | Delete resource | Resource and its descendant subtree. | Tombstone the subtree and insert one audit event. |
 | Create or amend grant | Relevant parent and child grants, their resource entries, and resources needed for containment. | Insert or replace the affected grant entries, revoke uncovered descendant branches, and insert one audit event. |
 | Issue or revoke | The affected grant, token, or grant branch. | Insert or update affected rows and insert one audit event. |
@@ -155,11 +155,12 @@ The domain model embeds an executable definition in its resource. The
 normalized schema stores the definition in one `executables` row, keyed by
 `resource_id`, and one ordered `executable_bindings` row per sealed top-level
 input field. Each binding stores the target resource ID and the grant lineage
-that authorized `bind`, or administrative provenance. Resource create and
-update verify that every resource is live and the runtime is registered, then
-atomically write the resource, executable rows, bindings, and audit event.
-Executable rows are removed only when their resource is deleted. There is no
-independent executable tombstone or revision table.
+that authorized `bind`, or administrative provenance. Resource create verifies
+that every resource is live and the runtime is registered, then atomically
+writes the resource, executable rows, bindings, and audit event. Executable
+rows are written only by that create and removed only when their resource is
+deleted, so no command updates them and there is no independent executable
+tombstone or revision table.
 
 | Table | Contents |
 | --- | --- |
@@ -224,7 +225,8 @@ the same repository handles used by the local store.
 Resource and invocation operations map one-to-one:
 
 ```text
-PATCH  /resources/{id}                { name?, parentId?, executable? }
+POST   /resources                     { name, executable? }
+PATCH  /resources/{id}                { name?, parentId? }
 DELETE /resources/{id}
 POST   /resources/{id}/invoke         { input }
 ```

@@ -161,9 +161,9 @@ tests membership in the stored set.
 | --- | --- |
 | Read a resource or list children | `read` on the resource |
 | Invoke a resource | `invoke` on the resource |
-| Bind a resource into an executable | `bind` on the bound resource |
+| Bind a resource into a new executable | `bind` on the bound resource |
 | Read a resource's executable definition | `read` on the resource |
-| Update a resource's name or executable | `write` on the resource and `bind` on each new direct binding |
+| Update a resource's name | `write` on the resource |
 | Create a child | `write` on that child's parent |
 | Create at a path | `write` on the parent of each created resource |
 | Update a resource's parent | `move` on the resource and `write` on the destination folder |
@@ -370,21 +370,20 @@ Administrative create records administrative binding provenance.
 
 ### Update
 
-Update accepts at least one of `name`, `parentId`, or `executable` and changes
-all supplied fields in one transition. `name` is one non-empty path segment.
-A new `parentId` must identify a live folder, and the move must not create a
-cycle or duplicate path. Updating `parentId` never rewrites or revokes grants.
+Update accepts at least one of `name` or `parentId` and changes all supplied
+fields in one transition. `name` is one non-empty path segment. A new
+`parentId` must identify a live folder, and the move must not create a cycle or
+duplicate path. Updating `parentId` never rewrites or revokes grants.
 
-Supplying `executable` on an empty folder converts it to an executable
-resource. A folder with live children cannot become executable. Supplying
-`executable` on an executable resource replaces its definition and bindings.
-The field cannot be `null`, so an executable never converts into a folder.
+`executable` is not an update field. A resource's kind and executable
+definition are sealed by create and never change, so a folder never becomes an
+executable and an executable never converts into a folder or gains a different
+definition.
 
-Renaming or changing `executable` requires `write` on the resource.
-Reparenting requires `move` on the resource and `write` on the destination
-folder. A supplied executable definition also requires `bind` on each direct
-binding. The update validates every applicable condition and commits one
-resource record and audit event atomically.
+Renaming requires `write` on the resource. Reparenting requires `move` on the
+resource and `write` on the destination folder. The update validates every
+applicable condition and commits one resource record and audit event
+atomically.
 
 ### Delete
 
@@ -401,14 +400,11 @@ input values and pre-bind other top-level fields to ordinary resource ID
 strings. Configured and bound fields are sealed rather than caller-controlled
 invocation values.
 
-Resource create can make its new leaf executable. `resource.update` can convert
-an empty folder into an executable resource or replace an executable
-resource's definition. Both forms trim and validate the runtime name, require
-that runtime to be registered, and atomically store the resource together with
-its audit event. Updating an existing resource requires `write` on it. Both
-forms require `bind` on every directly bound resource. Each binding records the
-complete grant lineage that authorized it. Administrative bindings record
-administrative provenance.
+Resource create is the only operation that defines an executable. It trims and
+validates the runtime name, requires that runtime to be registered, requires
+`bind` on every directly bound resource, and atomically stores the resource
+together with its audit event. Each binding records the complete grant lineage
+that authorized it. Administrative bindings record administrative provenance.
 
 Configured and binding names are top-level input property names and must be
 unique across both maps. `__proto__`, `prototype`, and `constructor` are
@@ -431,13 +427,18 @@ C, invoking A can invoke B, whose own frame can then use C. Authority is not
 flattened: A's frame does not gain a direct edge to C. Every hop is revalidated
 when the call chain runs.
 
-Bindings are live references to resource identity. A frame resolves the
-target's current executable definition. Updating that definition changes the
-behavior observed through every binding to the resource.
+Bindings are references to resource identity. A frame resolves the target's
+sealed executable definition and revalidates that the target is live. Because
+that definition never changes, no principal can alter the behavior observed
+through an existing binding; behavior changes only through the deployment's
+registered runtime implementation.
 
-An executable definition cannot be removed independently. Deleting it requires
-`resource.delete`, which tombstones the complete resource. Reading the embedded
-definition requires `read`; deleting the resource requires `delete`.
+An executable definition cannot be replaced or removed independently. Retiring
+one requires `resource.delete`, which tombstones the complete resource and
+permanently disables every binding and grant-resource entry naming it.
+Publishing a different definition means creating another executable resource
+with its own ID. Reading the embedded definition requires `read`; deleting the
+resource requires `delete`.
 
 The runtime registry is immutable deployment configuration from the
 repository's perspective. Repository commands cannot register, replace, or
@@ -551,15 +552,15 @@ An implementation conforms when:
 11. Commands are exposed only through explicit token or administrative planes.
 12. Every resource is a folder or executable; only folders have children and
     every executable contains its definition.
-13. Creating or updating an executable binding requires `bind` on its direct
-    resource through the complete lineage and records that lineage with the
-    edge.
+13. Creating an executable binding requires `bind` on its direct resource
+    through the complete lineage and records that lineage with the edge.
 14. Invocation revalidates every binding lineage and live target before
     inserting sealed resource ID strings into runtime input.
-15. An executable definition is updated through its resource and can only be
-    deleted by deleting that resource.
-16. Binding authority is delegable through `invoke`, follows the target's live
-    executable definition, and never flattens transitive edges into a caller.
+15. An executable definition is written only by the create that seals it, is
+    never modified afterward, and is removed only by deleting its resource.
+16. Binding authority is delegable through `invoke`, follows the target's
+    sealed executable definition while the target stays live, and never
+    flattens transitive edges into a caller.
 17. Runtime registration, schemas, and behavior are deployment configuration
     that repository commands cannot mutate.
 18. Invocation resolves one runtime, rejects sealed input collisions, parses

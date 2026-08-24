@@ -29,7 +29,7 @@ type Resource = Folder | ExecutableResource;
 
 An empty folder remains a folder even though it currently has no children.
 Resource type follows the `executable` field rather than the current child
-count.
+count, and it is decided once when the resource is created.
 
 ## Create at a path
 
@@ -78,29 +78,41 @@ need no additional permission.
 
 ## Update
 
-`resource.update` changes a resource's name, parent, executable definition, or
-any combination of those fields atomically:
+`resource.update` changes a resource's name, parent, or both atomically:
 
 ```ts
 const updated = await design.update({
   name: 'architecture',
-  executable: {
-    runtime: 'renderArchitecture',
-    input: { format: 'markdown' },
-  },
+  parentId: platform.id,
 });
 ```
 
-An update must provide at least one field. Supplying `executable` on an empty
-folder converts it into an executable resource. A folder with live children
-cannot become executable. Supplying `executable` on an executable resource
-replaces its runtime definition and bindings.
+An update must provide at least one field. `name` and `parentId` are the only
+updatable fields. Renaming requires `write` on the resource. Reparenting
+requires `move` on the resource and `write` on the destination folder.
 
-There is no update that removes `executable` or converts an executable into a
-folder. Delete the resource instead. Renaming or replacing an executable
-requires `write` on the resource. Reparenting requires `move` on the resource
-and `write` on the destination folder. Setting direct bindings also requires
-`bind` on every bound resource.
+## Sealed executables
+
+A resource's `executable` is fixed by create. A folder never becomes an
+executable, an executable never becomes a folder, and an executable keeps the
+runtime, sealed input, and bindings it was created with for its whole
+lifetime.
+
+Publish different behavior by creating a new executable resource and deleting
+the one it replaces:
+
+```ts
+const architecture = await platform.create({
+  name: 'docs/architecture',
+  executable: { runtime: 'renderArchitecture', input: { format: 'markdown' } },
+});
+await design.delete();
+```
+
+The replacement is a distinct resource with its own ID. Grant-resource entries
+and bindings that named the deleted resource stay pointed at the tombstone and
+become permanently ineffective, so authority is re-granted deliberately rather
+than inherited by a definition that was swapped underneath it.
 
 ## Identity and location
 
@@ -143,7 +155,8 @@ Deletion marks a resource and all descendants as deleted. Records remain as
 tombstones so IDs are never reused.
 
 Deleting an executable means deleting its resource. There is no independent
-executable deletion operation.
+executable deletion operation, and deletion is the only way to retire a
+definition.
 
 - Deleted resources appear in no listing.
 - No path resolves to a deleted resource.
