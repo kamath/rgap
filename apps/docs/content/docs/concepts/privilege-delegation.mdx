@@ -235,6 +235,17 @@ Framework audit records, validation errors, and transport errors exclude
 merged input and external secret values. Applications apply the same rule to
 runtime logs, provider errors, traces, caches, and model context.
 
+## External value lifecycle
+
+Deleting a bound RGAP resource or revoking its binding lineage makes runtime
+revalidation fail, so the external value is no longer reachable through that
+edge. RGAP does not own the deployment's external secret store and does not
+physically delete its value.
+
+The deployment removes orphaned values according to its retention policy.
+Until cleanup runs, the value can remain on disk but no live RGAP binding can
+authorize its use.
+
 ## Review checklist
 
 Before granting `bind` or publishing an executable:
@@ -246,3 +257,5 @@ Before granting `bind` or publishing an executable:
 - Keep credential values outside inputs, outputs, logs, and errors.
 - Verify that revoking the recorded binding lineage disables future use.
 - Test caller attempts to override sealed fields and invoke unrelated IDs.
+- Test active call cycles, the 32-frame depth limit, and cancellation.
+- Remove external values when their RGAP resources leave service.
