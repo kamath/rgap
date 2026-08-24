@@ -103,7 +103,7 @@ await connectionResource.executable.set({
 
 const invoker = await admin.grants.create({
   name: `examples/mcp-proxy/invoker-${randomUUID()}`,
-  resources: [{ id: connectionResource.id, permissions: ['invoke'] }],
+  bindings: [{ id: connectionResource.id, permissions: ['invoke'] }],
   expiresAt: null,
 });
 const invokerToken = await invoker.tokens.create({ label: 'mcp-proxy-example' });
