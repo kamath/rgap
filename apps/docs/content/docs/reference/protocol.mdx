@@ -550,8 +550,9 @@ An implementation conforms when:
 9. Resource operations and grant amendments commit atomically with audit.
 10. Deleted resources remain as unreadable tombstones.
 11. Commands are exposed only through explicit token or administrative planes.
-12. Every resource is a folder or executable; only folders have children and
-    every executable contains its definition.
+12. Every resource is a folder or executable; only folders have children, every
+    executable contains its definition, and create fixes that kind for the
+    resource's lifetime.
 13. Creating an executable binding requires `bind` on its direct resource
     through the complete lineage and records that lineage with the edge.
 14. Invocation revalidates every binding lineage and live target before
