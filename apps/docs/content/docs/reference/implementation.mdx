@@ -16,7 +16,10 @@ apps/
 ├── server/         # Hono HTTP API and generated clients
 └── docs/           # Next.js and Fumadocs documentation
 examples/
-└── index.ts        # executable scratchpad
+├── index.ts        # executable scratchpad
+└── invariants.ts   # executable invariant walkthrough
+tests/
+└── invariants/     # property and state-machine verification
 ```
 
 ## Core boundary
@@ -279,9 +282,51 @@ over its source. SQLite tests use real in-memory databases. Server tests cover
 validation, authorization plane selection, OpenAPI generation, generated SDK
 calls, and the HTTP store.
 
+## Property-based invariant suite
+
+`tests/invariants` is a separate workspace package for security properties
+that span individual modules. It uses generated resource trees, grant
+lineages, requests, and command sequences. A failure reports the random seed
+and the smallest counterexample so the sequence can be replayed as an
+ordinary regression test.
+
+The suite verifies these properties over the authority dimensions represented
+by the protocol:
+
+- Entry containment is reflexive and transitive.
+- Every concrete request authorized by a covered child entry is authorized by
+  its parent entry.
+- Every request allowed through a child grant is allowed through every active
+  ancestor in the current resource tree.
+- Delegation and token issuance leave the parent's authority unchanged.
+- A child grant never outlives its parent.
+- Grant amendment revokes children that the replacement no longer covers.
+- Grant revocation disables every descendant, while token revocation disables
+  only that bearer.
+- Resource moves, deletion, and expiration cannot bypass complete-lineage
+  evaluation.
+- A denied transition does not mutate authorization state.
+
+State-machine checks apply generated commands one at a time and validate the
+invariants after every transition. Resource topology changes are evaluated
+against current state: moving a resource into a path grant can intentionally
+change the resources at that location, but an allowed request must still be
+covered by every ancestor.
+
+The package also exports a deterministic adapter smoke harness. An adapter
+runs one fixed delegation and revocation scenario, then compares normalized
+resource paths, grant paths, and authorization decisions with the expected
+contract. Generated state-machine checks remain focused on the pure rules, and
+adapter-specific integration tests remain beside their adapters.
+
+`examples/invariants.ts` is the deterministic, executable introduction to the
+same contract. It checks child-to-parent authorization containment and
+cascading ancestor revocation without random generation.
+
 ## Verification
 
 `pnpm build` type-checks every workspace package and produces the documentation
-site. `pnpm test` runs the core, SQLite, and server suites. Core's 100% coverage
-threshold is a gate over its source rather than a report, and each downstream
-package exercises its real adapter instead of a stand-in.
+site. `pnpm test` runs the core, SQLite, server, and property-based invariant
+suites. Core's 100% coverage threshold is a gate over its source rather than a
+report, and each downstream package exercises its real adapter instead of a
+stand-in.
