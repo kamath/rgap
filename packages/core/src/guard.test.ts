@@ -56,6 +56,8 @@ describe('command guard', () => {
     expect((await guard.resources.list({ limit: 2 })).map(({ id }) => id)).toEqual(['acme', 'drive']);
     expect((await guard.resources.list({ cursor: 'drive', limit: 2 })).map(({ id }) => id))
       .toEqual(['read-file', 'search-files']);
+    expect((await guard.resources.list({ parentId: r('drive') })).map(({ id }) => id))
+      .toEqual(['read-file', 'search-files']);
     expect((await guard.grants.list()).map(({ id }) => id)).toEqual(['coordinator', 'researcher']);
     expect((await guard.tokens.list()).map(({ id }) => id)).toEqual(['demo', 'sub']);
     expect(await guard.audit.list()).toEqual([]);
