@@ -413,7 +413,7 @@ class SqliteBackingRepository implements RgapCommands {
   }
 
   async inspectToken(token: TokenValue) {
-    return inspectAuthority(this.read(), digest(token), now());
+    return this.db.transaction(() => inspectAuthority(this.read(), digest(token), now()));
   }
 
   async reset() {
