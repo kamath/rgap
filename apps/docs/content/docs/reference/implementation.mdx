@@ -309,8 +309,8 @@ by the protocol:
 
 State-machine checks apply generated commands one at a time and validate the
 invariants after every transition. Resource topology changes are evaluated
-against current state: moving a resource into a path grant can intentionally
-change the resources at that location, but an allowed request must still be
+against current state: moving a resource beneath a bound resource can
+intentionally change the covered subtree, but an allowed request must still be
 covered by every ancestor. Generated states use the same `GrantBinding`
 contract as the core rules: each binding contains one stable resource `id` and
 a permission set. The checks use `bindingAuthorizes` for concrete requests and
