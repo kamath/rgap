@@ -121,7 +121,7 @@ describe('command guard', () => {
     await expect(guard.resources.create({ name: 'root' }))
       .rejects.toThrow('Creating a root resource is an administrative operation');
     await expect(guard.resources.create({ name: 'acme/notes' }))
-      .rejects.toThrow('No write resource survives the complete grant chain.');
+      .rejects.toThrow('No write binding survives the complete grant chain.');
     await expect(drive.move(null)).rejects.toThrow('Moving a resource to a root is an administrative');
     await expect((await guard.grants.get(g('coordinator'))).bindings.set([]))
       .rejects.toThrow("Setting a root grant's bindings is an administrative");
@@ -205,7 +205,7 @@ describe('command guard', () => {
 
     await expect(guard.resources.get(r('post-message'))).rejects.toThrow('outside this token');
     await expect((await guard.resources.get(r('search-files'))).move(r('slack')))
-      .rejects.toThrow('No write resource survives the complete grant chain.');
+      .rejects.toThrow('No write binding survives the complete grant chain.');
   });
 
   it('deletes a resource only where the token holds delete on it', async () => {
