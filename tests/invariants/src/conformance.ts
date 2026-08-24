@@ -41,16 +41,16 @@ export async function runAdapterConformance(
   const admin = store.admin();
   await admin.reset();
 
-  const design = await admin.resources.create({
-    name: 'acme/platform/docs/design',
-  });
-  const payroll = await admin.resources.create({
-    name: 'acme/finance/payroll',
-  });
+  const acme = await admin.resources.create({ name: 'acme' });
+  const platform = await acme.create({ name: 'platform' });
+  const docs = await platform.create({ name: 'docs' });
+  const design = await docs.create({ name: 'design' });
+  const finance = await acme.create({ name: 'finance' });
+  const payroll = await finance.create({ name: 'payroll' });
   const companyGrant = await admin.grants.create({
     name: 'company',
-    resources: [{
-      path: 'acme',
+    bindings: [{
+      id: acme.id,
       permissions: ['read', 'write'],
     }],
     expiresAt: null,
@@ -59,8 +59,8 @@ export async function runAdapterConformance(
   const company = store.as(companyToken.value);
   const agentGrant = await company.grants.create({
     name: 'company/team/agent',
-    resources: [{
-      path: 'acme/platform/docs',
+    bindings: [{
+      id: docs.id,
       permissions: ['read'],
     }],
     expiresAt: null,
