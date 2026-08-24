@@ -9,10 +9,10 @@ import {
   resourceId,
   revokeGrant,
   revokeToken,
-  setResources,
+  setBindings,
   tokenHash,
   tokenId,
-  type GrantResource,
+  type GrantBinding,
   type State,
 } from '@rgap/core';
 import fc from 'fast-check';
@@ -36,7 +36,7 @@ function initialState() {
   state = createGrant(state, {
     name: 'company',
     parentId: null,
-    resources: [{
+    bindings: [{
       id: resourceId('acme'),
       permissions: [...permissions],
     }],
@@ -60,13 +60,11 @@ const active = (
 const choose = <T>(items: T[], index: number) =>
   items.length ? items[index % items.length] : undefined;
 
-function narrowed(entry: GrantResource, mask: number): GrantResource {
-  const selected = entry.permissions.filter(
+function narrowed(binding: GrantBinding, mask: number): GrantBinding {
+  const selected = binding.permissions.filter(
     (permission, index) => permission === 'read' || (mask & (1 << index)) !== 0,
   );
-  return 'path' in entry
-    ? { path: entry.path, permissions: selected }
-    : { id: entry.id, permissions: selected };
+  return { id: binding.id, permissions: selected };
 }
 
 function applyOperation(state: State, operation: Operation, step: number) {
@@ -80,12 +78,12 @@ function applyOperation(state: State, operation: Operation, step: number) {
     case 'delegate': {
       const parent = choose(activeGrants, operation.first);
       if (!parent) return state;
-      const entry = choose(parent.resources, operation.second);
+      const binding = choose(parent.bindings, operation.second);
       const id = grantId(`delegated-${step}`);
       let next = createGrant(state, {
         name: `delegated-${step}`,
         parentId: parent.id,
-        resources: entry ? [narrowed(entry, operation.mask)] : [],
+        bindings: binding ? [narrowed(binding, operation.mask)] : [],
         expiresAt: parent.expiresAt,
       }, id, testTime);
       next = recordToken(next, {
@@ -121,11 +119,11 @@ function applyOperation(state: State, operation: Operation, step: number) {
     case 'amend': {
       const grant = choose(activeGrants, operation.first);
       if (!grant) return state;
-      const entry = choose(grant.resources, operation.second);
-      const resources = operation.mask % 3 === 0 || !entry
+      const binding = choose(grant.bindings, operation.second);
+      const bindings = operation.mask % 3 === 0 || !binding
         ? []
-        : [narrowed(entry, operation.mask)];
-      return setResources(state, grant.id, resources, testTime);
+        : [narrowed(binding, operation.mask)];
+      return setBindings(state, grant.id, bindings, testTime);
     }
     case 'move': {
       const resource = choose(liveResources, operation.first);
@@ -170,7 +168,7 @@ describe('generated RGAP state transitions', () => {
     expect(() => createGrant(state, {
       name: 'unbounded',
       parentId: grantId('company'),
-      resources: [],
+      bindings: [],
       expiresAt: null,
     }, grantId('unbounded'), testTime)).toThrow('must not exceed');
     expect(state).toEqual(before);

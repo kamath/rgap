@@ -1,30 +1,22 @@
 import assert from 'node:assert/strict';
-import { type Permission } from '@rgap/core';
+import { permissions } from '@rgap/core';
 import { SqliteRgapStore } from '@rgap/sqlite';
-
-const permissions: readonly Permission[] = [
-  'read',
-  'write',
-  'invoke',
-  'move',
-  'delete',
-];
 
 const store = new SqliteRgapStore({ url: ':memory:' });
 
 try {
   const admin = store.admin();
-  const design = await admin.resources.create({
-    name: 'acme/platform/docs/design',
-  });
-  await admin.resources.create({
-    name: 'acme/finance/payroll',
-  });
+  const acme = await admin.resources.create({ name: 'acme' });
+  const platform = await acme.create({ name: 'platform' });
+  const docs = await platform.create({ name: 'docs' });
+  const design = await docs.create({ name: 'design' });
+  const finance = await acme.create({ name: 'finance' });
+  await finance.create({ name: 'payroll' });
 
   const companyGrant = await admin.grants.create({
     name: 'company',
-    resources: [{
-      path: 'acme',
+    bindings: [{
+      id: acme.id,
       permissions: ['read', 'write'],
     }],
     expiresAt: null,
@@ -34,8 +26,8 @@ try {
 
   const agentGrant = await company.grants.create({
     name: 'company/team/user/agent',
-    resources: [{
-      path: 'acme/platform/docs',
+    bindings: [{
+      id: docs.id,
       permissions: ['read'],
     }],
     expiresAt: null,
