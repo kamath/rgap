@@ -82,7 +82,7 @@ export default function HomePage() {
           </div>
           <pre className="whitespace-pre-wrap break-words p-5 text-[13px] leading-7 text-fd-muted-foreground sm:p-7 sm:text-sm">
             <code>{`const model = await admin.resources.create({
-  name: 'acme/models/openai',
+  name: 'openai/gpt-5.6-sol',
 });
 await model.executable.set({ runtime: 'openai' });
 
@@ -96,11 +96,14 @@ const token = await grant.tokens.create({ label: 'employee' });
 const employee = store.as(token.value);
 const authorizedModel = await employee.resources.get(model.id);
 
-for await (const event of authorizedModel.invoke({
-  input: { prompt: 'Summarize the design notes.' },
-})) {
-  console.log(event);
-}`}</code>
+const response = (await Array.fromAsync(authorizedModel.invoke({
+  input: {
+    model: 'gpt-5.6-sol',
+    prompt: 'Summarize the design notes.',
+  },
+})))
+  .filter((event) => event.type === 'data')
+  .at(-1)?.value;`}</code>
           </pre>
         </div>
       </section>
