@@ -7,7 +7,6 @@ import {
   RgapError,
   RuntimeRegistry,
   resourceId,
-  tokenValue,
   type InvokeRuntime,
   type RgapRepository,
   type State,
@@ -436,20 +435,6 @@ describe('SqliteRgapStore', () => {
     const audit = await repository.audit.list();
     expect(audit.slice(0, 2).map((event) => event.result)).toEqual(['denied', 'allowed']);
     expect(audit.every((event) => event.action.length > 0)).toBe(true);
-  });
-
-  it('reports the authority a token holds', async () => {
-    const repository = open({ initialState: acme() }).admin();
-    const grant = await rootGrant(repository);
-    await grant.resources.set([
-      { id: resourceId('drive'), permissions: ['read', 'invoke'] },
-    ]);
-    const { value } = await grant.tokens.create({ label: 'cli' });
-
-    const authority = await repository.inspectToken(value);
-    expect(authority.valid).toBe(true);
-    expect(authority.permissions.drive).toEqual(['read', 'invoke']);
-    expect((await repository.inspectToken(tokenValue('rgap_unknown'))).valid).toBe(false);
   });
 
   it('moves, deletes, and revokes', async () => {

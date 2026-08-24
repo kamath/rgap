@@ -113,7 +113,7 @@ the tree and raise `resource_cycle`.
 
 Deletion marks a resource and its live descendants with `deletedAt`. Tombstones
 are not live and are excluded from listings, grant-resource validation,
-authorization, and authority views.
+authorization, and guarded views.
 
 Records remain so stable IDs are never reused. Sibling-name uniqueness considers
 only live resources, so a new resource may reuse a deleted name with a new ID.
@@ -281,6 +281,11 @@ A token is an opaque bearer string. Implementations store only a
 preimage-resistant hash and compare the hash of a presented bearer. A token
 does not outlive its grant and grants no authority of its own.
 
+The guard resolves a presented bearer to its active token and complete active
+grant lineage. Bearer resolution is internal to the store and is not a
+repository or HTTP operation. An unknown, expired, or revoked token, or an
+inactive grant in its lineage, rejects the guarded command as unauthorized.
+
 ## Decision procedure
 
 `authorize(state, tokenHash, resourceId, permission, now)` returns:
@@ -313,23 +318,15 @@ allowed = chain.every((grant) =>
 Authority is the intersection of the complete lineage in the current resource
 tree.
 
-### Authority view
+### Guarded views
 
-`inspectToken(state, tokenHash, now)` evaluates the decision procedure for each
-permission on every live resource:
-
-```ts
-type AuthorityView = {
-  valid: boolean;
-  detail: string;
-  grantId: string | null;
-  lineage: string[];
-  permissions: Record<string, Permission[]>;
-};
-```
-
-An invalid token or inactive lineage yields no permissions and a detail that
-explains why.
+`store.as(token)` returns a guarded repository. Resource collections contain
+the live resources reached by the token's effective authority and the live
+ancestors needed to present their hierarchy. Grant, token, and audit
+collections are filtered to the acting grant's lineage and delegated branch.
+The guard computes these views without exposing or materializing a complete
+resource-permission matrix. Call `authorize` when an explicit decision for one
+resource and permission is required.
 
 ## Resource operations
 

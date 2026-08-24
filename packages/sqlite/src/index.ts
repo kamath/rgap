@@ -15,7 +15,6 @@ import {
   grantIdAtPath,
   getAuthorizedLineage,
   guardCommands,
-  inspectAuthority,
   invokeExecutable,
   moveResource as move,
   pageLimit,
@@ -25,6 +24,7 @@ import {
   recordToken,
   resourceId,
   resourceIdAtPath,
+  resolveBearer as resolve,
   revokeGrant as revokeGrantBranch,
   revokeToken as revokeTokenRecord,
   RuntimeRegistry,
@@ -83,7 +83,11 @@ export class SqliteRgapStore implements RgapStore {
   }
 
   as(token: TokenValue): RgapRepository {
-    return guardCommands(repositoryFrom(this.repository), token);
+    return guardCommands(
+      repositoryFrom(this.repository),
+      token,
+      (bearer) => this.repository.resolveBearer(bearer),
+    );
   }
 
   /** Releases the connection. A `:memory:` database ceases to exist with it. */
@@ -411,8 +415,20 @@ class SqliteBackingRepository implements RgapCommands {
     });
   }
 
-  async inspectToken(token: TokenValue) {
-    return this.db.transaction(() => inspectAuthority(this.read(), digest(token), now()));
+  async resolveBearer(token: TokenValue) {
+    const at = now();
+    const hash = digest(token);
+    return this.db.transaction(() => {
+      const state = this.workingState();
+      const row = this.db.select().from(schema.tokens)
+        .where(eq(schema.tokens.hash, hash)).orderBy(asc(schema.tokens.id)).get();
+      if (row) {
+        const record = tokenRecord(row);
+        state.tokens[record.id] = record;
+        this.loadGrantLineage(state, record.grantId);
+      }
+      return resolve(state, hash, at);
+    });
   }
 
   async reset() {
@@ -716,81 +732,6 @@ class SqliteBackingRepository implements RgapCommands {
     };
   }
 
-  private read(): State {
-    const state = emptyState();
-
-    this.db.select().from(schema.resources).orderBy(asc(schema.resources.id)).all().forEach((row) => {
-      state.resources[row.id] = {
-        id: resourceId(row.id),
-        parentId: row.parentId ? resourceId(row.parentId) : null,
-        name: row.name,
-        deletedAt: row.deletedAt,
-      };
-    });
-
-    this.db.select().from(schema.grants).orderBy(asc(schema.grants.id)).all().forEach((row) => {
-      state.grants[row.id] = {
-        id: grantId(row.id),
-        name: row.name,
-        parentId: row.parentId ? grantId(row.parentId) : null,
-        resources: [],
-        expiresAt: row.expiresAt,
-        revokedAt: row.revokedAt,
-      };
-    });
-
-    const held = new Map<string, Set<Permission>>();
-    this.db.select().from(schema.grantResourcePermissions).all().forEach((row) => {
-      const key = entryKey(row.grantId, row.position);
-      const set = held.get(key) ?? new Set<Permission>();
-      set.add(row.permission);
-      held.set(key, set);
-    });
-
-    this.db
-      .select()
-      .from(schema.grantResources)
-      .orderBy(asc(schema.grantResources.grantId), asc(schema.grantResources.position))
-      .all()
-      .forEach((row) => {
-        const carried = held.get(entryKey(row.grantId, row.position));
-        // An entry's permissions are a set, so they are read in the protocol's canonical order.
-        const permissions = canonicalPermissions.filter((permission) => carried?.has(permission));
-        state.grants[row.grantId].resources.push({ id: resourceId(row.id), permissions });
-      });
-
-    this.db.select().from(schema.tokens).orderBy(asc(schema.tokens.id)).all().forEach((row) => {
-      state.tokens[row.id] = {
-        id: tokenId(row.id),
-        grantId: grantId(row.grantId),
-        label: row.label,
-        hash: tokenHash(row.hash),
-        expiresAt: row.expiresAt,
-        revokedAt: row.revokedAt,
-      };
-    });
-
-    this.db.select().from(schema.executables).orderBy(asc(schema.executables.resourceId)).all().forEach((row) => {
-      state.executables[row.resourceId] = {
-        resourceId: resourceId(row.resourceId),
-        runtime: row.runtime,
-      };
-    });
-
-    this.db.select().from(schema.audit).orderBy(asc(schema.audit.seq)).all().forEach((row) => {
-      state.audit.push({
-        id: row.id,
-        at: row.at,
-        action: row.action,
-        target: row.target as RecordId,
-        result: row.result,
-        detail: row.detail,
-      });
-    });
-
-    return state;
-  }
-
   /** Replaces the stored rows with one complete state, writing parents before children. */
   private replace(state: State) {
     this.db.delete(schema.grantResourcePermissions).run();
@@ -854,7 +795,6 @@ const completeState = (state?: State): State => ({
   ...structuredClone(state ?? {}),
 });
 const now = () => new Date().toISOString();
-const entryKey = (grantId: string, position: number) => `${grantId}:${position}`;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const digest = (value: string) => tokenHash(hash(value));
 const resourceIdBase = (name: string) =>

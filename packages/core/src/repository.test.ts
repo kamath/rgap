@@ -65,7 +65,7 @@ describe('repositoryFrom', () => {
     await expect(repository.tokens.get(tokenId('ghost'))).rejects.toThrow('Token does not exist.');
   });
 
-  it('forwards collection queries, authorize, inspect, and reset', async () => {
+  it('forwards collection queries, authorize, and reset', async () => {
     const { commands, calls } = stubCommands(fixture(), at);
     const repository = repositoryFrom(commands);
     const token = tokenValue('b528aaf0496a7f1b670eaf73987ee9237eaddbbefa1ade4844e5d318d4d35bc3');
@@ -76,7 +76,6 @@ describe('repositoryFrom', () => {
     expect((await repository.tokens.list({ grantId: grantId('coordinator') }))[0].id).toBe('demo');
     expect(await repository.audit.list()).toEqual([]);
     expect((await repository.authorize(token, resourceId('search-files'), 'invoke')).allowed).toBe(true);
-    expect((await repository.inspectToken(token)).grantId).toBe('coordinator');
     await repository.reset();
     expect(calls).toEqual([{ method: 'reset', args: [] }]);
   });

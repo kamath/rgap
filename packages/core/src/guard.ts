@@ -2,13 +2,15 @@ import {
   RgapError,
   grantId,
   pathParts,
-  resourceId,
+  permissions,
+  resourceAuthorizes,
   tokenId,
   type AuditEvent,
-  type AuthorityView,
+  type BearerContext,
   type GrantResource,
   type GrantId,
   type Permission,
+  type Resource,
   type ResourceId,
   type TokenValue,
 } from './domain';
@@ -34,14 +36,19 @@ import { withAuthorizedLineage } from './executable';
  * the enforced path, stated once here rather than re-derived by every host. Collection reads expose
  * only records in the acting token's resource and delegation views. Handles inherit the same checks.
  */
-export function guardCommands(repository: RgapRepository, token: TokenValue): RgapRepository {
+export function guardCommands(
+  repository: RgapRepository,
+  token: TokenValue,
+  resolveBearer: (token: TokenValue) => Promise<BearerContext>,
+): RgapRepository {
+  const bearerContext = () => resolveBearer(token);
+
   const actingGrantId = async () => {
-    const view = await repository.inspectToken(token);
-    if (!view.valid || !view.grantId) throw new RgapError('unauthorized', view.detail);
-    return view.grantId;
+    return (await bearerContext()).grantId;
   };
 
   const permit = async (id: ResourceId, permission: Permission) => {
+    await bearerContext();
     const decision = await repository.authorize(token, id, permission);
     if (!decision.allowed) throw new RgapError('unauthorized', decision.detail);
     return decision;
@@ -69,6 +76,7 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
       return wrapResource(await resource.create(input));
     },
     async move(parentId) {
+      await bearerContext();
       if (!parentId) administrative('Moving a resource to a root');
       await permit(resource.id, 'move');
       await permit(parentId, 'write');
@@ -112,6 +120,7 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
   const wrapGrant = (grant: GrantHandle): GrantHandle => {
     const resources = Object.assign([...grant.resources], {
       async set(entries: GrantResource[]) {
+        await bearerContext();
         if (!grant.parentId) administrative("Setting a root grant's resources");
         if (grant.id === (await actingGrantId())) {
           throw new RgapError('unauthorized', 'A token may not set the resources of its own grant.');
@@ -153,27 +162,48 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
     value: issued.value,
   });
 
-  const visibleResourceIds = async (view?: AuthorityView) => {
-    const currentView = view ?? await repository.inspectToken(token);
-    if (!currentView.valid) return new Set<string>();
+  const allResources = async () => {
+    const records: Resource[] = [];
+    let cursor: string | undefined;
+    while (true) {
+      const page = await repository.resources.list({ cursor, limit: maximumPageLimit });
+      records.push(...page);
+      if (page.length < maximumPageLimit) return records;
+      cursor = page.at(-1)!.id;
+    }
+  };
+
+  const visibleResourceIds = async (context?: BearerContext) => {
+    const currentContext = context ?? await bearerContext();
+    const [resources, grants] = await Promise.all([
+      allResources(),
+      Promise.all(currentContext.lineage.map((id) => repository.grants.get(id))),
+    ]);
+    const byId = new Map(resources.map((resource) => [resource.id, resource]));
+    const resourceState = Object.fromEntries(resources.map((resource) => [resource.id, resource]));
     const visible = new Set<string>();
-    for (const reached of Object.keys(currentView.permissions)) {
-      for (let current: ResourceId | null = resourceId(reached); current;) {
+    for (const resource of resources) {
+      const reached = permissions.some((permission) =>
+        grants.every((grant) =>
+          grant.resources.some((entry) => resourceAuthorizes(entry, resourceState, resource.id, permission))
+        )
+      );
+      if (!reached) continue;
+      for (let current: ResourceId | null = resource.id; current;) {
         if (visible.has(current)) break;
         visible.add(current);
-        current = (await repository.resources.get(current)).parentId;
+        current = byId.get(current)?.parentId ?? null;
       }
     }
     return visible;
   };
 
-  const grantIsVisible = async (id: GrantId, view?: AuthorityView) => {
-    const currentView = view ?? await repository.inspectToken(token);
-    if (!currentView.valid || !currentView.grantId) return false;
-    if (currentView.lineage.includes(id)) return true;
+  const grantIsVisible = async (id: GrantId, context?: BearerContext) => {
+    const currentContext = context ?? await bearerContext();
+    if (currentContext.lineage.includes(id)) return true;
     try {
       for (let current: GrantId | null = id; current;) {
-        if (current === currentView.grantId) return true;
+        if (current === currentContext.grantId) return true;
         current = (await repository.grants.get(current)).parentId;
       }
     } catch {
@@ -182,16 +212,17 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
     return false;
   };
 
-  const tokenIsVisible = async (id: TokenHandle['id'], view?: AuthorityView) => {
+  const tokenIsVisible = async (id: TokenHandle['id'], context?: BearerContext) => {
+    const currentContext = context ?? await bearerContext();
     try {
       const record = await repository.tokens.get(id);
-      return grantIsVisible(record.grantId, view);
+      return grantIsVisible(record.grantId, currentContext);
     } catch {
       return false;
     }
   };
 
-  const auditIsVisible = async (event: AuditEvent, view: AuthorityView, resources: Set<string>) => {
+  const auditIsVisible = async (event: AuditEvent, context: BearerContext, resources: Set<string>) => {
     if (
       event.action === 'authorize' ||
       event.action.startsWith('resource.') ||
@@ -200,8 +231,8 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
     ) {
       return resources.has(event.target);
     }
-    if (event.action.startsWith('grant.')) return grantIsVisible(grantId(event.target), view);
-    if (event.action.startsWith('token.')) return tokenIsVisible(tokenId(event.target), view);
+    if (event.action.startsWith('grant.')) return grantIsVisible(grantId(event.target), context);
+    if (event.action.startsWith('token.')) return tokenIsVisible(tokenId(event.target), context);
     return false;
   };
 
@@ -276,6 +307,7 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
   return {
     resources: {
       async create(input: ResourceWrite) {
+        await bearerContext();
         await authorizeCreateFrom(null, input.name);
         return wrapResource(await repository.resources.create(input));
       },
@@ -305,6 +337,7 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
     invoke: guardedInvoke,
     grants: {
       async create(input) {
+        await bearerContext();
         await authorizeGrantCreateRoute(input.name);
         return wrapGrant(await repository.grants.create(input));
       },
@@ -313,8 +346,8 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
         return wrapGrant(await repository.grants.get(id));
       },
       async list(query) {
-        const view = await repository.inspectToken(token);
-        return filtered(query, (page) => repository.grants.list(page), (grant) => grantIsVisible(grant.id, view));
+        const context = await bearerContext();
+        return filtered(query, (page) => repository.grants.list(page), (grant) => grantIsVisible(grant.id, context));
       },
     },
     tokens: {
@@ -323,20 +356,23 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
         return wrapToken(await repository.tokens.get(id));
       },
       async list(query) {
-        const view = await repository.inspectToken(token);
-        return filtered(query, (page) => repository.tokens.list(page), (record) => grantIsVisible(record.grantId, view));
+        const context = await bearerContext();
+        return filtered(query, (page) => repository.tokens.list(page), (record) => grantIsVisible(record.grantId, context));
       },
     },
     audit: {
       async list(query) {
-        const view = await repository.inspectToken(token);
-        const resources = await visibleResourceIds(view);
-        return filtered(query, (page) => repository.audit.list(page), (event) => auditIsVisible(event, view, resources));
+        const context = await bearerContext();
+        const resources = await visibleResourceIds(context);
+        return filtered(query, (page) => repository.audit.list(page), (event) => auditIsVisible(event, context, resources));
       },
     },
-    authorize: (bearer, resourceId, permission) => repository.authorize(bearer, resourceId, permission),
-    inspectToken: (bearer) => repository.inspectToken(bearer),
+    async authorize(bearer, resourceId, permission) {
+      await bearerContext();
+      return repository.authorize(bearer, resourceId, permission);
+    },
     async reset() {
+      await bearerContext();
       administrative('Resetting the store');
     },
   };

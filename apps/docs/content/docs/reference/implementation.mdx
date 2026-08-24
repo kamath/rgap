@@ -88,7 +88,7 @@ runtime and on the wire:
 | `ResourceId` | Resource records, grant-resource ID targets, and move destinations. |
 | `GrantId` | Grant records, grant ancestry, and token grant references. |
 | `TokenId` | Stored token-record identity. |
-| `TokenValue` | The one-time bearer accepted by `store.as`, `authorize`, and `inspectToken`. |
+| `TokenValue` | The one-time bearer accepted by `store.as` and `authorize`. |
 | `TokenHash` | The bearer hash stored on a token record. |
 
 Repository reads return branded values. Seed data and tests that construct
@@ -138,16 +138,16 @@ The working set and write plan are specific to each command:
 | Issue or revoke | The affected grant, token, or grant branch. | Insert or update affected rows and insert one audit event. |
 | Set or delete executable | Resource and its executable association. | Upsert or delete one association and insert one audit event. |
 | Authorize | Token selected by hash, grant lineage, requested resource ancestry, and path prefixes required by lineage entries. | Insert one audit event. |
+| Resolve bearer | Token selected by hash and its grant lineage. | None. |
 | Record invocation | No repository snapshot. | Insert one audit event. |
 
 Parent and child traversal uses ordinary key and parent/child lookups in
 bounded batches; the persistence contract does not require recursive SQL.
 Every multi-query load observes the transaction's consistent database state.
-
-`inspectToken` materializes the live resources needed by its complete
-authority view. `reset` and initial-state installation are explicit bulk
-operations and may replace all rows. Ordinary commands never use those bulk
-paths.
+Bearer resolution is an internal guard operation that validates the token and
+its grant lineage without materializing a resource-permission map. `reset` and
+initial-state installation are explicit bulk operations and may replace all
+rows. Ordinary commands never use those bulk paths.
 
 Rows are inserted parents before children so foreign keys hold after every
 statement. Issued bearer values are returned once; token rows contain hashes.

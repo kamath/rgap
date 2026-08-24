@@ -48,8 +48,6 @@ try {
   });
   const agentToken = await agentGrant.tokens.create({ label: 'openai-agent' });
   const agent = store.as(agentToken.value);
-  const authority = await agent.inspectToken(agentToken.value);
-  console.log(authority.permissions[model.id]);
   const authorizedModel = await agent.resources.get(model.id);
 
   for await (const event of authorizedModel.invoke({

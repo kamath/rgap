@@ -1,5 +1,5 @@
 import {
-  authorize, inspectAuthority, grantId, resourceId, tokenHash, tokenId, tokenValue,
+  authorize, grantId, resolveBearer, resourceId, tokenHash, tokenId, tokenValue,
   type GrantResource, type Resource, type State,
 } from './domain';
 import { paginateRecords, repositoryFrom, type RgapCommands } from './repository';
@@ -88,7 +88,6 @@ export function stubCommands(state: State, at: string) {
     listAudit: (query = {}) => Promise.resolve(paginateRecords(state.audit, query)),
     // Tests treat the bearer as the stored hash, so the stub re-brands rather than hashing.
     authorize: (token, id, permission) => Promise.resolve(authorize(state, tokenHash(token), id, permission, at)),
-    inspectToken: (token) => Promise.resolve(inspectAuthority(state, tokenHash(token), at)),
     createResource: (input) => record('createResource', [input], { ...input, id: resourceId('created'), deletedAt: null }),
     moveResource: (id, parentId) => record('moveResource', [id, parentId], resourceStub(id, parentId)),
     deleteResource: (id) => record('deleteResource', [id], undefined),
@@ -116,5 +115,7 @@ export function stubCommands(state: State, at: string) {
     revokeGrant: (id) => record('revokeGrant', [id], undefined),
     reset: () => record('reset', [], undefined),
   };
-  return { commands, calls };
+  const resolve = (token: ReturnType<typeof tokenValue>) =>
+    Promise.resolve(resolveBearer(state, tokenHash(token), at));
+  return { commands, calls, resolveBearer: resolve };
 }

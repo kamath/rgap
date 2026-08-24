@@ -81,14 +81,6 @@ export const DecisionSchema = z.object({
   lineage: z.array(IdSchema),
 }).openapi('Decision');
 
-export const AuthorityViewSchema = z.object({
-  valid: z.boolean(),
-  detail: z.string(),
-  grantId: NullableIdSchema,
-  lineage: z.array(IdSchema),
-  permissions: z.record(z.string(), z.array(PermissionSchema)),
-}).openapi('AuthorityView');
-
 export const IssuedTokenSchema = z.object({
   record: TokenSchema,
   value: z.string(),
@@ -157,8 +149,4 @@ export const AuthorizeSchema = z.object({
   token: z.string().min(1),
   resourceId: IdSchema,
   permission: PermissionSchema,
-}).strict();
-
-export const InspectTokenSchema = z.object({
-  token: z.string().min(1),
 }).strict();
