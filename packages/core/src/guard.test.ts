@@ -128,6 +128,12 @@ describe('command guard', () => {
     initial.resources.loop = {
       id: r('loop'), parentId: r('loop'), name: 'loop', deletedAt: null,
     };
+    initial.resources['cycle-a'] = {
+      id: r('cycle-a'), parentId: r('cycle-b'), name: 'cycle-a', deletedAt: null,
+    };
+    initial.resources['cycle-b'] = {
+      id: r('cycle-b'), parentId: r('cycle-a'), name: 'cycle-b', deletedAt: null,
+    };
     initial.grants.coordinator.resources = [
       cap('drive', ['read']),
       cap('search-files', ['read']),
@@ -142,6 +148,7 @@ describe('command guard', () => {
     expect((await guard.resources.get(r('orphan'))).id).toBe('orphan');
     expect((await guard.resources.get(r('loop'))).id).toBe('loop');
     await expect(guard.resources.get(r('deleted'))).rejects.toThrow('outside this token');
+    await expect(guard.resources.get(r('cycle-a'))).rejects.toThrow('Resource tree contains a cycle');
   });
 
   it('propagates unexpected failures while loading visibility roots', async () => {
