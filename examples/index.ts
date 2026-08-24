@@ -14,7 +14,6 @@
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import {
-  resourceId,
   resourcePath,
   type InvokeRuntime,
   type Permission,
@@ -145,10 +144,10 @@ const tokens = [
 ] as const;
 
 for (const [label, token] of tokens) {
-  const authority = await company.inspectToken(token);
-  console.log(`\n${label}: ${authority.detail}`);
-  Object.entries(authority.permissions).forEach(([id, held]) => {
-    console.log(`  ${path(resourceId(id)).padEnd(26)} ${held.join(' ')}`);
+  const visible = await store.as(token).resources.list({ limit: 100 });
+  console.log(`\n${label} resource view:`);
+  visible.forEach(({ id }) => {
+    console.log(`  ${path(id)}`);
   });
 }
 
