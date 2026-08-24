@@ -327,9 +327,16 @@ tree.
 the live resources reached by the token's effective authority and the live
 ancestors needed to present their hierarchy. Grant, token, and audit
 collections are filtered to the acting grant's lineage and delegated branch.
-The guard computes these views without exposing or materializing a complete
-resource-permission matrix. Call `authorize` when an explicit decision for one
-resource and permission is required.
+
+Every grant-resource entry carries `read`, and each child grant entry is
+contained by an entry on every ancestor grant. The acting grant's resource IDs
+therefore form the roots of its effective resource view. The guard walks live
+descendants from those roots and follows their parent links to include live
+ancestors. It does not enumerate unrelated resource branches or materialize a
+complete resource-permission matrix.
+
+Call `authorize` when an explicit decision for one resource and permission is
+required.
 
 ## Resource operations
 
