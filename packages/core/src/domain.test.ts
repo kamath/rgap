@@ -673,6 +673,13 @@ describe('authorization decisions', () => {
     expect(authorize(state, demo, r('read-file'), 'invoke', at).allowed).toBe(true);
     expect(authorize(state, demo, r('post-message'), 'invoke', at).allowed).toBe(false);
   });
+
+  it('denies a permission the matching resource entry does not carry', () => {
+    const state = fixture();
+    state.grants.coordinator.resources = [{ id: r('search-files'), permissions: ['read'] }];
+
+    expect(authorize(state, demo, r('search-files'), 'invoke', at).allowed).toBe(false);
+  });
 });
 
 describe('resolving a bearer internally', () => {

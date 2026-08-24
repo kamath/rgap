@@ -180,11 +180,12 @@ export function guardCommands(
       Promise.all(currentContext.lineage.map((id) => repository.grants.get(id))),
     ]);
     const byId = new Map(resources.map((resource) => [resource.id, resource]));
+    const resourceState = Object.fromEntries(resources.map((resource) => [resource.id, resource]));
     const visible = new Set<string>();
     for (const resource of resources) {
       const reached = permissions.some((permission) =>
         grants.every((grant) =>
-          grant.resources.some((entry) => resourceAuthorizes(entry, resources, resource.id, permission))
+          grant.resources.some((entry) => resourceAuthorizes(entry, resourceState, resource.id, permission))
         )
       );
       if (!reached) continue;

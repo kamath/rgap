@@ -66,6 +66,12 @@ describe('command guard', () => {
 
   it('filters and paginates audit events by visible target type', async () => {
     const initial = state();
+    for (let index = 0; index < 100; index++) {
+      const id = r(`hidden-resource-${index.toString().padStart(3, '0')}`);
+      initial.resources[id] = {
+        id, parentId: r('slack'), name: id, deletedAt: null,
+      };
+    }
     initial.audit = [
       { id: 'resource-visible', at, action: 'resource.move', target: r('search-files'), result: 'recorded', detail: '' },
       { id: 'resource-hidden', at, action: 'authorize', target: r('slack'), result: 'denied', detail: '' },
@@ -98,11 +104,12 @@ describe('command guard', () => {
   it('refuses every command to a token it cannot resolve to a grant', async () => {
     const { guard } = guarded(tokenValue('unknown-token'));
 
-    await expect(guard.grants.get(g('coordinator'))).rejects.toThrow('outside this token');
+    await expect(guard.grants.get(g('coordinator')))
+      .rejects.toThrow('Token is unknown, expired, or revoked.');
     await expect(guard.grants.create({
       name: 'Child', resources: [], expiresAt: null,
     })).rejects.toThrow('Token is unknown, expired, or revoked.');
-    expect(await guard.resources.list()).toEqual([]);
+    await expect(guard.resources.list()).rejects.toThrow('Token is unknown, expired, or revoked.');
   });
 
   it('refuses the operations no token authorizes', async () => {
