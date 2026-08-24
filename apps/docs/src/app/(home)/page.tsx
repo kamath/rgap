@@ -81,7 +81,12 @@ export default function HomePage() {
             </span>
           </div>
           <pre className="whitespace-pre-wrap break-words p-5 text-[13px] leading-7 text-fd-muted-foreground sm:p-7 sm:text-sm">
-            <code>{`const grant = await admin.grants.create({
+            <code>{`const model = await admin.resources.create({
+  name: 'acme/models/openai',
+});
+await model.executable.set({ runtime: 'openai' });
+
+const grant = await admin.grants.create({
   name: 'company/platform-team/employee',
   resources: [{ id: model.id, permissions: ['invoke'] }],
   expiresAt: null,
