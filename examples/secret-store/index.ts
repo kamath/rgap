@@ -11,7 +11,7 @@ import { SqliteRgapStore } from '@rgap/sqlite';
 import { z } from 'zod';
 
 const directory = fileURLToPath(new URL('.', import.meta.url));
-const secretStore: CredentialStore<string> = new SqliteCredentialStore(
+const secretStore: CredentialStore<string> = new SqliteCredentialStore<string>(
   `${directory}/secrets.db`,
 );
 
