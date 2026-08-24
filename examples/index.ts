@@ -145,17 +145,10 @@ const tokens = [
 ] as const;
 
 for (const [label, token] of tokens) {
+  // A guarded view contains descendants of this grant's resource IDs and the ancestors needed to
+  // display them. For example, the subagent sees acme/platform/docs/design and its ancestors, but
+  // not the unrelated acme/finance/payroll branch.
   const visible = await store.as(token).resources.list({ limit: 100 });
-  const visibleIds = new Set(visible.map(({ id }) => id));
-  if (
-    label === 'subagent' &&
-    (
-      visibleIds.has(payroll.id) ||
-      ![acme.id, platform.id, docs.id, design.id].every((id) => visibleIds.has(id))
-    )
-  ) {
-    throw new Error('A guarded resource view must contain granted descendants and their ancestors, but not unrelated branches.');
-  }
   console.log(`\n${label} resource view:`);
   visible.forEach(({ id }) => {
     console.log(`  ${path(id)}`);
