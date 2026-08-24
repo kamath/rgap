@@ -280,7 +280,11 @@ class SqliteBackingRepository implements RgapCommands {
       const state = this.workingState();
       const row = this.db.select().from(schema.executables)
         .where(eq(schema.executables.resourceId, id)).get();
-      if (row) state.executables[id] = (this.getExecutable(id))!;
+      if (row) state.executables[id] = {
+        resourceId: id,
+        runtime: row.runtime,
+        bind: {},
+      };
       const next = removeExecutable(state, id, now());
       this.db.delete(schema.executableBindings)
         .where(eq(schema.executableBindings.executableResourceId, id)).run();
