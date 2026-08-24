@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc --noEmit",
     "invariants": "tsx invariants.ts",
+    "mcp-proxy": "tsx mcp-proxy/index.ts",
     "secret-store": "tsx secret-store/index.ts",
     "prestart": "pnpm --filter @rgap/server generate",
     "start": "tsx index.ts"
@@ -13,11 +14,13 @@
   "dependencies": {
     "@ai-sdk/openai": "^4.0.46",
     "@hono/node-server": "^2.1.1",
+    "@modelcontextprotocol/client": "^2.0.0",
     "@rgap/core": "workspace:*",
     "@rgap/server": "workspace:*",
     "@rgap/sqlite": "workspace:*",
     "ai": "^7.0.77",
     "better-sqlite3": "^13.0.3",
+    "hono": "^4.13.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {

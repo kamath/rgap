@@ -186,37 +186,164 @@ database for RGAP state and initializes `SqliteSecretStore` with another
 SQLite database for secret values. Inputs, outputs, and secret values stay out
 of invocation audit records, logs, and errors.
 
-## MCP server governance
+## Invoke an OAuth-protected MCP server
+
+An MCP proxy represents the upstream server, each authenticated connection, and
+each credential as separate resources:
 
 ```text
 acme/
 └── mcp/
-    ├── google-drive/
-    │   └── tools/
-    │       ├── search_files
-    │       └── read_file
-    ├── slack/
-    │   └── tools/
-    │       ├── search_messages
-    │       └── post_message
-    └── github/
-        └── tools/
-            ├── read_issue
-            └── create_issue
+    ├── servers/
+    │   └── github
+    ├── connections/
+    │   ├── alice-github
+    │   └── build-bot-github
+    └── credentials/
+        ├── alice-github
+        └── build-bot-github
 ```
 
-The server resource is the high-level governance boundary. Granting `invoke`
-on one tool does not expose its siblings. Granting `invoke` on a server reaches
-its current and future tools because a binding covers the complete subtree.
+The server resource identifies a remote Streamable HTTP endpoint without
+choosing an identity. A connection combines that server with one OAuth identity.
+The credential resource is a stable reference to deployment-owned OAuth state;
+its secret value is not repository state.
+
+The connection is an executable resource:
+
+```ts
+const connection = await admin.resources.create({
+  name: 'acme/mcp/connections/alice-github',
+  executable: {
+    runtime: 'mcp',
+    input: {
+      serverUrl: 'https://mcp.example.com',
+    },
+    bind: {
+      credential: credential.id,
+    },
+  },
+});
+```
+
+The deployment stores OAuth tokens, registered client information, the PKCE
+verifier, and pending authorization state under `credential.id`. The executable
+receives only that resource ID. Callers cannot replace the server URL or
+credential binding.
+
+## Forward MCP requests
+
+Invoking a connection forwards a client-to-server MCP request:
+
+```ts
+for await (const event of authorizedConnection.invoke({
+  input: {
+    method: 'tools/call',
+    params: {
+      name: 'create_issue',
+      arguments: {
+        title: 'Investigate failed deployment',
+      },
+    },
+  },
+})) {
+  console.log(event);
+}
+```
+
+The generic input accepts every client-to-server method supported by the
+negotiated MCP protocol:
+
+```ts
+type McpInvokeInput = {
+  method: string;
+  params?: Record<string, unknown>;
+};
+```
+
+The MCP SDK owns connection setup, protocol negotiation, and session lifecycle.
+The proxy registers handlers for server-to-client interactions and forwards
+caller-selected requests only after RGAP authorizes `invoke` on the connection.
+Cancellation of the RGAP invocation cancels the upstream request.
+
+An `invoke` grant on the connection intentionally reaches the complete
+capability surface of that authenticated MCP server.
+
+A deployment that accepts user-supplied server URLs validates every redirect
+and resolved address, blocks private and link-local destinations, and applies
+request timeouts and response-size limits. Deployment configuration may
+explicitly permit loopback URLs for local development.
+
+## Complete OAuth in the proxy
+
+The proxy exposes a browser callback independently from the bearer-protected
+RGAP command API:
+
+```text
+GET /oauth/callback/:flowId
+```
+
+The callback loads the pending flow from the credential store, compares the
+returned state with the stored value, checks its expiration, and consumes it
+exactly once. It then passes the callback parameters to the MCP SDK, which
+validates the authorization-server issuer and exchanges the code. The resulting
+tokens and client information remain in the credential store.
+
+An OAuth redirect does not call the RGAP invoke endpoint directly. Authorization
+servers send browser `GET` requests without an RGAP bearer, while resource
+invocation is an authenticated `POST`. The Hono callback is the adapter between
+those protocols.
+
+The credential store uses unversioned typed records:
+
+```ts
+type McpCredential = {
+  tokens?: StoredOAuthTokens;
+  clientInformation?: StoredOAuthClientInformation;
+  discoveryState?: OAuthDiscoveryState;
+  pendingAuthorization?: {
+    flowId: string;
+    state: string;
+    codeVerifier?: string;
+    authorizationUrl?: string;
+    expiresAt: string;
+  };
+};
+```
+
+Atomic updates prevent simultaneous token refreshes from overwriting each
+other. The example SQLite store contains plaintext values and is suitable for
+local development only. A deployed proxy supplies an encrypted credential
+store through the same interface.
+
+## Downscope MCP authority
+
+The proxy discovers tools, prompts, and MCP resources and can represent them as
+children of a connection:
+
+```text
+acme/mcp/connections/alice-github/
+├── tools/
+│   ├── read_issue
+│   └── create_issue
+├── prompts/
+│   └── review_issue
+└── resources/
+    └── repository
+```
+
+Each child is an executable resource with a sealed method and operation name.
+Granting `invoke` on a child exposes that operation without exposing its
+siblings. Granting `invoke` on the connection reaches all current and future
+children because a binding covers the complete subtree.
 
 <Callout type="info">
-  Registering or discovering a tool does not grant access. A grant must contain
-  a binding that reaches it with `invoke`.
+  Discovering an MCP operation does not grant access. A grant must contain an
+  binding that reaches the connection or operation resource with `invoke`.
 </Callout>
 
-## Aggregate tools for a coordinator
-
-One coordinator grant can combine selected tools from several servers:
+One coordinator grant can combine selected operations from several
+connections:
 
 ```yaml
 name: company/project-coordinator
@@ -230,56 +357,35 @@ bindings:
 expiresAt: 2026-08-20T23:00:00.000Z
 ```
 
-The coordinator receives one opaque RGAP token. Provider OAuth tokens, API
-keys, and server credentials remain inside the MCP gateway.
+The coordinator receives one opaque RGAP token. Provider OAuth tokens and
+registered client credentials remain inside the MCP proxy.
 
-## Downscope to a research sub-agent
-
-The coordinator delegates only search tools:
-
-```yaml
-name: research-sub-agent
-parentId: grant_project_coordinator
-bindings:
-  - id: tool_drive_search_files
-    permissions: [invoke]
-  - id: tool_slack_search_messages
-    permissions: [invoke]
-expiresAt: 2026-08-20T22:00:00.000Z
-```
-
-The child does not receive the GitHub issue tool and cannot delegate it further.
-Its expiration is earlier than the coordinator's expiration.
-
-To enforce application-specific argument restrictions—such as allowed Slack
-channels or Drive roots—register each protected scope as a resource and grant
-the applicable leaves. Submitted `invoke` bindings store `read` as well.
-`write`, `invoke`, `bind`, `move`, and `delete` stay independent of each other.
-
-## Gateway request flow
+## MCP proxy request flow
 
 <Steps>
   <Step>
-    ### Register trusted resources
+    ### Register the connection
 
-    Synchronize MCP servers and tools into the resource tree with stable IDs.
+    Create server, credential, and executable connection resources with stable
+    IDs.
   </Step>
   <Step>
-    ### Issue selected authority
+    ### Authorize the OAuth identity
 
-    Create a grant with bindings for only the coordinator's selected tools and
-    issue an opaque bearer.
+    Follow the authorization URL and complete the public Hono callback. The
+    proxy stores the resulting OAuth state under the credential resource ID.
   </Step>
   <Step>
-    ### Filter discovery
+    ### Issue authority
 
-    Build `tools/list` from the resources visible through the active grant.
+    Grant `invoke` on the complete connection or on selected operation
+    resources, then issue an opaque bearer.
   </Step>
   <Step>
-    ### Authorize invocation
+    ### Invoke MCP
 
-    Map the server and tool name to a stable resource ID and require `invoke`
-    before retrieving any provider credential.
+    Authorize the RGAP resource, resolve its sealed credential binding, and
+    forward the request through an authenticated MCP client session.
   </Step>
   <Step>
     ### Delegate with a new token
@@ -295,37 +401,4 @@ the applicable leaves. Submitted `invoke` bindings store `read` as well.
   </Step>
 </Steps>
 
-## Tool aggregation in TypeScript
-
-```ts
-const coordinator = await companyPlane.grants.create({
-  name: 'company/project-coordinator',
-  bindings: [],
-  expiresAt: '2026-08-20T23:00:00.000Z',
-});
-
-await coordinator.bindings.set([
-  { id: driveSearch.id, permissions: ['invoke'] },
-  { id: slackSearch.id, permissions: ['invoke'] },
-  { id: githubCreateIssue.id, permissions: ['invoke'] },
-]);
-
-const coordinatorToken = await coordinator.tokens.create({
-  label: 'coordinator',
-});
-const coordinatorPlane = store.as(coordinatorToken.value);
-
-const researcher = await coordinatorPlane.grants.create({
-  name: 'company/project-coordinator/research-sub-agent',
-  bindings: [],
-  expiresAt: '2026-08-20T22:00:00.000Z',
-});
-
-await researcher.bindings.set([
-  { id: driveSearch.id, permissions: ['invoke'] },
-  { id: slackSearch.id, permissions: ['invoke'] },
-]);
-```
-
-The gateway is the policy-enforcement point. The agent cannot bypass its narrow
-RGAP grant because it never receives the protected upstream credential.
+The complete Hono application lives in `examples/mcp-proxy`.
