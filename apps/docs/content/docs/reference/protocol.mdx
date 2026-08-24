@@ -31,13 +31,10 @@ type Resource = {
   deletedAt: string | null;
 };
 
-type GrantResourceConfig = {
+type GrantResource = {
+  id: string;
   permissions: Permission[];
 };
-
-type IdResource = GrantResourceConfig & { id: string };
-type PathResource = GrantResourceConfig & { path: string };
-type GrantResource = IdResource | PathResource;
 
 type Grant = {
   id: string;
@@ -98,8 +95,8 @@ resourcePath(resources, id) =
 Paths are canonicalized by splitting on `/`, trimming each segment, and
 discarding empty segments. The empty path names nothing.
 
-Resource commands use stable IDs. Capability path targets store a normalized
-location and resolve it from the current tree for every decision.
+Resource commands use stable IDs after path-based creation resolves or
+materializes a location. Grant-resource entries always target stable IDs.
 
 ### Ancestry
 
@@ -116,8 +113,8 @@ the tree and raise `resource_cycle`.
 ### Tombstones
 
 Deletion marks a resource and its live descendants with `deletedAt`. Tombstones
-are not live and are excluded from path resolution, listings, grant-resource
-validation, authorization, and authority views.
+are not live and are excluded from listings, grant-resource validation,
+authorization, and guarded views.
 
 Records remain so stable IDs are never reused. Sibling-name uniqueness considers
 only live resources, so a new resource may reuse a deleted name with a new ID.
@@ -180,20 +177,13 @@ when one entry contains another.
 ### Authorization by one entry
 
 ```ts
-targetResourceId(entry, resources) =
-  'path' in entry
-    ? resourceIdAtPath(resources, entry.path)
-    : isLive(resources[entry.id])
-      ? entry.id
-      : null;
-
 authorizes(entry, resources, resourceId, permission) =
   entry.permissions.includes(permission) &&
-  targetResourceId(entry, resources) !== null &&
+  isLive(resources[entry.id]) &&
   isWithin(
     resources,
     resourceId,
-    targetResourceId(entry, resources),
+    entry.id,
   );
 ```
 
@@ -204,15 +194,17 @@ also authorized by the parent entry.
 
 ```ts
 covers(parent, child, resources) =
-  location(parent, child, resources) &&
+  isLive(resources[parent.id]) &&
+  isLive(resources[child.id]) &&
+  isWithin(resources, child.id, parent.id) &&
   child.permissions.every((permission) =>
     parent.permissions.includes(permission),
   );
 ```
 
-For two path entries, `location` requires the child path to equal or sit
-lexically beneath the parent path. Otherwise both entries resolve against the
-current live tree and the child target must be within the parent target.
+Coverage follows current resource ancestry. Moving a targeted resource can
+therefore change whether one entry covers another without changing either
+entry's stable target.
 
 ## Grants
 
@@ -221,10 +213,9 @@ current live tree and the child target must be within the parent target.
 A grant is created only when:
 
 1. Its stored name is a single non-empty segment and contains no `/`.
-2. Every resource entry has exactly one target and a non-empty permission
+2. Every resource entry has one stable resource ID and a non-empty permission
    set that includes `read`.
-3. Resource targets are live; path targets are non-empty after normalization
-   and may currently be unresolved.
+3. Every targeted resource is live.
 4. Its parent exists and is active, or the grant is a root.
 5. It does not outlive its parent.
 6. Every child resource entry is covered by a parent resource entry.
@@ -293,6 +284,11 @@ A token is an opaque bearer string. Implementations store only a
 preimage-resistant hash and compare the hash of a presented bearer. A token
 does not outlive its grant and grants no authority of its own.
 
+The guard resolves a presented bearer to its active token and complete active
+grant lineage. Bearer resolution is internal to the store and is not a
+repository or HTTP operation. An unknown, expired, or revoked token, or an
+inactive grant in its lineage, rejects the guarded command as unauthorized.
+
 ## Decision procedure
 
 `authorize(state, tokenHash, resourceId, permission, now)` returns:
@@ -325,23 +321,15 @@ allowed = chain.every((grant) =>
 Authority is the intersection of the complete lineage in the current resource
 tree.
 
-### Authority view
+### Guarded views
 
-`inspectToken(state, tokenHash, now)` evaluates the decision procedure for each
-permission on every live resource:
-
-```ts
-type AuthorityView = {
-  valid: boolean;
-  detail: string;
-  grantId: string | null;
-  lineage: string[];
-  permissions: Record<string, Permission[]>;
-};
-```
-
-An invalid token or inactive lineage yields no permissions and a detail that
-explains why.
+`store.as(token)` returns a guarded repository. Resource collections contain
+the live resources reached by the token's effective authority and the live
+ancestors needed to present their hierarchy. Grant, token, and audit
+collections are filtered to the acting grant's lineage and delegated branch.
+The guard computes these views without exposing or materializing a complete
+resource-permission matrix. Call `authorize` when an explicit decision for one
+resource and permission is required.
 
 ## Resource operations
 
@@ -374,8 +362,8 @@ resource, and commits atomically. It never rewrites or revokes grants.
 ### Delete
 
 Deletion finds the live subtree, marks every member with `deletedAt`, and
-commits atomically. ID targets naming deleted resources become permanently
-ineffective. Path targets remain attached to their locations.
+commits atomically. Grant-resource entries naming deleted resources become
+permanently ineffective.
 
 ## Executables
 
@@ -519,29 +507,33 @@ An implementation conforms when:
 2. Paths are derived and canonicalized as defined.
 3. Resource-entry permission sets always include `read` and are compared as
    plain sets with no implication.
-4. `covers` implements path and current-tree containment exactly.
-5. Grant creation and amendment prove attenuation.
-6. Authorization checks the complete grant lineage.
-7. Revocation cascades through descendant grants.
-8. Resource operations and grant amendments commit atomically with audit.
-9. Deleted resources remain as unreadable tombstones.
-10. Commands are exposed only through explicit token or administrative planes.
-11. Setting an executable binding requires `bind` on its direct resource
+4. Grant-resource entries target live resources by stable ID.
+5. `covers` implements current-tree containment exactly.
+6. Grant creation and amendment prove attenuation.
+7. Authorization checks the complete grant lineage.
+8. Revocation cascades through descendant grants.
+9. Resource operations and grant amendments commit atomically with audit.
+10. Deleted resources remain as unreadable tombstones.
+11. Commands are exposed only through explicit token or administrative planes.
+12. Setting an executable binding requires `bind` on its direct resource
     through the complete lineage and records that lineage with the edge.
-12. Invocation revalidates every binding lineage and live target before
+13. Invocation revalidates every binding lineage and live target before
     inserting sealed resource ID strings into runtime input.
-13. An executable persists one resource-to-runtime association and its sealed
+14. An executable persists one resource-to-runtime association and its sealed
     direct bindings; deletion removes the association and bindings.
-14. Binding authority is delegable through `invoke`, follows the target's live
+15. Binding authority is delegable through `invoke`, follows the target's live
     executable definition, and never flattens transitive edges into a caller.
-15. Runtime registration, schemas, and behavior are deployment configuration
+16. Runtime registration, schemas, and behavior are deployment configuration
     that repository commands cannot mutate.
-16. Invocation resolves one runtime, rejects sealed input collisions, parses
+17. Invocation resolves one runtime, rejects sealed input collisions, parses
     input after safely inserting bound fields,
     authorizes arbitrary nested resource IDs against caller authority or the
     current frame's direct edges, follows valid edges transitively across
     frames, rejects active cycles and depths above 32, normalizes results into
     `data` and automatic `done` events, propagates cancellation, and records
     each call in the chain.
-17. Audit records, errors, and logs exclude inputs and outputs while retaining
+18. Audit records, errors, and logs exclude inputs and outputs while retaining
     the IDs, runtime, timing, and result needed for accountability.
+19. An implementation may load and persist command-scoped records when the
+    command remains atomic and observably equivalent to one complete state
+    transition.

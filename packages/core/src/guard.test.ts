@@ -43,8 +43,8 @@ function state(): State {
 }
 
 const guarded = (token = bearer) => {
-  const { commands, calls } = stubCommands(state(), at);
-  return { guard: guardCommands(repositoryFrom(commands), token), calls };
+  const { commands, calls, resolveBearer } = stubCommands(state(), at);
+  return { guard: guardCommands(repositoryFrom(commands), token, resolveBearer), calls };
 };
 
 describe('command guard', () => {
@@ -63,12 +63,17 @@ describe('command guard', () => {
     await expect(guard.grants.get(g('other'))).rejects.toThrow('outside this token');
     await expect(guard.tokens.get(tokenId('other'))).rejects.toThrow('outside this token');
     expect((await guard.authorize(bearer, r('search-files'), 'invoke')).allowed).toBe(true);
-    expect((await guard.inspectToken(bearer)).grantId).toBe('coordinator');
     expect(calls).toEqual([]);
   });
 
   it('filters and paginates audit events by visible target type', async () => {
     const initial = state();
+    for (let index = 0; index < 100; index++) {
+      const id = r(`hidden-resource-${index.toString().padStart(3, '0')}`);
+      initial.resources[id] = {
+        id, parentId: r('slack'), name: id, deletedAt: null,
+      };
+    }
     initial.audit = [
       { id: 'resource-visible', at, action: 'resource.move', target: r('search-files'), result: 'recorded', detail: '' },
       { id: 'resource-hidden', at, action: 'authorize', target: r('slack'), result: 'denied', detail: '' },
@@ -77,8 +82,8 @@ describe('command guard', () => {
       { id: 'token-visible', at, action: 'token.revoke', target: tokenId('demo'), result: 'recorded', detail: '' },
       { id: 'unknown-action', at, action: 'other', target: r('drive'), result: 'recorded', detail: '' },
     ];
-    const { commands } = stubCommands(initial, at);
-    const guard = guardCommands(repositoryFrom(commands), bearer);
+    const { commands, resolveBearer } = stubCommands(initial, at);
+    const guard = guardCommands(repositoryFrom(commands), bearer, resolveBearer);
 
     expect((await guard.audit.list()).map(({ id }) => id))
       .toEqual(['resource-visible', 'grant-visible', 'token-visible']);
@@ -101,11 +106,12 @@ describe('command guard', () => {
   it('refuses every command to a token it cannot resolve to a grant', async () => {
     const { guard } = guarded(tokenValue('unknown-token'));
 
-    await expect(guard.grants.get(g('coordinator'))).rejects.toThrow('outside this token');
+    await expect(guard.grants.get(g('coordinator')))
+      .rejects.toThrow('Token is unknown, expired, or revoked.');
     await expect(guard.grants.create({
       name: 'Child', resources: [], expiresAt: null,
     })).rejects.toThrow('Token is unknown, expired, or revoked.');
-    expect(await guard.resources.list()).toEqual([]);
+    await expect(guard.resources.list()).rejects.toThrow('Token is unknown, expired, or revoked.');
   });
 
   it('refuses the operations no token authorizes', async () => {
@@ -143,8 +149,8 @@ describe('command guard', () => {
       const id = r(`sib-${String(index).padStart(3, '0')}`);
       initial.resources[id] = { id, parentId: r('drive'), name: `sib-${index}`, deletedAt: null };
     }
-    const { commands, calls } = stubCommands(initial, at);
-    const guard = guardCommands(repositoryFrom(commands), bearer);
+    const { commands, calls, resolveBearer } = stubCommands(initial, at);
+    const guard = guardCommands(repositoryFrom(commands), bearer, resolveBearer);
 
     expect((await guard.resources.create({ name: 'acme/drive/notes' })).id).toBe('created');
     expect(calls).toEqual([
@@ -256,8 +262,8 @@ describe('command guard', () => {
     initial.executables['search-files'] = {
       resourceId: r('search-files'), runtime: 'test', bind: {},
     };
-    const { commands, calls } = stubCommands(initial, at);
-    const guard = guardCommands(repositoryFrom(commands), bearer);
+    const { commands, calls, resolveBearer } = stubCommands(initial, at);
+    const guard = guardCommands(repositoryFrom(commands), bearer, resolveBearer);
     const search = await guard.resources.get(r('search-files'));
 
     expect((await guard.executables.get(r('search-files')))?.runtime).toBe('test');
@@ -294,8 +300,8 @@ describe('command guard', () => {
       runtime: 'test',
       bind: {},
     };
-    const { commands, calls } = stubCommands(initial, at);
-    const guard = guardCommands(repositoryFrom(commands), bearer);
+    const { commands, calls, resolveBearer } = stubCommands(initial, at);
+    const guard = guardCommands(repositoryFrom(commands), bearer, resolveBearer);
 
     for await (const event of guard.invoke(r('drive'), { input: {} })) {
       expect(event.type).toBe('done');

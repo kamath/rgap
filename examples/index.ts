@@ -8,12 +8,12 @@
  * resource sets, and each step issues a token.
  *
  * `pnpm scratch` runs this file against examples/scratch.db. Replace the store-construction line
- * with `new HttpRgapStore(...)` to run the same walkthrough against the Hono API.
+ * with `new HttpRgapStore(...)` to run the same walkthrough against the Hono API. The local SQLite
+ * store applies each command as one focused row-level transaction rather than replacing the store.
  */
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import {
-  resourceId,
   resourcePath,
   type InvokeRuntime,
   type Permission,
@@ -84,7 +84,7 @@ console.log('\n\n');
 
 const subagentGrant = await company.grants.create({
   name: 'company/team/employee/agent/subagent',
-  resources: [{ path: 'acme/platform/docs/design', permissions: ['read'] }],
+  resources: [{ id: design.id, permissions: ['read'] }],
   expiresAt: null,
 });
 const agentGrant = await company.grants.get(subagentGrant.parentId!);
@@ -92,7 +92,7 @@ const employeeGrant = await company.grants.get(agentGrant.parentId!);
 const teamGrant = await company.grants.get(employeeGrant.parentId!);
 await teamGrant.resources.set([{ id: platform.id, permissions: ['read', 'write', 'invoke'] }]);
 await employeeGrant.resources.set([{ id: docs.id, permissions: ['read', 'write'] }]);
-await agentGrant.resources.set([{ path: 'acme/platform/docs', permissions: ['read'] }]);
+await agentGrant.resources.set([{ id: docs.id, permissions: ['read'] }]);
 const teamToken = await teamGrant.tokens.create({ label: 'team' });
 const employeeToken = await employeeGrant.tokens.create({ label: 'employee' });
 const agentToken = await agentGrant.tokens.create({ label: 'agent' });
@@ -145,10 +145,10 @@ const tokens = [
 ] as const;
 
 for (const [label, token] of tokens) {
-  const authority = await company.inspectToken(token);
-  console.log(`\n${label}: ${authority.detail}`);
-  Object.entries(authority.permissions).forEach(([id, held]) => {
-    console.log(`  ${path(resourceId(id)).padEnd(26)} ${held.join(' ')}`);
+  const visible = await store.as(token).resources.list({ limit: 100 });
+  console.log(`\n${label} resource view:`);
+  visible.forEach(({ id }) => {
+    console.log(`  ${path(id)}`);
   });
 }
 

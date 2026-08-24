@@ -46,20 +46,10 @@ export const InvocationEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('done') }).strict(),
 ]).openapi('InvocationEvent');
 
-const GrantResourceConfigSchema = {
+export const GrantResourceSchema = z.object({
+  id: IdSchema,
   permissions: z.array(PermissionSchema),
-};
-
-export const GrantResourceSchema = z.union([
-  z.object({
-    ...GrantResourceConfigSchema,
-    id: IdSchema,
-  }).strict(),
-  z.object({
-    ...GrantResourceConfigSchema,
-    path: z.string(),
-  }).strict(),
-]).openapi('GrantResource');
+}).strict().openapi('GrantResource');
 
 export const GrantSchema = z.object({
   id: IdSchema,
@@ -94,14 +84,6 @@ export const DecisionSchema = z.object({
   grantId: NullableIdSchema,
   lineage: z.array(IdSchema),
 }).openapi('Decision');
-
-export const AuthorityViewSchema = z.object({
-  valid: z.boolean(),
-  detail: z.string(),
-  grantId: NullableIdSchema,
-  lineage: z.array(IdSchema),
-  permissions: z.record(z.string(), z.array(PermissionSchema)),
-}).openapi('AuthorityView');
 
 export const IssuedTokenSchema = z.object({
   record: TokenSchema,
@@ -171,8 +153,4 @@ export const AuthorizeSchema = z.object({
   token: z.string().min(1),
   resourceId: IdSchema,
   permission: PermissionSchema,
-}).strict();
-
-export const InspectTokenSchema = z.object({
-  token: z.string().min(1),
 }).strict();

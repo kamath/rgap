@@ -36,13 +36,10 @@ CREATE TABLE `grant_resource_permissions` (
 CREATE TABLE `grant_resources` (
 	`grant_id` text NOT NULL,
 	`position` integer NOT NULL,
-	`id` text,
-	`path` text,
+	`id` text NOT NULL,
 	PRIMARY KEY(`grant_id`, `position`),
 	FOREIGN KEY (`grant_id`) REFERENCES `grants`(`id`) ON UPDATE no action ON DELETE no action,
-	FOREIGN KEY (`id`) REFERENCES `resources`(`id`) ON UPDATE no action ON DELETE no action,
-	CONSTRAINT "grant_resources_target_check" CHECK(("grant_resources"."id" is not null and "grant_resources"."path" is null)
-        or ("grant_resources"."id" is null and "grant_resources"."path" is not null))
+	FOREIGN KEY (`id`) REFERENCES `resources`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
 CREATE TABLE `grants` (

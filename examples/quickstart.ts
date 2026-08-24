@@ -1,5 +1,7 @@
 import { SqliteRgapStore } from '@rgap/sqlite';
 
+// Each command loads the records needed by its rule and commits only its changed rows and audit
+// event. `:memory:` changes durability, not the focused transaction model.
 const store = new SqliteRgapStore({ url: ':memory:' });
 
 try {
@@ -12,7 +14,7 @@ try {
   const agent = await admin.grants.create({
     name: 'company/documentation-agent',
     resources: [{
-      path: 'acme/platform/docs',
+      id: design.id,
       permissions: ['read'],
     }],
     expiresAt: null,

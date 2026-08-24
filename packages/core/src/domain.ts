@@ -11,7 +11,7 @@ export type ResourceId = Identity<'ResourceId'>;
 export type GrantId = Identity<'GrantId'>;
 /** A token record's stable identity. Not the bearer secret. */
 export type TokenId = Identity<'TokenId'>;
-/** The bearer secret returned once at issue. `store.as`, `authorize`, and `inspectToken` take this. */
+/** The bearer secret returned once at issue. `store.as` and `authorize` take this. */
 export type TokenValue = Identity<'TokenValue'>;
 /** The stored hash of a bearer secret. The bearer itself is never stored. */
 export type TokenHash = Identity<'TokenHash'>;
@@ -48,13 +48,7 @@ export type GrantResourceConfig = {
   permissions: Permission[];
 };
 
-export type IdResource = GrantResourceConfig & { id: ResourceId };
-export type PathResource = GrantResourceConfig & { path: string };
-export type GrantResource = IdResource | PathResource;
-
-export function isPathResource(entry: GrantResource): entry is PathResource {
-  return 'path' in entry;
-}
+export type GrantResource = GrantResourceConfig & { id: ResourceId };
 
 export type Grant = {
   id: GrantId;
@@ -98,15 +92,13 @@ export type Decision = {
   lineage: GrantId[];
 };
 
+export type BearerContext = {
+  grantId: GrantId;
+  lineage: GrantId[];
+};
+
 export type CreateGrantInput = Omit<Grant, 'id' | 'revokedAt'>;
 export type CreateResourceInput = Omit<Resource, 'id' | 'deletedAt'>;
-export type AuthorityView = {
-  valid: boolean;
-  detail: string;
-  grantId: GrantId | null;
-  lineage: GrantId[];
-  permissions: Record<string, Permission[]>;
-};
 
 export class RgapError extends Error {
   constructor(public code: string, message: string) {
@@ -187,7 +179,7 @@ export function stateIntegrity(state: State) {
       problems.push(`Grant ${grant.id} refers to missing parent ${grant.parentId}.`);
     }
     grant.resources.forEach((entry) => {
-      if (!isPathResource(entry) && !state.resources[entry.id]) {
+      if (!state.resources[entry.id]) {
         problems.push(`Grant ${grant.id} refers to missing resource ${entry.id}.`);
       }
     });
@@ -243,11 +235,6 @@ export function requireResourceId(resources: ResourceCollection, path: string) {
 
 export const normalizePath = (path: string) => pathParts(path).join('/');
 
-function targetResourceId(entry: GrantResource, resources: State['resources']) {
-  if (isPathResource(entry)) return resourceIdAtPath(resources, entry.path);
-  return isLive(resources[entry.id]) ? entry.id : null;
-}
-
 /** Whether one entry authorizes a request against the current live resource tree. */
 export function resourceAuthorizes(
   entry: GrantResource,
@@ -256,47 +243,30 @@ export function resourceAuthorizes(
   permission: Permission,
 ) {
   if (!entry.permissions.includes(permission)) return false;
-  const rootId = targetResourceId(entry, resources);
-  return Boolean(rootId && isWithin(resources, id, rootId));
-}
-
-function pathContains(parent: GrantResource, child: GrantResource) {
-  if (!isPathResource(parent) || !isPathResource(child)) return null;
-  const parentParts = pathParts(normalizePath(parent.path));
-  const childParts = pathParts(normalizePath(child.path));
-  return parentParts.every((part, index) => childParts[index] === part);
+  return isLive(resources[entry.id]) && isWithin(resources, id, entry.id);
 }
 
 /** Whether every request the child entry currently authorizes is also authorized by the parent. */
 export function covers(parent: GrantResource, child: GrantResource, resources: State['resources']) {
-  const lexicalCoverage = pathContains(parent, child);
-  const parentId = targetResourceId(parent, resources);
-  const childId = targetResourceId(child, resources);
-  const locationCovered = lexicalCoverage ?? Boolean(parentId && childId && isWithin(resources, childId, parentId));
-  return locationCovered && child.permissions.every((permission) => parent.permissions.includes(permission));
+  return isLive(resources[parent.id])
+    && isLive(resources[child.id])
+    && isWithin(resources, child.id, parent.id)
+    && child.permissions.every((permission) => parent.permissions.includes(permission));
 }
 
 function normalizeResources(entries: GrantResource[], resources: State['resources']) {
   return entries.map((entry) => {
     if (!entry.permissions.length) throw new RgapError('invalid_grant_resource', 'Select at least one permission.');
+    if (!('id' in entry) || 'path' in entry) {
+      throw new RgapError('invalid_grant_resource', 'Grant resource must name one resource id.');
+    }
     const normalizedPermissions = permissions.filter((permission) =>
       permission === 'read' || entry.permissions.includes(permission)
     );
-    if (isPathResource(entry)) {
-      if ('id' in entry) {
-        throw new RgapError('invalid_grant_resource', 'Grant resource must name an id or a path.');
-      }
-      const path = normalizePath(entry.path);
-      if (!path) throw new RgapError('invalid_grant_resource', 'Grant resource path is required.');
-      return { ...structuredClone(entry), path, permissions: normalizedPermissions };
-    }
-    if (!('id' in entry)) {
-      throw new RgapError('invalid_grant_resource', 'Grant resource must name an id or a path.');
-    }
     if (!isLive(resources[entry.id])) {
       throw new RgapError('missing_resource', 'Grant resource does not exist.');
     }
-    return { ...structuredClone(entry), permissions: normalizedPermissions };
+    return { id: entry.id, permissions: normalizedPermissions };
   });
 }
 
@@ -630,26 +600,17 @@ export function authorizeLineage(
   };
 }
 
-export function inspectAuthority(state: State, hash: TokenHash, at: string): AuthorityView {
+/** Resolves the active principal used internally by a guarded repository. */
+export function resolveBearer(state: State, hash: TokenHash, at: string): BearerContext {
   const token = Object.values(state.tokens).find((item) => item.hash === hash);
   if (!token || !active(token, at)) {
-    return { valid: false, detail: 'Token is unknown, expired, or revoked.', grantId: null, lineage: [], permissions: {} };
+    throw new RgapError('invalid_bearer', 'Token is unknown, expired, or revoked.');
   }
   const chain = lineage(state, token.grantId);
   if (chain.some((grant) => !active(grant, at))) {
-    return { valid: false, detail: 'A grant in the delegation chain is expired or revoked.', grantId: token.grantId, lineage: chain.map((grant) => grant.id), permissions: {} };
+    throw new RgapError('invalid_bearer', 'A grant in the delegation chain is expired or revoked.');
   }
-  const effective = Object.fromEntries(liveResources(state.resources).map((resource) => resource.id).flatMap((id) => {
-    const allowed = permissions.filter((permission) => authorize(state, hash, id, permission, at).allowed);
-    return allowed.length ? [[id, allowed]] : [];
-  }));
-  return {
-    valid: true,
-    detail: `${Object.keys(effective).length} resources are visible through ${chain[0].name}.`,
-    grantId: token.grantId,
-    lineage: chain.map((grant) => grant.id),
-    permissions: effective,
-  };
+  return { grantId: token.grantId, lineage: chain.map((grant) => grant.id) };
 }
 
 export const pathParts = (path: string) => path.split('/').map((part) => part.trim()).filter(Boolean);

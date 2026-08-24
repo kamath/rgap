@@ -2,7 +2,6 @@ import {
   isLive,
   RgapError,
   type AuditEvent,
-  type AuthorityView,
   type GrantResource,
   type Decision,
   type ExecutableDefinition,
@@ -106,7 +105,6 @@ export interface RgapCommands {
   revokeToken(id: TokenId): Promise<void>;
   revokeGrant(id: GrantId): Promise<void>;
   authorize(token: TokenValue, resourceId: ResourceId, permission: Permission): Promise<Decision>;
-  inspectToken(token: TokenValue): Promise<AuthorityView>;
   reset(): Promise<void>;
 }
 
@@ -135,7 +133,6 @@ export interface RgapRepository {
     list(query?: AuditListQuery): Promise<Page<AuditEvent>>;
   };
   authorize(token: TokenValue, resourceId: ResourceId, permission: Permission): Promise<Decision>;
-  inspectToken(token: TokenValue): Promise<AuthorityView>;
   reset(): Promise<void>;
 }
 
@@ -165,7 +162,6 @@ export function repositoryFrom(commands: RgapCommands): RgapRepository {
       list: (query) => commands.listAudit(query),
     },
     authorize: (token, resourceId, permission) => commands.authorize(token, resourceId, permission),
-    inspectToken: (token) => commands.inspectToken(token),
     reset: () => commands.reset(),
   };
 }

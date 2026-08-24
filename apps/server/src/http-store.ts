@@ -30,7 +30,6 @@ import {
   getGrant,
   getResource,
   getToken,
-  inspectToken,
   issueToken,
   listAudit,
   listGrants,
@@ -281,15 +280,6 @@ class HttpRgapCommands implements RgapCommands {
     };
   }
 
-  async inspectToken(token: TokenValue) {
-    const view = unwrap(await inspectToken(this.options({ body: { token } })));
-    return {
-      ...view,
-      grantId: view.grantId === null ? null : grantId(view.grantId),
-      lineage: view.lineage.map(grantId),
-    };
-  }
-
   async reset() {
     unwrap<void>(await reset(this.options({})));
   }
@@ -383,9 +373,7 @@ function asGrant(record: HttpGrant): Grant {
 }
 
 function asGrantResource(entry: HttpGrantResource): GrantResource {
-  return 'id' in entry
-    ? { ...entry, id: resourceId(entry.id) }
-    : entry;
+  return { ...entry, id: resourceId(entry.id) };
 }
 
 function asHttpGrantResource(entry: GrantResource): HttpGrantResource {
