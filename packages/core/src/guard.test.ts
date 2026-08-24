@@ -51,38 +51,41 @@ describe('command guard', () => {
   it('filters collection queries to the token view', async () => {
     const { guard, calls } = guarded();
 
-    expect((await guard.resources.list()).map(({ id }) => id))
-      .toEqual(['acme', 'drive', 'read-file', 'search-files']);
-    expect((await guard.resources.list({ limit: 2 })).map(({ id }) => id)).toEqual(['acme', 'drive']);
-    expect((await guard.resources.list({ cursor: 'drive', limit: 2 })).map(({ id }) => id))
-      .toEqual(['read-file', 'search-files']);
-    expect((await guard.resources.list({ parentId: r('drive') })).map(({ id }) => id))
-      .toEqual(['read-file', 'search-files']);
+    expect((await guard.resources.list({ parentId: null })).map(({ id }) => id)).toEqual(['acme']);
+    expect((await guard.resources.list({ parentId: r('acme') })).map(({ id }) => id)).toEqual(['drive']);
+    expect((await guard.resources.list({ parentId: r('drive'), limit: 1 })).map(({ id }) => id))
+      .toEqual(['read-file']);
+    expect((await guard.resources.list({
+      parentId: r('drive'), cursor: r('read-file'), limit: 1,
+    })).map(({ id }) => id)).toEqual(['search-files']);
     expect((await guard.grants.list()).map(({ id }) => id)).toEqual(['coordinator', 'researcher']);
     expect((await guard.tokens.list()).map(({ id }) => id)).toEqual(['demo', 'sub']);
     expect(await guard.audit.list()).toEqual([]);
+    expect((await guard.resources.get(r('acme'))).id).toBe('acme');
     await expect(guard.resources.get(r('slack'))).rejects.toThrow('outside this token');
+    await expect(guard.resources.list({ parentId: r('slack') })).rejects.toThrow('outside this token');
     await expect(guard.grants.get(g('other'))).rejects.toThrow('outside this token');
     await expect(guard.tokens.get(tokenId('other'))).rejects.toThrow('outside this token');
     expect((await guard.authorize(bearer, r('search-files'), 'invoke')).allowed).toBe(true);
     expect(calls).toEqual([]);
   });
 
-  it('builds resource views from granted roots without listing unrelated branches', async () => {
+  it('lists only explicit parent pages and never traverses unrelated branches', async () => {
     const initial = state();
     const { commands, resolveBearer } = stubCommands(initial, at);
     const listResources = commands.listResources;
-    const listedParents: Array<string | null | undefined> = [];
+    const listedParents: Array<string | null> = [];
     commands.listResources = (query) => {
-      listedParents.push(query?.parentId);
+      listedParents.push(query.parentId);
       return listResources(query);
     };
     const guard = guardCommands(repositoryFrom(commands), bearer, resolveBearer);
 
-    expect((await guard.resources.list()).map(({ id }) => id))
-      .toEqual(['acme', 'drive', 'read-file', 'search-files']);
-    expect(listedParents).toEqual([r('drive'), r('read-file'), r('search-files')]);
-    expect(listedParents).not.toContain(undefined);
+    expect((await guard.resources.list({ parentId: null })).map(({ id }) => id)).toEqual(['acme']);
+    expect((await guard.resources.list({ parentId: r('acme') })).map(({ id }) => id)).toEqual(['drive']);
+    expect((await guard.resources.list({ parentId: r('drive') })).map(({ id }) => id))
+      .toEqual(['read-file', 'search-files']);
+    expect(listedParents).toEqual([r('drive')]);
     expect(listedParents).not.toContain(r('slack'));
   });
 
@@ -107,8 +110,10 @@ describe('command guard', () => {
     const { commands, resolveBearer } = stubCommands(initial, at);
     const guard = guardCommands(repositoryFrom(commands), bearer, resolveBearer);
 
-    expect((await guard.resources.list()).map(({ id }) => id))
-      .toEqual(['acme', 'drive', 'loop', 'orphan', 'read-file', 'search-files']);
+    expect((await guard.resources.list({ parentId: null })).map(({ id }) => id)).toEqual(['acme']);
+    expect((await guard.resources.get(r('orphan'))).id).toBe('orphan');
+    expect((await guard.resources.get(r('loop'))).id).toBe('loop');
+    await expect(guard.resources.get(r('deleted'))).rejects.toThrow('Resource does not exist');
   });
 
   it('propagates unexpected failures while loading visibility roots', async () => {
@@ -119,7 +124,7 @@ describe('command guard', () => {
     };
     const guard = guardCommands(repositoryFrom(commands), bearer, resolveBearer);
 
-    await expect(guard.resources.list()).rejects.toThrow('storage unavailable');
+    await expect(guard.resources.list({ parentId: null })).rejects.toThrow('storage unavailable');
   });
 
   it('pages through wide granted branches', async () => {
@@ -137,8 +142,14 @@ describe('command guard', () => {
     };
     const guard = guardCommands(repositoryFrom(commands), bearer, resolveBearer);
 
-    expect(await guard.resources.list()).toHaveLength(50);
-    expect(queries.some((query) => query?.parentId === r('drive') && query.cursor !== undefined)).toBe(true);
+    expect(await guard.resources.list({ parentId: r('drive'), limit: 50 })).toHaveLength(50);
+    expect(await guard.resources.list({
+      parentId: r('drive'), cursor: r('child-049'), limit: 50,
+    })).toHaveLength(50);
+    expect(queries).toEqual([
+      { parentId: r('drive'), limit: 50 },
+      { parentId: r('drive'), cursor: r('child-049'), limit: 50 },
+    ]);
   });
 
   it('filters and paginates audit events by visible target type', async () => {
@@ -186,7 +197,7 @@ describe('command guard', () => {
     await expect(guard.grants.create({
       name: 'Child', bindings: [], expiresAt: null,
     })).rejects.toThrow('Token is unknown, expired, or revoked.');
-    await expect(guard.resources.list()).rejects.toThrow('Token is unknown, expired, or revoked.');
+    await expect(guard.resources.list({ parentId: null })).rejects.toThrow('Token is unknown, expired, or revoked.');
   });
 
   it('refuses the operations no token authorizes', async () => {

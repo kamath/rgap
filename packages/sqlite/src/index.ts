@@ -124,11 +124,11 @@ class SqliteBackingRepository implements RgapCommands {
     return row ? resourceRecord(row) : undefined;
   }
 
-  async listResources(query: ResourceListQuery = {}) {
+  async listResources(query: ResourceListQuery) {
     const limit = pageLimit(query.limit);
-    const parent = query.parentId === undefined
-      ? undefined
-      : query.parentId === null ? isNull(schema.resources.parentId) : eq(schema.resources.parentId, query.parentId);
+    const parent = query.parentId === null
+      ? isNull(schema.resources.parentId)
+      : eq(schema.resources.parentId, query.parentId);
     const rows = this.db.select().from(schema.resources)
       .where(and(parent, isNull(schema.resources.deletedAt), query.cursor ? gt(schema.resources.id, query.cursor) : undefined))
       .orderBy(asc(schema.resources.id)).limit(limit).all();

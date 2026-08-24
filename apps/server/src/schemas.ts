@@ -119,7 +119,8 @@ export const NullableParentQuerySchema = z.preprocess(
 );
 
 export const ResourceListQuerySchema = PageQuerySchema.extend({
-  parentId: NullableParentQuerySchema,
+  parentId: z.union([IdSchema, z.literal(''), z.literal('null')])
+    .transform((value) => value === '' || value === 'null' ? null : value),
 });
 
 export const GrantListQuerySchema = PageQuerySchema.extend({

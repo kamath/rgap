@@ -2,6 +2,7 @@ import {
   RgapError,
   grantId,
   pathParts,
+  resourceId,
   tokenId,
   type AuditEvent,
   type BearerContext,
@@ -187,57 +188,80 @@ export function guardCommands(
     }
   };
 
-  const visibleResources = async (context?: BearerContext) => {
+  type ResourceView = {
+    targets: Set<ResourceId>;
+    context: Map<ResourceId, Resource>;
+    contextualChildren: Map<ResourceId | null, Map<ResourceId, Resource>>;
+    loaded: Map<ResourceId, Resource | undefined>;
+  };
+
+  const loadViewResource = async (view: ResourceView, id: ResourceId) => {
+    if (view.loaded.has(id)) return view.loaded.get(id);
+    const resource = await liveResource(id);
+    view.loaded.set(id, resource);
+    return resource;
+  };
+
+  const resourceView = async (context?: BearerContext): Promise<ResourceView> => {
     const currentContext = context ?? await bearerContext();
     const actingGrant = await repository.grants.get(currentContext.grantId);
-    const visible = new Map<ResourceId, Resource>();
-    const traversed = new Set<ResourceId>();
+    const view: ResourceView = {
+      targets: new Set(),
+      context: new Map(),
+      contextualChildren: new Map(),
+      loaded: new Map(),
+    };
 
     for (const { id } of actingGrant.bindings) {
-      const root = await liveResource(id);
-      if (!root) continue;
-
-      const queue = [root];
-      for (let index = 0; index < queue.length; index += 1) {
-        const resource = queue[index];
-        if (traversed.has(resource.id)) continue;
-        traversed.add(resource.id);
-        visible.set(resource.id, resource);
-
-        let cursor: string | undefined;
-        while (true) {
-          const page = await repository.resources.list({
-            parentId: resource.id,
-            cursor,
-            limit: maximumPageLimit,
-          });
-          page.forEach((child) => queue.push(resourceRecord(child)));
-          if (page.length < maximumPageLimit) break;
-          cursor = page.at(-1)!.id;
-        }
-      }
-
-      const ancestors = new Set<ResourceId>();
-      for (let current = root.parentId; current && !ancestors.has(current);) {
-        ancestors.add(current);
-        const resource = visible.get(current) ?? await liveResource(current);
+      const seen = new Set<ResourceId>();
+      for (let current: ResourceId | null = id; current && !seen.has(current);) {
+        seen.add(current);
+        const resource = await loadViewResource(view, current);
         if (!resource) break;
-        visible.set(resource.id, resource);
+        if (current === id) view.targets.add(id);
+        view.context.set(resource.id, resource);
+        const siblings = view.contextualChildren.get(resource.parentId) ?? new Map();
+        siblings.set(resource.id, resource);
+        view.contextualChildren.set(resource.parentId, siblings);
         current = resource.parentId;
       }
     }
 
-    return visible;
+    return view;
   };
 
-  const visibleResourceIds = async (context?: BearerContext) =>
-    new Set((await visibleResources(context)).keys());
+  const resourceRelation = async (view: ResourceView, id: ResourceId) => {
+    const seen = new Set<ResourceId>();
+    for (let current: ResourceId | null = id; current;) {
+      if (view.targets.has(current)) return 'subtree' as const;
+      if (seen.has(current)) throw new RgapError('resource_cycle', 'Resource tree contains a cycle.');
+      seen.add(current);
+      const resource = await loadViewResource(view, current);
+      if (!resource) break;
+      current = resource.parentId;
+    }
+    return view.context.has(id) ? 'context' as const : 'outside' as const;
+  };
 
-  const listVisibleResources = async (query: ResourceListQuery = {}) => {
-    const resources = [...(await visibleResources()).values()]
-      .filter((resource) => query.parentId === undefined || resource.parentId === query.parentId)
+  const resourceIsVisible = async (view: ResourceView, id: ResourceId) =>
+    (await resourceRelation(view, id)) !== 'outside';
+
+  const listVisibleResources = async (query: ResourceListQuery) => {
+    const view = await resourceView();
+    if (query.parentId === null) {
+      const roots = [...(view.contextualChildren.get(null)?.values() ?? [])]
+        .sort((left, right) => left.id.localeCompare(right.id));
+      return paginateRecords(roots, query);
+    }
+
+    const relation = await resourceRelation(view, query.parentId);
+    if (relation === 'subtree') return repository.resources.list(query);
+    if (relation === 'outside') {
+      throw new RgapError('unauthorized', 'That resource is outside this token\'s view.');
+    }
+    const children = [...(view.contextualChildren.get(query.parentId)?.values() ?? [])]
       .sort((left, right) => left.id.localeCompare(right.id));
-    return paginateRecords(resources, query);
+    return paginateRecords(children, query);
   };
 
   const grantIsVisible = async (id: GrantId, context?: BearerContext) => {
@@ -264,14 +288,14 @@ export function guardCommands(
     }
   };
 
-  const auditIsVisible = async (event: AuditEvent, context: BearerContext, resources: Set<string>) => {
+  const auditIsVisible = async (event: AuditEvent, context: BearerContext, resources: ResourceView) => {
     if (
       event.action === 'authorize' ||
       event.action.startsWith('resource.') ||
       event.action.startsWith('executable.') ||
       event.action.startsWith('invoke.')
     ) {
-      return resources.has(event.target);
+      return resourceIsVisible(resources, resourceId(event.target));
     }
     if (event.action.startsWith('grant.')) return grantIsVisible(grantId(event.target), context);
     if (event.action.startsWith('token.')) return tokenIsVisible(tokenId(event.target), context);
@@ -356,7 +380,8 @@ export function guardCommands(
           : input));
       },
       async get(id) {
-        if (!(await visibleResourceIds()).has(id)) throw new RgapError('unauthorized', 'That resource is outside this token\'s view.');
+        const view = await resourceView();
+        if (!(await resourceIsVisible(view, id))) throw new RgapError('unauthorized', 'That resource is outside this token\'s view.');
         return wrapResource(await repository.resources.get(id));
       },
       list: listVisibleResources,
@@ -404,7 +429,7 @@ export function guardCommands(
     audit: {
       async list(query) {
         const context = await bearerContext();
-        const resources = await visibleResourceIds(context);
+        const resources = await resourceView(context);
         return filtered(query, (page) => repository.audit.list(page), (event) => auditIsVisible(event, context, resources));
       },
     },

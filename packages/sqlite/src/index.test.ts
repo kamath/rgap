@@ -8,6 +8,7 @@ import {
   RuntimeRegistry,
   resourceId,
   type InvokeRuntime,
+  type Resource,
   type RgapRepository,
   type State,
 } from '@rgap/core';
@@ -67,7 +68,17 @@ async function all<T extends { id: string }>(
 }
 
 async function queriedState(repository: RgapRepository): Promise<State> {
-  const resources = await all((query) => repository.resources.list(query));
+  const resources: Resource[] = [];
+  const visit = async (parentId: Resource['parentId']) => {
+    let cursor: string | undefined;
+    do {
+      const page = await repository.resources.list({ parentId, cursor, limit: 100 });
+      resources.push(...page);
+      for (const resource of page) await visit(resource.id);
+      cursor = page.length === 100 ? page.at(-1)!.id : undefined;
+    } while (cursor);
+  };
+  await visit(null);
   const grants = await all((query) => repository.grants.list(query));
   const tokens = await all((query) => repository.tokens.list(query));
   const audit = await all((query) => repository.audit.list(query));

@@ -65,9 +65,9 @@ export function stubCommands(state: State, at: string) {
 
   const commands: RgapCommands = {
     getResource: (id) => Promise.resolve(state.resources[id]),
-    listResources: (query = {}) => Promise.resolve(paginateRecords(
+    listResources: (query) => Promise.resolve(paginateRecords(
       Object.values(state.resources)
-        .filter((item) => !item.deletedAt && (query.parentId === undefined || item.parentId === query.parentId))
+        .filter((item) => !item.deletedAt && item.parentId === query.parentId)
         .sort((left, right) => left.id.localeCompare(right.id)),
       query,
     )),
