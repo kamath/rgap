@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { openai as openaiProvider } from '@ai-sdk/openai';
+import { openai } from '@ai-sdk/openai';
 import { generateText } from 'ai';
 import type { InvokeRuntime } from '@rgap/core';
 import { SqliteRgapStore } from '@rgap/sqlite';
@@ -15,12 +15,12 @@ const OpenAIOutputSchema = z.object({
 type OpenAIInput = z.infer<typeof OpenAIInputSchema>;
 type OpenAIOutput = z.infer<typeof OpenAIOutputSchema>;
 
-const openai: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
+const openaiRuntime: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
   inputSchema: OpenAIInputSchema,
   outputSchema: OpenAIOutputSchema,
   async invoke({ input, signal }) {
     const { text } = await generateText({
-      model: openaiProvider(input.model),
+      model: openai(input.model),
       prompt: input.prompt,
       abortSignal: signal,
     });
@@ -30,7 +30,7 @@ const openai: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
 
 const store = new SqliteRgapStore({
   url: ':memory:',
-  runtimes: { openai },
+  runtimes: { openai: openaiRuntime },
 });
 
 try {
