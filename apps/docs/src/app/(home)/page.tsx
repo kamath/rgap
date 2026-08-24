@@ -96,14 +96,14 @@ const token = await grant.tokens.create({ label: 'employee' });
 const employee = store.as(token.value);
 const authorizedModel = await employee.resources.get(model.id);
 
-const response = (await Array.fromAsync(authorizedModel.invoke({
+const [output] = (await Array.fromAsync(authorizedModel.invoke({
   input: {
     model: 'gpt-5.6-sol',
     prompt: 'Summarize the design notes.',
   },
 })))
-  .filter((event) => event.type === 'data')
-  .at(-1)?.value;`}</code>
+  .filter((event) => event.type === 'data');
+const response = output?.value;`}</code>
           </pre>
         </div>
       </section>
