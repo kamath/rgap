@@ -43,7 +43,7 @@ function decisionForGrant(
   modeled.tokens[`formal-${grantId}`] = {
     id: tokenId(`formal-${grantId}`),
     grantId,
-    label: 'formal invariant probe',
+    label: 'invariant probe',
     hash,
     expiresAt: modeled.grants[grantId].expiresAt,
     revokedAt: null,

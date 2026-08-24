@@ -83,7 +83,7 @@ try {
     false,
   );
 
-  console.log('Formal invariant walkthrough passed.');
+  console.log('Invariant walkthrough passed.');
 } finally {
   store.close();
 }

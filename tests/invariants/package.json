@@ -1,5 +1,5 @@
 {
-  "name": "@rgap/formal-tests",
+  "name": "@rgap/invariant-tests",
   "private": true,
   "version": "0.0.0",
   "type": "module",

@@ -17,9 +17,9 @@ apps/
 └── docs/           # Next.js and Fumadocs documentation
 examples/
 ├── index.ts        # executable scratchpad
-└── formal-invariants.ts # executable invariant walkthrough
+└── invariants.ts   # executable invariant walkthrough
 tests/
-└── formal/         # property and state-machine verification
+└── invariants/     # property and state-machine verification
 ```
 
 ## Core boundary
@@ -238,13 +238,13 @@ over its source. SQLite tests use real in-memory databases. Server tests cover
 validation, authorization plane selection, OpenAPI generation, generated SDK
 calls, and the HTTP store.
 
-## Formal invariant suite
+## Property-based invariant suite
 
-`tests/formal` is a separate workspace package for security properties that
-span individual modules and adapters. It uses generated resource trees, grant
+`tests/invariants` is a separate workspace package for security properties
+that span individual modules. It uses generated resource trees, grant
 lineages, requests, and command sequences. A failure reports the random seed
-and the smallest counterexample so the sequence can be replayed as an ordinary
-regression test.
+and the smallest counterexample so the sequence can be replayed as an
+ordinary regression test.
 
 The suite verifies these properties over the authority dimensions represented
 by the protocol:
@@ -269,19 +269,20 @@ against current state: moving a resource into a path grant can intentionally
 change the resources at that location, but an allowed request must still be
 covered by every ancestor.
 
-The package also exports an adapter conformance harness. Each persistence or
-transport adapter runs the same generated traces against the pure reference
-rules and its real command implementation, then compares decisions, normalized
-state, and audit effects. Adapter-specific integration tests remain beside
-their adapters.
+The package also exports a deterministic adapter smoke harness. An adapter
+runs one fixed delegation and revocation scenario, then compares normalized
+resource paths, grant paths, and authorization decisions with the expected
+contract. Generated state-machine checks remain focused on the pure rules, and
+adapter-specific integration tests remain beside their adapters.
 
-`examples/formal-invariants.ts` is the deterministic, executable introduction
-to the same contract. It checks child-to-parent authorization containment and
+`examples/invariants.ts` is the deterministic, executable introduction to the
+same contract. It checks child-to-parent authorization containment and
 cascading ancestor revocation without random generation.
 
 ## Verification
 
 `pnpm build` type-checks every workspace package and produces the documentation
-site. `pnpm test` runs the core, SQLite, server, and formal invariant suites.
-Core's 100% coverage threshold is a gate over its source rather than a report,
-and each downstream package exercises its real adapter instead of a stand-in.
+site. `pnpm test` runs the core, SQLite, server, and property-based invariant
+suites. Core's 100% coverage threshold is a gate over its source rather than a
+report, and each downstream package exercises its real adapter instead of a
+stand-in.

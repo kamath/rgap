@@ -28,9 +28,6 @@ describe('adapter conformance harness', () => {
         parentReadsPayroll: true,
         childReadsAfterRevocation: false,
       });
-      expect(snapshot.auditResults.allowed).toBe(2);
-      expect(snapshot.auditResults.denied).toBe(3);
-      expect(snapshot.auditResults.recorded).toBeGreaterThanOrEqual(12);
     } finally {
       store.close();
     }

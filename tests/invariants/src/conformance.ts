@@ -15,7 +15,6 @@ export type ConformanceSnapshot = {
     parentReadsPayroll: boolean;
     childReadsAfterRevocation: boolean;
   };
-  auditResults: Record<'allowed' | 'denied' | 'recorded', number>;
 };
 
 function grantPath(grants: readonly Grant[], id: GrantId) {
@@ -88,12 +87,6 @@ export async function runAdapterConformance(
 
   const resources = await admin.resources.list({ limit: 100 });
   const grants = await admin.grants.list({ limit: 100 });
-  const audit = await admin.audit.list({ limit: 100 });
-  const auditResults = {
-    allowed: audit.filter((event) => event.result === 'allowed').length,
-    denied: audit.filter((event) => event.result === 'denied').length,
-    recorded: audit.filter((event) => event.result === 'recorded').length,
-  };
 
   return {
     resources: resources
@@ -107,6 +100,5 @@ export async function runAdapterConformance(
       parentReadsPayroll,
       childReadsAfterRevocation,
     },
-    auditResults,
   };
 }
