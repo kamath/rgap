@@ -9,10 +9,28 @@ CREATE TABLE `audit` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `audit_id_unique` ON `audit` (`id`);--> statement-breakpoint
+CREATE TABLE `executable_bindings` (
+	`executable_resource_id` text NOT NULL,
+	`name` text NOT NULL,
+	`resource_id` text NOT NULL,
+	`grant_lineage` text,
+	PRIMARY KEY(`executable_resource_id`, `name`),
+	FOREIGN KEY (`executable_resource_id`) REFERENCES `executables`(`resource_id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`resource_id`) REFERENCES `resources`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
 CREATE TABLE `executables` (
 	`resource_id` text PRIMARY KEY NOT NULL,
 	`runtime` text NOT NULL,
 	FOREIGN KEY (`resource_id`) REFERENCES `resources`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE TABLE `grant_resource_permissions` (
+	`grant_id` text NOT NULL,
+	`position` integer NOT NULL,
+	`permission` text NOT NULL,
+	PRIMARY KEY(`grant_id`, `position`, `permission`),
+	FOREIGN KEY (`grant_id`,`position`) REFERENCES `grant_resources`(`grant_id`,`position`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
 CREATE TABLE `grant_resources` (
@@ -25,14 +43,6 @@ CREATE TABLE `grant_resources` (
 	FOREIGN KEY (`id`) REFERENCES `resources`(`id`) ON UPDATE no action ON DELETE no action,
 	CONSTRAINT "grant_resources_target_check" CHECK(("grant_resources"."id" is not null and "grant_resources"."path" is null)
         or ("grant_resources"."id" is null and "grant_resources"."path" is not null))
-);
---> statement-breakpoint
-CREATE TABLE `grant_resource_permissions` (
-	`grant_id` text NOT NULL,
-	`position` integer NOT NULL,
-	`permission` text NOT NULL,
-	PRIMARY KEY(`grant_id`, `position`, `permission`),
-	FOREIGN KEY (`grant_id`,`position`) REFERENCES `grant_resources`(`grant_id`,`position`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
 CREATE TABLE `grants` (

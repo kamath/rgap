@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6a72e0b7-ec67-4781-9649-848d4654aaab",
+  "id": "e07c68a3-40b5-4b00-888a-e723b2e8110d",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "audit": {
@@ -68,6 +68,79 @@
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "executable_bindings": {
+      "name": "executable_bindings",
+      "columns": {
+        "executable_resource_id": {
+          "name": "executable_resource_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resource_id": {
+          "name": "resource_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "grant_lineage": {
+          "name": "grant_lineage",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "executable_bindings_executable_resource_id_executables_resource_id_fk": {
+          "name": "executable_bindings_executable_resource_id_executables_resource_id_fk",
+          "tableFrom": "executable_bindings",
+          "tableTo": "executables",
+          "columnsFrom": [
+            "executable_resource_id"
+          ],
+          "columnsTo": [
+            "resource_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "executable_bindings_resource_id_resources_id_fk": {
+          "name": "executable_bindings_resource_id_resources_id_fk",
+          "tableFrom": "executable_bindings",
+          "tableTo": "resources",
+          "columnsFrom": [
+            "resource_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "executable_bindings_executable_resource_id_name_pk": {
+          "columns": [
+            "executable_resource_id",
+            "name"
+          ],
+          "name": "executable_bindings_executable_resource_id_name_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
