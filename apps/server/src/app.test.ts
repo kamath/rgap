@@ -99,10 +99,13 @@ describe('RGAP Hono API', () => {
   it('validates input and selects only valid bearer planes', async () => {
     const app = testApp();
 
-    expect((await app.request('/resources')).status).toBe(401);
-    expect((await app.request('/resources', {
+    expect((await app.request('/resources?parentId=null')).status).toBe(401);
+    expect((await app.request('/resources?parentId=null', {
       headers: { authorization: 'Bearer unknown' },
     })).status).toBe(401);
+    expect((await app.request('/resources', {
+      headers: { authorization },
+    })).status).toBe(400);
 
     const invalid = await app.request('/resources', {
       method: 'POST',
