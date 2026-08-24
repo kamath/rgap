@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
@@ -31,6 +31,7 @@ const flows = new Map<string, McpConnection>();
 
 const McpRuntimeInputSchema = McpInvokeInputSchema.extend({
   serverUrl: z.url(),
+  server: z.string(),
   credential: z.string(),
 });
 
@@ -80,7 +81,10 @@ const connectionResource = await ensureResource(
 await connectionResource.executable.set({
   runtime: 'mcp',
   input: { serverUrl: serverUrl.toString() },
-  bind: { credential: credential.id },
+  bind: {
+    server: serverResource.id,
+    credential: credential.id,
+  },
 });
 
 const invoker = await admin.grants.create({
@@ -187,9 +191,11 @@ async function child(
 
 function resourceName(url: URL) {
   const path = url.pathname.split('/').filter(Boolean).join('-');
-  return `${url.hostname}${path ? `-${path}` : ''}`
+  const label = `${url.protocol.slice(0, -1)}-${url.host}${path ? `-${path}` : ''}`
     .toLowerCase()
     .replace(/[^a-z0-9._-]/g, '-');
+  const digest = createHash('sha256').update(url.toString()).digest('hex').slice(0, 8);
+  return `${label}-${digest}`;
 }
 
 function message(error: unknown) {

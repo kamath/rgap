@@ -221,6 +221,7 @@ const connection = await admin.resources.create({
       serverUrl: 'https://mcp.example.com',
     },
     bind: {
+      server: server.id,
       credential: credential.id,
     },
   },

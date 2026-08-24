@@ -11,10 +11,10 @@ acme/mcp/
 └── credentials/<server>-default
 ```
 
-The connection seals the upstream URL and binds the credential resource. An
-RGAP grant with `invoke` on that connection can forward any client-to-server
-MCP request supported by the negotiated protocol. The MCP SDK manages
-connection setup and protocol negotiation.
+The connection seals the upstream URL and binds both the server identity and
+credential resources. An RGAP grant with `invoke` on that connection can
+forward any client-to-server MCP request supported by the negotiated protocol.
+The MCP SDK manages connection setup and protocol negotiation.
 
 OAuth tokens, registered client information, discovery state, PKCE data, and
 pending callback state are stored through `@rgap/credential-store` in
