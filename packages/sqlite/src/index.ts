@@ -280,7 +280,7 @@ class SqliteBackingRepository implements RgapCommands {
       const decision = decide(state, digest(token), id, permission, at);
       const next = structuredClone(state);
       next.audit.unshift({
-        id: record.id,
+        id: randomUUID(),
         at,
         action: 'authorize',
         target: id,
@@ -313,7 +313,7 @@ class SqliteBackingRepository implements RgapCommands {
     this.commit((state) => {
       const next = structuredClone(state);
       next.audit.unshift({
-        id: randomUUID(),
+        id: record.id,
         at: record.finishedAt,
         action: 'executable.invoke',
         target: record.resourceId,

@@ -83,6 +83,36 @@ describe('RGAP domain', () => {
     ]);
   });
 
+  it('reports missing executable binding resources and grant lineage', () => {
+    const state = fixture();
+    state.executables.drive = {
+      resourceId: r('drive'),
+      runtime: 'test',
+      bind: {
+        source: {
+          resourceId: r('missing-bound-resource'),
+          grantLineage: [g('missing-binding-grant')],
+        },
+      },
+    };
+    expect(stateIntegrity(state)).toEqual([
+      'Executable drive binding source refers to missing resource missing-bound-resource.',
+      'Executable drive binding source refers to missing grant missing-binding-grant.',
+    ]);
+
+    state.executables.drive.bind = {
+      valid: {
+        resourceId: r('read-file'),
+        grantLineage: [g('coordinator')],
+      },
+      admin: {
+        resourceId: r('drive'),
+        grantLineage: null,
+      },
+    };
+    expect(stateIntegrity(state)).toEqual([]);
+  });
+
   it('rejects delegation that expands permission', () => {
     const state = fixture();
     state.grants.coordinator.resources = [cap('drive', { permissions: ['read'] })];
@@ -677,6 +707,27 @@ describe('authorization decisions', () => {
       'invoke',
       at,
     ).detail).toContain('no longer matches');
+    expect(authorizeLineage(
+      fixture(),
+      recorded,
+      r('missing'),
+      'invoke',
+      at,
+    ).detail).toBe('Resource does not exist.');
+    expect(authorizeLineage(
+      fixture(),
+      [],
+      r('search-files'),
+      'invoke',
+      at,
+    ).detail).toBe('Binding has no grant lineage.');
+    expect(authorizeLineage(
+      fixture(),
+      recorded,
+      r('search-files'),
+      'write',
+      at,
+    ).allowed).toBe(false);
   });
 
   it('denies a token it does not know, and one that is expired or revoked', () => {

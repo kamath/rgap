@@ -266,10 +266,12 @@ describe('command guard', () => {
       runtime: 'test',
       bind: { source: r('read-file') },
     });
+    await guard.executables.set(r('search-files'), { runtime: 'test' });
     await search.executable.set({
       runtime: 'test',
       bind: { source: r('read-file') },
     });
+    await search.executable.set({ runtime: 'test' });
     await guard.executables.delete(r('search-files'));
     await search.executable.delete();
     for await (const event of guard.invoke(r('search-files'), { input: {} })) {
@@ -279,7 +281,8 @@ describe('command guard', () => {
       expect(event.type).toBe('done');
     }
     expect(calls.map(({ method }) => method)).toEqual([
-      'setExecutable', 'setExecutable', 'deleteExecutable', 'deleteExecutable',
+      'setExecutable', 'setExecutable', 'setExecutable', 'setExecutable',
+      'deleteExecutable', 'deleteExecutable',
       'invoke', 'invoke',
     ]);
   });

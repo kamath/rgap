@@ -88,6 +88,16 @@ describe('executable associations', () => {
       runtime: 'test',
       bind: { ['__proto__']: resourceId('read-file') },
     }, at, runtimes)).toThrow('reserved');
+    expect(() => setExecutable(
+      fixture(),
+      executableId,
+      withAuthorizedBindings({
+        runtime: 'test',
+        bind: { source: resourceId('read-file') },
+      }, {}),
+      at,
+      runtimes,
+    )).toThrow('was not authorized');
   });
 });
 
@@ -190,6 +200,11 @@ describe('runtime registry and invocation', () => {
     await expect(collect(invokeExecutable(configured, executableId, {
       input: { query: 'raw', source: 'override' },
     }))).rejects.toThrow('cannot override sealed field');
+    for (const invalid of [null, 'not-an-object', []]) {
+      await expect(collect(invokeExecutable(configured, executableId, {
+        input: invalid,
+      }))).rejects.toThrow('must be an object');
+    }
   });
 
   it('composes nested invocations by resource ID and records the call chain', async () => {
@@ -278,6 +293,56 @@ describe('runtime registry and invocation', () => {
       executableId,
       { input: {} },
     ))).rejects.toMatchObject({ code: 'invalid_nested_result' });
+
+    const multiChild = runtime({
+      async *invoke() {
+        yield 'one';
+        yield 'two';
+      },
+    });
+    const multiRuntimes = new RuntimeRegistry({ parent, cycle: multiChild });
+    state = setExecutable(fixture(), childId, { runtime: 'cycle' }, at, multiRuntimes);
+    state = setExecutable(state, executableId, {
+      runtime: 'parent',
+      bind: { child: childId },
+    }, at, multiRuntimes);
+    await expect(collect(invokeExecutable(
+      services(state, parent, { runtimes: multiRuntimes }),
+      executableId,
+      { input: {} },
+    ))).rejects.toMatchObject({ code: 'invalid_nested_result' });
+  });
+
+  it('rejects nested invocation deeper than 32 frames', async () => {
+    const chain = runtime({
+      async invoke({ input, invoke }) {
+        const next = (input as { next?: string }).next;
+        return next ? invoke.one(next, { input: {} }) : 'done';
+      },
+    });
+    const runtimes = new RuntimeRegistry({ chain });
+    let state = fixture();
+    const ids = Array.from({ length: 33 }, (_, index) => resourceId(`chain-${index}`));
+    ids.forEach((id) => {
+      state.resources[id] = {
+        id,
+        parentId: null,
+        name: id,
+        deletedAt: null,
+      };
+    });
+    ids.forEach((id, index) => {
+      state = setExecutable(state, id, {
+        runtime: 'chain',
+        bind: index === ids.length - 1 ? undefined : { next: ids[index + 1] },
+      }, at, runtimes);
+    });
+
+    await expect(collect(invokeExecutable(
+      services(state, chain, { runtimes }),
+      ids[0],
+      { input: {} },
+    ))).rejects.toMatchObject({ code: 'invocation_depth' });
   });
 
   it('normalizes promise, async iterable, null, and undefined results', async () => {
