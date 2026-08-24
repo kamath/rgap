@@ -300,7 +300,15 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
     })
     .openapi(setExecutableRoute, async (c) => {
       const { id } = c.req.valid('param');
-      return c.json(await repository(c).executables.set(resourceId(id), c.req.valid('json')), 200);
+      const { runtime, bind } = c.req.valid('json');
+      return c.json(await repository(c).executables.set(resourceId(id), {
+        runtime,
+        bind: bind
+          ? Object.fromEntries(
+            Object.entries(bind).map(([name, boundId]) => [name, resourceId(boundId)]),
+          )
+          : undefined,
+      }), 200);
     })
     .openapi(deleteExecutableRoute, async (c) => {
       const { id } = c.req.valid('param');
@@ -309,14 +317,11 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
     })
     .openapi(invokeRoute, async (c) => {
       const { id } = c.req.valid('param');
-      const { input, bindings } = c.req.valid('json');
+      const { input } = c.req.valid('json');
       // @hono/zod-openapi does not express a typed streaming body, although the route schema
       // documents each NDJSON event. Runtime validation and integration tests cover the stream.
       return invocationResponse(c.req.raw.signal, (signal) => repository(c).invoke(resourceId(id), {
         input,
-        bindings: bindings
-          ? Object.fromEntries(Object.entries(bindings).map(([name, boundId]) => [name, resourceId(boundId)]))
-          : undefined,
         signal,
       })) as never;
     })

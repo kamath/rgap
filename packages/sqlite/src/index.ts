@@ -7,13 +7,13 @@ import type { SQLiteTable } from 'drizzle-orm/sqlite-core';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import {
   authorize as decide,
+  authorizeLineage,
   createAtPath,
   createGrantAtPath,
   deleteExecutable as removeExecutable,
   deleteResource as removeResource,
   grantId,
   grantIdAtPath,
-  getAuthorizedLineage,
   guardCommands,
   inspectAuthority,
   invokeExecutable,
@@ -196,11 +196,7 @@ class SqliteBackingRepository implements RgapCommands {
   }
 
   async getExecutable(id: ResourceId) {
-    const row = this.db.select().from(schema.executables).where(eq(schema.executables.resourceId, id)).get();
-    return row ? {
-      resourceId: resourceId(row.resourceId),
-      runtime: row.runtime,
-    } : undefined;
+    return this.read().executables[id];
   }
 
   async setExecutable(id: ResourceId, input: SetExecutableInput) {
@@ -219,12 +215,17 @@ class SqliteBackingRepository implements RgapCommands {
     return (async function* () {
       yield* invokeExecutable({
         getDefinition: (resource) => repository.getExecutable(resource),
-        // The selected repository plane already authorized invocation. The admin plane is unrestricted.
-        authorize: async (resource) => {
-          repository.requireLiveResource(resource);
-          return { lineage: getAuthorizedLineage(input) };
+        authorize: async (resource, permission, lineage) => {
+          if (lineage === null) {
+            repository.requireLiveResource(resource);
+            return { lineage: [] };
+          }
+          const decision = authorizeLineage(repository.read(), lineage, resource, permission, now());
+          if (!decision.allowed) throw new RgapError('unauthorized', decision.detail);
+          return { lineage: decision.lineage };
         },
         runtimes: repository.runtimes,
+        createInvocationId: randomUUID,
         recordInvocation: (record) => repository.recordInvocation(record),
       }, id, input);
     })();
@@ -279,7 +280,7 @@ class SqliteBackingRepository implements RgapCommands {
       const decision = decide(state, digest(token), id, permission, at);
       const next = structuredClone(state);
       next.audit.unshift({
-        id: randomUUID(),
+        id: record.id,
         at,
         action: 'authorize',
         target: id,
@@ -320,6 +321,7 @@ class SqliteBackingRepository implements RgapCommands {
         detail: JSON.stringify({
           runtime: record.runtime,
           grantLineageIds: record.grantLineage,
+          parentInvocationId: record.parentInvocationId,
           bindingResourceIds: Object.values(record.bindings),
           startedAt: record.startedAt,
           finishedAt: record.finishedAt,
@@ -432,8 +434,25 @@ class SqliteBackingRepository implements RgapCommands {
       state.executables[row.resourceId] = {
         resourceId: resourceId(row.resourceId),
         runtime: row.runtime,
+        bind: {},
       };
     });
+    this.db.select().from(schema.executableBindings)
+      .orderBy(
+        asc(schema.executableBindings.executableResourceId),
+        asc(schema.executableBindings.name),
+      )
+      .all()
+      .forEach((row) => {
+        const executable = state.executables[row.executableResourceId];
+        if (!executable) throw new RgapError('missing_executable', 'Executable binding has no executable.');
+        executable.bind[row.name] = {
+          resourceId: resourceId(row.resourceId),
+          grantLineage: row.grantLineage === null
+            ? null
+            : parseGrantLineage(row.grantLineage),
+        };
+      });
 
     this.db.select().from(schema.audit).orderBy(asc(schema.audit.seq)).all().forEach((row) => {
       state.audit.push({
@@ -454,6 +473,7 @@ class SqliteBackingRepository implements RgapCommands {
     this.db.delete(schema.grantResourcePermissions).run();
     this.db.delete(schema.grantResources).run();
     this.db.delete(schema.tokens).run();
+    this.db.delete(schema.executableBindings).run();
     this.db.delete(schema.executables).run();
     this.db.delete(schema.audit).run();
     this.db.delete(schema.grants).run();
@@ -487,14 +507,27 @@ class SqliteBackingRepository implements RgapCommands {
     insert(this.db, schema.grantResourcePermissions, carried);
 
     insert(this.db, schema.tokens, Object.values(state.tokens));
-    insert(this.db, schema.executables, Object.values(state.executables));
+    insert(this.db, schema.executables, Object.values(state.executables).map((definition) => ({
+      resourceId: definition.resourceId,
+      runtime: definition.runtime,
+    })));
+    insert(this.db, schema.executableBindings, Object.values(state.executables).flatMap((definition) =>
+      Object.entries(definition.bind).map(([name, binding]) => ({
+        executableResourceId: definition.resourceId,
+        name,
+        resourceId: binding.resourceId,
+        grantLineage: binding.grantLineage === null
+          ? null
+          : JSON.stringify(binding.grantLineage),
+      }))
+    ));
     insert(this.db, schema.audit, state.audit.map((event, seq) => ({ ...event, seq })));
   }
 
   private isEmpty() {
     return [
       schema.resources, schema.grants, schema.tokens, schema.executables,
-      schema.audit,
+      schema.executableBindings, schema.audit,
     ].every(
       (table) => this.db.select().from(table).limit(1).all().length === 0,
     );
@@ -516,6 +549,13 @@ const now = () => new Date().toISOString();
 const entryKey = (grantId: string, position: number) => `${grantId}:${position}`;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const digest = (value: string) => tokenHash(hash(value));
+const parseGrantLineage = (value: string): GrantId[] => {
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed) || parsed.some((id) => typeof id !== 'string')) {
+    throw new RgapError('invalid_binding_lineage', 'Executable binding lineage is invalid.');
+  }
+  return parsed.map(grantId);
+};
 const resourceRecord = (row: typeof schema.resources.$inferSelect) => ({
   id: resourceId(row.id),
   parentId: row.parentId ? resourceId(row.parentId) : null,

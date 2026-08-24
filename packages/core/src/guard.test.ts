@@ -17,7 +17,9 @@ const cap = (id: string, permissions: GrantResource['permissions']): GrantResour
 /** The demo token references `coordinator`, which holds every permission across the drive subtree. */
 function state(): State {
   const base = fixture();
-  base.grants.coordinator.resources = [cap('drive', ['read', 'write', 'delete', 'move', 'invoke'])];
+  base.grants.coordinator.resources = [
+    cap('drive', ['read', 'write', 'delete', 'move', 'invoke', 'bind']),
+  ];
   base.grants.researcher.resources = [
     { id: r('search-files'), permissions: ['invoke'] },
   ];
@@ -252,7 +254,7 @@ describe('command guard', () => {
   it('guards executable metadata, setting, and binding invocation', async () => {
     const initial = state();
     initial.executables['search-files'] = {
-      resourceId: r('search-files'), runtime: 'test',
+      resourceId: r('search-files'), runtime: 'test', bind: {},
     };
     const { commands, calls } = stubCommands(initial, at);
     const guard = guardCommands(repositoryFrom(commands), bearer);
@@ -260,14 +262,20 @@ describe('command guard', () => {
 
     expect((await guard.executables.get(r('search-files')))?.runtime).toBe('test');
     expect((await search.executable.get())?.resourceId).toBe('search-files');
-    await guard.executables.set(r('search-files'), { runtime: 'test' });
-    await search.executable.set({ runtime: 'test' });
+    await guard.executables.set(r('search-files'), {
+      runtime: 'test',
+      bind: { source: r('read-file') },
+    });
+    await search.executable.set({
+      runtime: 'test',
+      bind: { source: r('read-file') },
+    });
     await guard.executables.delete(r('search-files'));
     await search.executable.delete();
-    for await (const event of guard.invoke(r('search-files'), {
-      input: {}, bindings: { target: r('drive') },
-    })) expect(event.type).toBe('done');
-    for await (const event of search.invoke({ input: {}, bindings: { target: r('drive') } })) {
+    for await (const event of guard.invoke(r('search-files'), { input: {} })) {
+      expect(event.type).toBe('done');
+    }
+    for await (const event of search.invoke({ input: {} })) {
       expect(event.type).toBe('done');
     }
     expect(calls.map(({ method }) => method)).toEqual([
@@ -276,11 +284,12 @@ describe('command guard', () => {
     ]);
   });
 
-  it('invokes with or without opaque bindings', async () => {
+  it('does not treat caller input strings as binding authority', async () => {
     const initial = state();
     initial.executables['search-files'] = {
       resourceId: r('search-files'),
       runtime: 'test',
+      bind: {},
     };
     const { commands, calls } = stubCommands(initial, at);
     const guard = guardCommands(repositoryFrom(commands), bearer);
@@ -288,15 +297,8 @@ describe('command guard', () => {
     for await (const event of guard.invoke(r('drive'), { input: {} })) {
       expect(event.type).toBe('done');
     }
-    for await (const event of guard.invoke(r('drive'), {
-      input: {},
-      bindings: { readonly: r('read-file') },
-    })) {
-      expect(event.type).toBe('done');
-    }
     for await (const event of guard.invoke(r('search-files'), {
-      input: {},
-      bindings: { readonly: r('read-file'), undeclared: r('drive') },
+      input: { target: r('read-file') },
     })) {
       expect(event.type).toBe('done');
     }
@@ -306,6 +308,6 @@ describe('command guard', () => {
       expect(event.type).toBe('done');
     }
 
-    expect(calls.map(({ method }) => method)).toEqual(['invoke', 'invoke', 'invoke', 'invoke']);
+    expect(calls.map(({ method }) => method)).toEqual(['invoke', 'invoke', 'invoke']);
   });
 });

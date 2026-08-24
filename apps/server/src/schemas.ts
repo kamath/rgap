@@ -17,6 +17,10 @@ export const ResourceSchema = z.object({
 export const ExecutableDefinitionSchema = z.object({
   resourceId: IdSchema,
   runtime: z.string(),
+  bind: z.record(z.string(), z.object({
+    resourceId: IdSchema,
+    grantLineage: z.array(IdSchema).nullable(),
+  }).strict()),
 }).openapi('ExecutableDefinition');
 
 export const JsonValueSchema = z.union([
@@ -30,11 +34,11 @@ export const JsonValueSchema = z.union([
 
 export const SetExecutableSchema = z.object({
   runtime: z.string().min(1),
+  bind: z.record(z.string(), IdSchema).optional(),
 }).strict();
 
 export const InvokeSchema = z.object({
   input: JsonValueSchema,
-  bindings: z.record(z.string(), IdSchema).optional(),
 }).strict();
 
 export const InvocationEventSchema = z.discriminatedUnion('type', [

@@ -54,15 +54,14 @@ function executableTestApp() {
   const runtime: InvokeRuntime = {
     inputSchema: null,
     outputSchema: null,
-    bindings: { source: { kind: 'document' } },
     async invoke(context) {
-      return context.input;
+      const { source: _source, ...output } = context.input as Record<string, unknown>;
+      return output;
     },
   };
   const voidRuntime: InvokeRuntime = {
     inputSchema: null,
     outputSchema: null,
-    bindings: { source: { kind: 'document' } },
     async invoke() {},
   };
   store = new SqliteRgapStore({
@@ -186,20 +185,27 @@ describe('RGAP Hono API', () => {
     const set = await request(
       `/resources/${executable.id}/executable`,
       'PUT',
-      { runtime: 'test' },
+      { runtime: 'test', bind: { source: source.id } },
     );
     expect(set.status).toBe(200);
     expect(await (await request(`/resources/${executable.id}/executable`, 'GET')).json())
-      .toEqual({ resourceId: executable.id, runtime: 'test' });
+      .toEqual({
+        resourceId: executable.id,
+        runtime: 'test',
+        bind: {
+          source: {
+            resourceId: source.id,
+            grantLineage: null,
+          },
+        },
+      });
 
     expect((await request(`/resources/${executable.id}/invoke`, 'POST', {
       input: {},
-      bindings: { source: source.id },
       signal: {},
     })).status).toBe(400);
     const invoked = await request(`/resources/${executable.id}/invoke`, 'POST', {
       input: { message: 'hello' },
-      bindings: { source: source.id },
     });
     expect(invoked.status).toBe(200);
     expect(invoked.headers.get('content-type')).toContain('application/x-ndjson');
@@ -210,7 +216,6 @@ describe('RGAP Hono API', () => {
     await request(`/resources/${executable.id}/executable`, 'PUT', { runtime: 'void' });
     const voidInvocation = await request(`/resources/${executable.id}/invoke`, 'POST', {
       input: null,
-      bindings: { source: source.id },
     });
     expect((await voidInvocation.text()).trim().split('\n').map((line) => JSON.parse(line)))
       .toEqual([{ type: 'done' }]);
@@ -233,7 +238,7 @@ describe('RGAP Hono API', () => {
     expect((await request(
       `/resources/${executable.id}/invoke`,
       'POST',
-      { input: {}, bindings: { source: source.id } },
+      { input: {} },
       reader.value,
     )).status).toBe(403);
 
@@ -360,12 +365,14 @@ describe('RGAP Hono API', () => {
     const admin = remote.admin();
     const executable = await admin.resources.create({ name: 'remote-echo' });
     const source = await admin.resources.create({ name: 'remote-source' });
-    await executable.executable.set({ runtime: 'test' });
+    await executable.executable.set({
+      runtime: 'test',
+      bind: { source: source.id },
+    });
     expect((await executable.executable.get())?.runtime).toBe('test');
     const events = [];
     for await (const event of executable.invoke({
       input: { remote: true },
-      bindings: { source: source.id },
     })) {
       events.push(event);
     }

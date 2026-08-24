@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import {
-  authorize, availableGrantId, availableId, covers, createAtPath, createGrant, createGrantAtPath, createResource,
+  authorize, authorizeLineage, availableGrantId, availableId, covers, createAtPath, createGrant, createGrantAtPath, createResource,
   deleteResource, grantId, grantIdAtPath, inspectAuthority, InvalidParentError, isLive, isWithin, liveResources,
   moveResource, normalizePath, permissions, recordToken, requireResourceId, resourceId, resourceIdAtPath,
   resourcePath, revokeGrant, revokeToken, RgapError, setResources,
@@ -67,10 +67,12 @@ describe('RGAP domain', () => {
     state.executables['missing-definition-resource'] = {
       resourceId: r('missing-definition-resource'),
       runtime: 'test',
+      bind: {},
     };
     state.executables.drive = {
       resourceId: r('drive'),
       runtime: 'test',
+      bind: {},
     };
 
     expect(stateIntegrity(state)).toEqual([
@@ -650,6 +652,33 @@ describe('tokens', () => {
 });
 
 describe('authorization decisions', () => {
+  it('revalidates recorded grant lineage against current authority', () => {
+    const recorded = [g('coordinator')];
+    expect(authorizeLineage(
+      fixture(),
+      recorded,
+      r('search-files'),
+      'invoke',
+      at,
+    ).allowed).toBe(true);
+
+    const revoked = revokeGrant(fixture(), g('coordinator'), at);
+    expect(authorizeLineage(
+      revoked,
+      recorded,
+      r('search-files'),
+      'invoke',
+      at,
+    ).allowed).toBe(false);
+    expect(authorizeLineage(
+      fixture(),
+      [g('researcher')],
+      r('search-files'),
+      'invoke',
+      at,
+    ).detail).toContain('no longer matches');
+  });
+
   it('denies a token it does not know, and one that is expired or revoked', () => {
     expect(authorize(fixture(), tokenHash('unknown-hash'), r('search-files'), 'invoke', at).detail)
       .toBe('Token is unknown, expired, or revoked.');
@@ -703,7 +732,7 @@ describe('inspecting the authority behind a token', () => {
   });
 
   it('lists every permission the contract understands', () => {
-    expect(permissions).toEqual(['read', 'write', 'invoke', 'move', 'delete']);
+    expect(permissions).toEqual(['read', 'write', 'invoke', 'bind', 'move', 'delete']);
   });
 });
 

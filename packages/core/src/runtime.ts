@@ -1,7 +1,5 @@
 import {
   RgapError,
-  type BindingSlot,
-  type ResourceId,
 } from './domain';
 
 export type InvocationEvent =
@@ -13,14 +11,16 @@ export type RuntimeSchema<T> = {
   parse(value: unknown): T;
 };
 
-export type RuntimeBinding = {
-  resourceId: ResourceId;
-  kind: BindingSlot['kind'];
+export type NestedInvokeInput = {
+  input: unknown;
 };
 
 export type RuntimeInvocation<TInput = unknown> = {
   input: TInput;
-  bindings: Readonly<Record<string, RuntimeBinding>>;
+  invoke: {
+    stream(resourceId: string, input: NestedInvokeInput): AsyncIterable<InvocationEvent>;
+    one<T = unknown>(resourceId: string, input: NestedInvokeInput): Promise<T>;
+  };
   signal: AbortSignal;
 };
 
@@ -29,7 +29,6 @@ export type RuntimeResult<T> = T | AsyncIterable<T>;
 export interface InvokeRuntime<TInput = unknown, TOutput = unknown> {
   inputSchema: RuntimeSchema<TInput> | null;
   outputSchema: RuntimeSchema<TOutput> | null;
-  bindings?: Readonly<Record<string, BindingSlot>>;
   invoke(
     context: RuntimeInvocation<TInput>,
   ): RuntimeResult<TOutput> | Promise<RuntimeResult<TOutput>>;

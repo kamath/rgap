@@ -25,7 +25,7 @@ import {
   type RgapRepository,
   type TokenHandle,
 } from './repository';
-import { withAuthorizedLineage } from './executable';
+import { withAuthorizedBindings, withAuthorizedLineage } from './executable';
 
 /**
  * Wraps a repository so each command authorizes the token before it runs.
@@ -85,7 +85,13 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
       },
       async set(input) {
         await permit(resource.id, 'write');
-        return resource.executable.set(input);
+        const bindings = Object.fromEntries(await Promise.all(
+          Object.entries(input.bind ?? {}).map(async ([name, id]) => [
+            name,
+            (await permit(id, 'bind')).lineage,
+          ]),
+        ));
+        return resource.executable.set(withAuthorizedBindings(input, bindings));
       },
       async delete() {
         await permit(resource.id, 'write');
@@ -95,17 +101,13 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
     invoke: (input) => guardedInvoke(resource.id, input),
   });
 
-  const authorizeInvocation = async (id: ResourceId, input: Parameters<RgapRepository['invoke']>[1]) => {
-    const invocation = await permit(id, 'invoke');
-    for (const boundId of Object.values(input.bindings ?? {})) await permit(boundId, 'invoke');
-    return invocation.lineage;
-  };
+  const authorizeInvocation = async (id: ResourceId) => (await permit(id, 'invoke')).lineage;
 
   async function* guardedInvoke(
     id: ResourceId,
     input: Parameters<RgapRepository['invoke']>[1],
   ) {
-    const lineage = await authorizeInvocation(id, input);
+    const lineage = await authorizeInvocation(id);
     yield* repository.invoke(id, withAuthorizedLineage(input, lineage));
   }
 
@@ -295,7 +297,16 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
       },
       async set(resourceId, input) {
         await permit(resourceId, 'write');
-        return repository.executables.set(resourceId, input);
+        const bindings = Object.fromEntries(await Promise.all(
+          Object.entries(input.bind ?? {}).map(async ([name, id]) => [
+            name,
+            (await permit(id, 'bind')).lineage,
+          ]),
+        ));
+        return repository.executables.set(
+          resourceId,
+          withAuthorizedBindings(input, bindings),
+        );
       },
       async delete(resourceId) {
         await permit(resourceId, 'write');

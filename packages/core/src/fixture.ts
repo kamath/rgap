@@ -94,7 +94,12 @@ export function stubCommands(state: State, at: string) {
     deleteResource: (id) => record('deleteResource', [id], undefined),
     getExecutable: (id) => Promise.resolve(state.executables[id]),
     setExecutable: (id, input) => record('setExecutable', [id, input], {
-      resourceId: id, runtime: input.runtime,
+      resourceId: id,
+      runtime: input.runtime,
+      bind: Object.fromEntries(Object.entries(input.bind ?? {}).map(([name, boundId]) => [
+        name,
+        { resourceId: boundId, grantLineage: null },
+      ])),
     }),
     deleteExecutable: (id) => record('deleteExecutable', [id], undefined),
     invoke: (id, input) => {

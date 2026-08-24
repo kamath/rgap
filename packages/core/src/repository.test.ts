@@ -84,7 +84,7 @@ describe('repositoryFrom', () => {
   it('exposes executable and invocation commands on both surfaces', async () => {
     const state = fixture();
     state.executables['search-files'] = {
-      resourceId: resourceId('search-files'), runtime: 'test',
+      resourceId: resourceId('search-files'), runtime: 'test', bind: {},
     };
     const { commands, calls } = stubCommands(state, at);
     const repository = repositoryFrom(commands);

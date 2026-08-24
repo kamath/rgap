@@ -1,7 +1,7 @@
 import {
   RgapError,
   isLive,
-  type BindingSlot,
+  resourceId as toResourceId,
   type ExecutableDefinition,
   type GrantId,
   type Permission,
@@ -12,18 +12,23 @@ import {
   RuntimeRegistry,
   type InvocationEvent,
   type InvokeRuntime,
-  type RuntimeBinding,
 } from './runtime';
 
-export type SetExecutableInput = { runtime: string };
+export type SetExecutableInput = {
+  runtime: string;
+  bind?: Record<string, ResourceId>;
+};
 export type InvokeInput = {
   input: unknown;
-  bindings?: Record<string, ResourceId>;
   signal?: AbortSignal;
 };
 
 const authorizedLineage = Symbol('authorized invocation lineage');
+const authorizedBindings = Symbol('authorized executable bindings');
 type AuthorizedInvokeInput = InvokeInput & { [authorizedLineage]?: GrantId[] };
+type AuthorizedSetExecutableInput = SetExecutableInput & {
+  [authorizedBindings]?: Record<string, GrantId[]>;
+};
 
 /** Internal command-plane context attached by the bearer guard after it authorizes invocation. */
 export function withAuthorizedLineage(input: InvokeInput, lineage: GrantId[]): InvokeInput {
@@ -34,10 +39,30 @@ export function withAuthorizedLineage(input: InvokeInput, lineage: GrantId[]): I
 
 /** Returns command-plane context without exposing it on the JSON invocation shape. */
 export function getAuthorizedLineage(input: InvokeInput) {
-  return [...((input as AuthorizedInvokeInput)[authorizedLineage] ?? [])];
+  const lineage = (input as AuthorizedInvokeInput)[authorizedLineage];
+  return lineage ? [...lineage] : null;
+}
+
+/** Attaches binding authorization without exposing it in the executable JSON shape. */
+export function withAuthorizedBindings(
+  input: SetExecutableInput,
+  bindings: Record<string, GrantId[]>,
+): SetExecutableInput {
+  const authorized = { ...input } as AuthorizedSetExecutableInput;
+  Object.defineProperty(authorized, authorizedBindings, {
+    value: Object.fromEntries(
+      Object.entries(bindings).map(([name, lineage]) => [name, [...lineage]]),
+    ),
+  });
+  return authorized;
+}
+
+function getAuthorizedBindings(input: SetExecutableInput) {
+  return (input as AuthorizedSetExecutableInput)[authorizedBindings];
 }
 
 const cloned = <T>(value: T): T => structuredClone(value);
+const invalidBindingNames = new Set(['__proto__', 'prototype', 'constructor']);
 
 /** Atomically creates or replaces a resource-to-runtime association. */
 export function setExecutable(
@@ -53,8 +78,25 @@ export function setExecutable(
   const runtime = input.runtime.trim();
   if (!runtime) throw new RgapError('invalid_runtime', 'Runtime name is required.');
   runtimes.get(runtime);
+  const authorized = getAuthorizedBindings(input);
+  const bind = Object.fromEntries(Object.entries(input.bind ?? {}).map(([name, boundId]) => {
+    if (invalidBindingNames.has(name)) {
+      throw new RgapError('invalid_bindings', `Binding name ${name} is reserved.`);
+    }
+    if (!isLive(state.resources[boundId])) {
+      throw new RgapError('missing_resource', `Bound resource ${boundId} does not exist.`);
+    }
+    const lineage = authorized?.[name];
+    if (authorized && !lineage) {
+      throw new RgapError('unauthorized', `Binding ${name} was not authorized.`);
+    }
+    return [name, {
+      resourceId: boundId,
+      grantLineage: lineage ? [...lineage] : null,
+    }];
+  }));
   const next = cloned(state);
-  next.executables[resourceId] = { resourceId, runtime };
+  next.executables[resourceId] = { resourceId, runtime, bind };
   next.audit.unshift({
     id: `${at}:executable.set:${next.audit.length}`,
     at,
@@ -84,30 +126,22 @@ export function deleteExecutable(state: State, resourceId: ResourceId, at: strin
   return next;
 }
 
-/** Validates exact slot names and required slots. */
-export function validateBindings(
-  declarations: Readonly<Record<string, BindingSlot>>,
-  supplied: Readonly<Record<string, ResourceId>>,
-) {
-  for (const name of Object.keys(supplied)) {
-    if (!declarations[name]) throw new RgapError('invalid_bindings', `Binding ${name} is not declared.`);
-  }
-  for (const [name, slot] of Object.entries(declarations)) {
-    if (slot.required !== false && !supplied[name]) {
-      throw new RgapError('invalid_bindings', `Binding ${name} is required.`);
-    }
-  }
-}
-
 export type InvocationServices = {
   getDefinition(resourceId: ResourceId): Promise<ExecutableDefinition | undefined>;
-  authorize(resourceId: ResourceId, permission: Permission): Promise<{ lineage: GrantId[] }>;
+  authorize(
+    resourceId: ResourceId,
+    permission: Permission,
+    lineage: GrantId[] | null,
+  ): Promise<{ lineage: GrantId[] }>;
   runtimes: RuntimeRegistry;
+  createInvocationId(): string;
   recordInvocation(record: InvocationRecord): Promise<void>;
 };
 
 /** Audit-safe invocation facts. Inputs, outputs, and runtime values are absent. */
 export type InvocationRecord = {
+  id: string;
+  parentInvocationId: string | null;
   resourceId: ResourceId;
   runtime: string;
   grantLineage: GrantId[];
@@ -123,32 +157,112 @@ export async function* invokeExecutable(
   resourceId: ResourceId,
   input: InvokeInput,
 ): AsyncIterable<InvocationEvent> {
+  const callerLineage = getAuthorizedLineage(input);
+  yield* invokeFrame(services, resourceId, input, {
+    authorization: { permission: 'invoke', lineage: callerLineage },
+    callerLineage,
+    parentInvocationId: null,
+    stack: [],
+  });
+}
+
+const maximumInvocationDepth = 32;
+type FrameState = {
+  authorization: { permission: 'invoke' | 'bind'; lineage: GrantId[] | null };
+  callerLineage: GrantId[] | null;
+  parentInvocationId: string | null;
+  stack: ResourceId[];
+};
+
+async function* invokeFrame(
+  services: InvocationServices,
+  resourceId: ResourceId,
+  input: InvokeInput,
+  frame: FrameState,
+): AsyncIterable<InvocationEvent> {
+  if (frame.stack.includes(resourceId)) {
+    throw new RgapError('invocation_cycle', 'Nested invocation contains an active resource cycle.');
+  }
+  if (frame.stack.length >= maximumInvocationDepth) {
+    throw new RgapError('invocation_depth', `Nested invocation exceeds ${maximumInvocationDepth} frames.`);
+  }
   const definition = await services.getDefinition(resourceId);
   if (!definition) throw new RgapError('missing_executable', 'Executable does not exist.');
   const runtime: InvokeRuntime = services.runtimes.get(definition.runtime);
-  const authorization = await services.authorize(resourceId, 'invoke');
-  const parsedInput = runtime.inputSchema === null
-    ? input.input
-    : runtime.inputSchema.parse(input.input);
-  const supplied = input.bindings ?? {};
-  const declarations = runtime.bindings ?? {};
-  validateBindings(declarations, supplied);
-  for (const boundId of Object.values(supplied)) {
-    await services.authorize(boundId, 'invoke');
+  const authorization = await services.authorize(
+    resourceId,
+    frame.authorization.permission,
+    frame.authorization.lineage,
+  );
+  for (const binding of Object.values(definition.bind)) {
+    await services.authorize(binding.resourceId, 'bind', binding.grantLineage);
   }
 
-  const bindings: Record<string, RuntimeBinding> = {};
-  for (const [name, boundId] of Object.entries(supplied)) {
-    bindings[name] = { resourceId: boundId, kind: declarations[name].kind };
+  let completeInput = input.input;
+  const bindingEntries = Object.entries(definition.bind);
+  if (bindingEntries.length) {
+    if (
+      completeInput === null ||
+      typeof completeInput !== 'object' ||
+      Array.isArray(completeInput)
+    ) {
+      throw new RgapError('invalid_input', 'Invocation input must be an object when bindings exist.');
+    }
+    for (const [name] of bindingEntries) {
+      if (Object.prototype.hasOwnProperty.call(completeInput, name)) {
+        throw new RgapError('invalid_input', `Invocation input cannot override sealed field ${name}.`);
+      }
+    }
+    const merged = Object.assign(Object.create(null), completeInput);
+    for (const [name, binding] of bindingEntries) merged[name] = binding.resourceId;
+    completeInput = merged;
   }
+  const parsedInput = runtime.inputSchema === null
+    ? completeInput
+    : runtime.inputSchema.parse(completeInput);
 
   const controller = new AbortController();
   const cancel = () => controller.abort(input.signal?.reason);
   if (input.signal?.aborted) cancel();
   else input.signal?.addEventListener('abort', cancel, { once: true });
+  const invocationId = services.createInvocationId();
+  const stack = [...frame.stack, resourceId];
+  const stream = (target: string, nested: { input: unknown }) => {
+    const targetId = toResourceId(target);
+    const direct = Object.values(definition.bind)
+      .find((binding) => binding.resourceId === targetId);
+    const authorization = direct
+      ? { permission: 'bind' as const, lineage: direct.grantLineage }
+      : { permission: 'invoke' as const, lineage: frame.callerLineage };
+    return invokeFrame(services, targetId, {
+      input: nested.input,
+      signal: controller.signal,
+    }, {
+      authorization,
+      callerLineage: frame.callerLineage,
+      parentInvocationId: invocationId,
+      stack,
+    });
+  };
+  const one = async <T>(target: string, nested: { input: unknown }) => {
+    let value: T | undefined;
+    let count = 0;
+    for await (const event of stream(target, nested)) {
+      if (event.type !== 'data') continue;
+      count += 1;
+      if (count > 1) {
+        throw new RgapError('invalid_nested_result', 'Nested invocation returned more than one value.');
+      }
+      value = event.value as T;
+    }
+    if (count !== 1) {
+      throw new RgapError('invalid_nested_result', 'Nested invocation did not return exactly one value.');
+    }
+    return value as T;
+  };
   const context = {
     input: parsedInput,
-    bindings,
+    invoke: { stream, one },
     signal: controller.signal,
   };
   const startedAt = new Date().toISOString();
@@ -181,10 +295,14 @@ export async function* invokeExecutable(
     controller.abort();
     input.signal?.removeEventListener('abort', cancel);
     await services.recordInvocation({
+      id: invocationId,
+      parentInvocationId: frame.parentInvocationId,
       resourceId,
       runtime: definition.runtime,
       grantLineage: [...authorization.lineage],
-      bindings: { ...supplied },
+      bindings: Object.fromEntries(
+        bindingEntries.map(([name, binding]) => [name, binding.resourceId]),
+      ),
       startedAt,
       finishedAt: new Date().toISOString(),
       result,
