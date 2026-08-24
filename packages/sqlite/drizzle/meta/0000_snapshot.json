@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6a72e0b7-ec67-4781-9649-848d4654aaab",
+  "id": "83a18a08-4407-49c1-943c-fb1041444020",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "audit": {
@@ -186,14 +186,7 @@
           "name": "id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "path": {
-          "name": "path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
@@ -236,12 +229,7 @@
         }
       },
       "uniqueConstraints": {},
-      "checkConstraints": {
-        "grant_resources_target_check": {
-          "name": "grant_resources_target_check",
-          "value": "(\"grant_resources\".\"id\" is not null and \"grant_resources\".\"path\" is null)\n        or (\"grant_resources\".\"id\" is null and \"grant_resources\".\"path\" is not null)"
-        }
-      }
+      "checkConstraints": {}
     },
     "grants": {
       "name": "grants",

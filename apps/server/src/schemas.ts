@@ -42,20 +42,10 @@ export const InvocationEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('done') }).strict(),
 ]).openapi('InvocationEvent');
 
-const GrantResourceConfigSchema = {
+export const GrantResourceSchema = z.object({
+  id: IdSchema,
   permissions: z.array(PermissionSchema),
-};
-
-export const GrantResourceSchema = z.union([
-  z.object({
-    ...GrantResourceConfigSchema,
-    id: IdSchema,
-  }).strict(),
-  z.object({
-    ...GrantResourceConfigSchema,
-    path: z.string(),
-  }).strict(),
-]).openapi('GrantResource');
+}).strict().openapi('GrantResource');
 
 export const GrantSchema = z.object({
   id: IdSchema,
