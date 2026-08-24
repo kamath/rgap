@@ -2,8 +2,7 @@ import fc from 'fast-check';
 import {
   permissions,
   resourceId,
-  resourcePath,
-  type GrantResource,
+  type GrantBinding,
   type Permission,
   type Resource,
   type State,
@@ -28,31 +27,27 @@ export const resourceTrees = fc
     return resources;
   });
 
-export const entrySeeds = fc.record({
+export const bindingSeeds = fc.record({
   target: fc.nat(),
   permissionMask: fc.nat(),
-  usePath: fc.boolean(),
 });
 
-export type EntrySeed = {
+export type BindingSeed = {
   target: number;
   permissionMask: number;
-  usePath: boolean;
 };
 
-export function entryFromSeed(
+export function bindingFromSeed(
   resources: State['resources'],
-  seed: EntrySeed,
-): GrantResource {
+  seed: BindingSeed,
+): GrantBinding {
   const records = Object.values(resources) as Resource[];
   const target = records[seed.target % records.length];
   const selected = permissions.filter(
     (_, index) => index === 0 || (seed.permissionMask & (1 << index)) !== 0,
   ) as Permission[];
 
-  return seed.usePath
-    ? { path: resourcePath(resources, target.id), permissions: selected }
-    : { id: target.id, permissions: selected };
+  return { id: target.id, permissions: selected };
 }
 
 export type Operation = {

@@ -294,9 +294,9 @@ ordinary regression test.
 The suite verifies these properties over the authority dimensions represented
 by the protocol:
 
-- Entry containment is reflexive and transitive.
-- Every concrete request authorized by a covered child entry is authorized by
-  its parent entry.
+- ID-based grant-binding containment is reflexive and transitive.
+- Every concrete request authorized by a covered child binding is authorized by
+  its parent binding.
 - Every request allowed through a child grant is allowed through every active
   ancestor in the current resource tree.
 - Delegation and token issuance leave the parent's authority unchanged.
@@ -310,9 +310,12 @@ by the protocol:
 
 State-machine checks apply generated commands one at a time and validate the
 invariants after every transition. Resource topology changes are evaluated
-against current state: moving a resource into a path grant can intentionally
-change the resources at that location, but an allowed request must still be
-covered by every ancestor.
+against current state: moving a resource beneath a bound resource can
+intentionally change the covered subtree, but an allowed request must still be
+covered by every ancestor. Generated states use the same `GrantBinding`
+contract as the core rules: each binding contains one stable resource `id` and
+a permission set. The checks use `bindingAuthorizes` for concrete requests and
+`setBindings` for grant amendments.
 
 The package also exports a deterministic adapter smoke harness. An adapter
 runs one fixed delegation and revocation scenario, then compares normalized
@@ -331,3 +334,16 @@ site. `pnpm test` runs the core, SQLite, server, and property-based invariant
 suites. Core's 100% coverage threshold is a gate over its source rather than a
 report, and each downstream package exercises its real adapter instead of a
 stand-in.
+
+Continuous integration installs the frozen lockfile and runs three explicit
+checks:
+
+```bash
+pnpm build
+pnpm test
+pnpm --filter @rgap/examples invariants
+```
+
+The final check executes the deterministic invariant walkthrough against the
+SQLite adapter in addition to the property-based invariant package included by
+the workspace test command.
