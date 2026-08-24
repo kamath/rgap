@@ -8,10 +8,11 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import {
   authorize as decide,
   createAtPath,
-  createGrant as addGrant,
+  createGrantAtPath,
   deleteExecutable as removeExecutable,
   deleteResource as removeResource,
   grantId,
+  grantIdAtPath,
   getAuthorizedLineage,
   guardCommands,
   inspectAuthority,
@@ -279,18 +280,25 @@ class SqliteBackingRepository implements RgapCommands {
   }
 
   async createGrant(input: CreateGrantInput) {
-    const id = grantId(randomUUID());
     return this.db.transaction(() => {
+      const at = now();
       const state = this.workingState();
-      if (input.parentId) this.loadGrant(state, input.parentId);
+      this.prepareGrantPath(state, input.name, input.parentId, at);
       this.loadGrantResourceTargets(state, [
         ...input.resources,
-        ...(input.parentId ? state.grants[input.parentId]?.resources ?? [] : []),
+        ...Object.values(state.grants).flatMap((grant) => grant.resources),
       ]);
-      const next = addGrant(state, input, id, now());
-      const grant = next.grants[id];
-      this.db.insert(schema.grants).values(grantRow(grant)).run();
-      this.replaceGrantResources(grant);
+      const before = new Set(Object.keys(state.grants));
+      const { parentId, ...write } = input;
+      const next = createGrantAtPath(state, write, parentId, at);
+      const id = grantIdAtPath(next.grants, input.name, parentId, at);
+      if (!id) throw new RgapError('invalid_grant', 'Grant name is required.');
+      const created = Object.values(next.grants).filter((grant) => !before.has(grant.id));
+      insert(this.db, schema.grants, parentsFirst(
+        Object.fromEntries(created.map((grant) => [grant.id, grant])),
+        'grant_cycle',
+      ).map(grantRow));
+      created.forEach((grant) => this.replaceGrantResources(grant));
       this.persistAuditDelta(state, next);
       return this.grantRecord(this.db.select().from(schema.grants).where(eq(schema.grants.id, id)).get()!);
     });
@@ -565,6 +573,51 @@ class SqliteBackingRepository implements RgapCommands {
     return grant;
   }
 
+  /**
+   * Loads active grant-path occupants and every occupied ID candidate that can affect the pure
+   * available-grant-ID rule. Missing prefixes are reserved in the order this command creates them.
+   */
+  private prepareGrantPath(
+    state: State,
+    path: string,
+    parentId: GrantId | null,
+    at: string,
+  ) {
+    if (parentId) this.loadGrant(state, parentId);
+    const reserved = new Set<string>();
+    let current = parentId;
+    let creating = false;
+    for (const name of pathParts(path)) {
+      if (!creating) {
+        const row = this.db.select().from(schema.grants).where(and(
+          current ? eq(schema.grants.parentId, current) : isNull(schema.grants.parentId),
+          eq(schema.grants.name, name),
+        )).orderBy(asc(schema.grants.id)).all().find((candidate) => activeAt(candidate, at));
+        if (row) {
+          const grant = this.loadGrant(state, grantId(row.id));
+          current = grant!.id;
+          continue;
+        }
+        creating = true;
+      }
+
+      const base = grantIdBase(name);
+      let candidate = base;
+      let suffix = 2;
+      while (reserved.has(candidate)) candidate = `${base}-${suffix++}`;
+      while (true) {
+        const row = this.db.select().from(schema.grants)
+          .where(eq(schema.grants.id, candidate)).get();
+        if (!row) break;
+        this.loadGrant(state, grantId(row.id), false);
+        candidate = `${base}-${suffix++}`;
+        while (reserved.has(candidate)) candidate = `${base}-${suffix++}`;
+      }
+      reserved.add(candidate);
+      current = grantId(candidate);
+    }
+  }
+
   private loadGrantLineage(state: State, id: GrantId) {
     const seen = new Set<string>();
     let current: GrantId | null = id;
@@ -819,6 +872,12 @@ const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 const digest = (value: string) => tokenHash(hash(value));
 const resourceIdBase = (name: string) =>
   name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'resource';
+const grantIdBase = (name: string) =>
+  name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'grant';
+const activeAt = (
+  record: { expiresAt: string | null; revokedAt: string | null },
+  at: string,
+) => !record.revokedAt && (!record.expiresAt || record.expiresAt > at);
 const grantRow = (grant: State['grants'][string]) => ({
   id: grant.id,
   name: grant.name,

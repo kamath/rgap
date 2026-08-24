@@ -120,9 +120,76 @@ describe('SqliteRgapStore', () => {
     expect(state.resources.drive.parentId).toBe('acme');
     expect(state.grants[grant.id].resources).toEqual([
       { id: resourceId('acme'), permissions: ['read', 'write'] },
-      { path: 'acme/future-tool', permissions: ['invoke'] },
+      { path: 'acme/future-tool', permissions: ['read', 'invoke'] },
     ]);
     expect(state.tokens[issued.id]).toEqual(tokenRecord(issued));
+  });
+
+  it('creates a complete grant path in one transaction and returns the leaf', async () => {
+    const repository = open({ initialState: acme() }).admin();
+    const employee = await repository.grants.create({
+      name: 'company/team/employee',
+      resources: [],
+      expiresAt: null,
+    });
+    const team = await repository.grants.get(employee.parentId!);
+    const company = await repository.grants.get(team.parentId!);
+
+    expect(employee.name).toBe('employee');
+    expect(team).toMatchObject({ name: 'team', parentId: company.id });
+    expect(company).toMatchObject({ name: 'company', parentId: null });
+    expect((await repository.grants.list()).map(({ name }) => name))
+      .toEqual(['company', 'employee', 'team']);
+  });
+
+  it('reuses a focused grant-path prefix and inserts only missing descendants', async () => {
+    const repository = open({ initialState: acme() }).admin();
+    const company = await repository.grants.create({
+      name: 'company',
+      resources: [{ id: resourceId('acme'), permissions: ['read'] }],
+      expiresAt: null,
+    });
+
+    const employee = await repository.grants.create({
+      name: 'company/team/employee',
+      resources: [{ id: resourceId('drive'), permissions: ['read'] }],
+      expiresAt: null,
+    });
+    const team = await repository.grants.get(employee.parentId!);
+
+    expect(team.parentId).toBe(company.id);
+    expect((await repository.grants.list()).map(({ name }) => name))
+      .toEqual(['company', 'employee', 'team']);
+  });
+
+  it('rolls back every missing grant-path prefix when attenuation fails', async () => {
+    const repository = open({ initialState: acme() }).admin();
+    await repository.grants.create({
+      name: 'company',
+      resources: [{ id: resourceId('drive'), permissions: ['read'] }],
+      expiresAt: null,
+    });
+    const before = await queriedState(repository);
+
+    await expect(repository.grants.create({
+      name: 'company/team/employee',
+      resources: [{ id: resourceId('acme'), permissions: ['write'] }],
+      expiresAt: null,
+    })).rejects.toMatchObject({ code: 'authority_expands' });
+
+    expect(await queriedState(repository)).toEqual(before);
+  });
+
+  it('allocates distinct focused IDs for repeated grant-path segments', async () => {
+    const repository = open().admin();
+    const nested = await repository.grants.create({
+      name: 'same/same',
+      resources: [],
+      expiresAt: null,
+    });
+
+    expect(nested.id).toBe('same-2');
+    expect(nested.parentId).toBe('same');
   });
 
   it('persists and replaces executable associations across restart', async () => {
@@ -195,8 +262,11 @@ describe('SqliteRgapStore', () => {
     await expect(collect(store.as(value).invoke(resourceId('drive'), { input: {} })))
       .rejects.toMatchObject({ code: 'unauthorized' });
 
-    const invoker = await rootGrant(admin);
-    await invoker.resources.set([{ id: resourceId('drive'), permissions: ['invoke'] }]);
+    const invoker = await admin.grants.create({
+      name: 'Acme invoker', resources: [], expiresAt: null,
+    });
+    const invoked = await invoker.resources.set([{ id: resourceId('drive'), permissions: ['invoke'] }]);
+    expect(invoked.resources[0].permissions).toEqual(['read', 'invoke']);
     const allowed = await invoker.tokens.create({ label: 'invoker' });
     expect(await collect(store.as(allowed.value).invoke(resourceId('drive'), { input: {} })))
       .toEqual([{ type: 'done' }]);
@@ -449,7 +519,9 @@ describe('SqliteRgapStore', () => {
     expect(created.parentId).not.toBeNull();
     const handleChild = await (await guarded.resources.get(resourceId('acme'))).create({ name: 'mcp' });
     expect(handleChild.parentId).toBe('acme');
-    const child = await guarded.grants.create({ name: 'Drive write', resources: [], expiresAt: null });
+    const child = await guarded.grants.create({
+      name: 'Acme admin/Drive write', resources: [], expiresAt: null,
+    });
     expect(child.parentId).toBe(grant.id);
     await child.resources.set([{ id: resourceId('acme'), permissions: ['write'] }]);
     await expect((await guarded.resources.get(resourceId('acme'))).delete()).rejects.toThrow();

@@ -334,14 +334,9 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
       return c.json(records, 200);
     })
     .openapi(createGrantRoute, async (c) => {
-      const { parentId, resources, ...input } = c.req.valid('json');
+      const { resources, ...input } = c.req.valid('json');
       const write = { ...input, resources: brandedResources(resources) };
-      if (parentId === null && !c.get('admin')) {
-        throw new RgapError('unauthorized', 'Creating a root grant is an administrative operation.');
-      }
-      const record = parentId === null
-        ? await repository(c).grants.create(write)
-        : await repository(c).grants.get(grantId(parentId)).then((parent) => parent.create(write));
+      const record = await repository(c).grants.create(write);
       return c.json(grantRecord(record), 200);
     })
     .openapi(setResourcesRoute, async (c) => {

@@ -79,13 +79,12 @@ export class HttpRgapStore implements RgapStore {
     return repositoryFrom(new HttpRgapCommands(
       this.client,
       tokenValue(this.options.adminToken ?? 'test'),
-      true,
       this.options,
     ));
   }
 
   as(token: TokenValue): RgapRepository {
-    return repositoryFrom(new HttpRgapCommands(this.client, token, false, this.options));
+    return repositoryFrom(new HttpRgapCommands(this.client, token, this.options));
   }
 
   close() {}
@@ -95,7 +94,6 @@ class HttpRgapCommands implements RgapCommands {
   constructor(
     private readonly client: Client,
     private readonly bearer: TokenValue,
-    private readonly admin: boolean,
     private readonly storeOptions: HttpRgapStoreOptions,
   ) {}
 
@@ -231,12 +229,23 @@ class HttpRgapCommands implements RgapCommands {
   }
 
   async createGrant(input: Parameters<RgapCommands['createGrant']>[0]) {
-    const parentId = input.parentId === null && !this.admin
-      ? await this.actingGrantId()
-      : input.parentId;
+    const name = input.parentId === null
+      ? input.name
+      : `${await this.grantPathOf(input.parentId)}/${input.name}`;
     return asGrant(unwrap(await createGrant(this.options({
-      body: { ...input, parentId, resources: input.resources.map(asHttpGrantResource) },
+      body: { name, resources: input.resources.map(asHttpGrantResource), expiresAt: input.expiresAt },
     }))));
+  }
+
+  private async grantPathOf(id: ReturnType<typeof grantId>) {
+    const names: string[] = [];
+    for (let current: ReturnType<typeof grantId> | null = id; current;) {
+      const grant = await this.getGrant(current);
+      if (!grant) throw new RgapError('missing_grant', 'Grant does not exist.');
+      names.unshift(grant.name);
+      current = grant.parentId;
+    }
+    return names.join('/');
   }
 
   async setResources(id: ReturnType<typeof grantId>, resources: GrantResource[]) {
@@ -297,13 +306,6 @@ class HttpRgapCommands implements RgapCommands {
     };
   }
 
-  private async actingGrantId() {
-    const view = unwrap(await inspectToken(this.options({ body: { token: this.bearer } })));
-    if (!view.valid || view.grantId === null) {
-      throw new RgapError('unauthorized', view.detail);
-    }
-    return grantId(view.grantId);
-  }
 }
 
 type RequestResult<T> = {

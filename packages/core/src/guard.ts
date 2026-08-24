@@ -124,9 +124,7 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
       ...grant,
       resources,
       async create(input: GrantWrite) {
-        if (grant.id !== (await actingGrantId())) {
-          throw new RgapError('unauthorized', 'A token may only delegate from the grant it references.');
-        }
+        await withinActingGrant(grant.id);
         return wrapGrant(await grant.create(input));
       },
       tokens: {
@@ -237,6 +235,30 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
     }
   };
 
+  const actingGrantRoute = async () => {
+    const route: { id: GrantId; name: string }[] = [];
+    for (let current: GrantId | null = await actingGrantId(); current;) {
+      const grant = await repository.grants.get(current);
+      route.unshift({ id: grant.id, name: grant.name });
+      current = grant.parentId;
+    }
+    return route;
+  };
+
+  const authorizeGrantCreateRoute = async (path: string) => {
+    const requested = pathParts(path);
+    const route = await actingGrantRoute();
+    const reachesActingGrant =
+      requested.length > route.length &&
+      route.every((grant, index) => requested[index] === grant.name);
+    if (!reachesActingGrant) {
+      throw new RgapError(
+        'unauthorized',
+        'Grant create must follow existing ancestors to the acting grant before creating inside its branch.',
+      );
+    }
+  };
+
   const authorizeCreateFrom = async (parentId: ResourceId | null, path: string) => {
     let current = parentId;
     for (const name of pathParts(path)) {
@@ -283,8 +305,8 @@ export function guardCommands(repository: RgapRepository, token: TokenValue): Rg
     invoke: guardedInvoke,
     grants: {
       async create(input) {
-        const parent = wrapGrant(await repository.grants.get(await actingGrantId()));
-        return parent.create(input);
+        await authorizeGrantCreateRoute(input.name);
+        return wrapGrant(await repository.grants.create(input));
       },
       async get(id) {
         if (!(await grantIsVisible(id))) throw new RgapError('unauthorized', 'That grant is outside this token\'s view.');
