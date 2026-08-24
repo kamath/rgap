@@ -49,7 +49,7 @@ try {
 
   const agentGrant = await admin.grants.create({
     name: 'company/platform-team/employee',
-    resources: [{ id: model.id, permissions: ['invoke'] }],
+    bindings: [{ id: model.id, permissions: ['invoke'] }],
     expiresAt: null,
   });
   const employeeToken = await agentGrant.tokens.create({ label: 'employee' });

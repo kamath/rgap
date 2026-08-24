@@ -72,7 +72,7 @@ curl http://localhost:3000/resources \
 `POST /resources` and `POST /grants` accept a slash-separated location in
 `name` and return the leaf. The path is the location; the body does not include
 `parentId`. Missing prefixes are created from the forest root. A grant write
-also carries the leaf resource set and expiration; every grant created in that
+also carries the leaf binding set and expiration; every grant created in that
 walk stores those fields.
 
 Successful requests return the JSON-compatible RGAP records and decisions

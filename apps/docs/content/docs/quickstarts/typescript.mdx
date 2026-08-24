@@ -29,7 +29,7 @@ try {
 
   const agent = await admin.grants.create({
     name: 'company/documentation-agent',
-    resources: [{
+    bindings: [{
       id: design.id,
       permissions: ['read'],
     }],
@@ -87,8 +87,8 @@ The first result reports the `design` resource with `read: true` and
 
 - Resources form a mutable hierarchy with stable identities.
 - One grant create materializes the `company/documentation-agent` grant path.
-- Each grant created in that path receives `read` under `acme/platform/docs`
-  from the create body.
+- Each grant created in that path binds `read` under `acme/platform/docs` from
+  the create body.
 - The agent's repository plane can read `design` but cannot write it.
 - Revoking the agent grant disables its token on the next authorization check.
 

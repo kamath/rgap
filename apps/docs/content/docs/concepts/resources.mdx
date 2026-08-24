@@ -66,19 +66,19 @@ projects/alpha/secret
 projects/private/secret
 ```
 
-A grant-resource entry targeting `secret` follows it to
-`projects/private/secret`. Grant-resource entries always use stable resource
-IDs, so an entry never transfers authority to a different object that later
+A grant binding targeting `secret` follows it to
+`projects/private/secret`. Grant bindings always use stable resource
+IDs, so a binding never transfers authority to a different object that later
 occupies the old location.
 
 ## Subtree semantics
 
-Every grant resource reaches its target and all current descendants. A grant on
+Every grant binding reaches its target and all current descendants. A grant on
 a container therefore includes children created later.
 
 <Callout type="info">
   Grant leaves instead of a container when future children must not inherit the
-  entry's authority.
+  binding's authority.
 </Callout>
 
 ## Path normalization
@@ -87,7 +87,7 @@ Paths are canonicalized by splitting on `/`, trimming segments, and discarding
 empty segments. `Acme`, `Acme/`, and `/Acme//` identify the same location.
 
 Resource and grant creation accept presentation paths and materialize them in
-their respective trees. Other operational commands and grant-resource entries
+their respective trees. Other operational commands and grant bindings
 use stable IDs.
 
 ## Moves
@@ -112,5 +112,5 @@ tombstones so IDs are never reused.
 - A deleted name may be reused under the same parent by a new resource with a
   new ID.
 
-This preserves the meaning of old grant-resource entries and audit events without
+This preserves the meaning of grant bindings and audit events without
 reserving names forever.
