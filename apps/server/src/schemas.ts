@@ -22,7 +22,7 @@ export const JsonValueSchema = z.union([
   z.array(z.unknown()),
   z.record(z.string(), z.unknown()),
 ]);
-const ExecutableInputSchema = z.record(z.string(), z.unknown());
+const ExecutableInputSchema = z.record(z.string(), z.any());
 
 export const ExecutableDefinitionSchema = z.object({
   resourceId: IdSchema,
