@@ -254,6 +254,7 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
     return apiError(c, 500, 'internal_error', 'Internal server error.');
   });
 
+  // @ts-expect-error Hono's fluent route type exceeds TypeScript's instantiation depth.
   const app = base
     .openapi(getResourceRoute, async (c) => {
       const { id } = c.req.valid('param');
