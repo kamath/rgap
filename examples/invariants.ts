@@ -1,6 +1,26 @@
 import assert from 'node:assert/strict';
-import { permissions } from '@rgap/core';
+import {
+  permissions,
+  type Resource,
+  type ResourceId,
+  type RgapRepository,
+} from '@rgap/core';
 import { SqliteRgapStore } from '@rgap/sqlite';
+
+async function listResourceTree(repository: RgapRepository) {
+  const resources: Resource[] = [];
+  const visit = async (parentId: ResourceId | null) => {
+    let cursor: string | undefined;
+    do {
+      const page = await repository.resources.list({ parentId, cursor, limit: 100 });
+      resources.push(...page);
+      for (const resource of page) await visit(resource.id);
+      cursor = page.length === 100 ? page.at(-1)!.id : undefined;
+    } while (cursor);
+  };
+  await visit(null);
+  return resources;
+}
 
 const store = new SqliteRgapStore({ url: ':memory:' });
 
@@ -34,7 +54,7 @@ try {
   });
   const agentToken = await agentGrant.tokens.create({ label: 'agent' });
 
-  const resources = await admin.resources.list({ limit: 100 });
+  const resources = await listResourceTree(admin);
   for (const resource of resources) {
     for (const permission of permissions) {
       const child = await admin.authorize(

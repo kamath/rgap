@@ -15,6 +15,7 @@ import {
   type Permission,
   type RecordId,
   type Resource,
+  type ResourceListQuery,
   type RgapCommands,
   type RgapRepository,
   type RgapStore,
@@ -99,8 +100,10 @@ class HttpRgapCommands implements RgapCommands {
     return result.response?.status === 404 ? undefined : asResource(unwrap(result));
   }
 
-  async listResources(query = {}) {
-    const result = await listResources(this.options({ query }));
+  async listResources(query: ResourceListQuery) {
+    const result = await listResources(this.options({
+      query: { ...query, parentId: query.parentId ?? 'null' },
+    }));
     return unwrap(result).map(asResource);
   }
 

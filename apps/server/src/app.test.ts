@@ -96,10 +96,13 @@ describe('RGAP Hono API', () => {
   it('validates input and selects only valid bearer planes', async () => {
     const app = testApp();
 
-    expect((await app.request('/resources')).status).toBe(401);
-    expect((await app.request('/resources', {
+    expect((await app.request('/resources?parentId=null')).status).toBe(401);
+    expect((await app.request('/resources?parentId=null', {
       headers: { authorization: 'Bearer unknown' },
     })).status).toBe(401);
+    expect((await app.request('/resources', {
+      headers: { authorization },
+    })).status).toBe(400);
 
     const invalid = await app.request('/resources', {
       method: 'POST',
@@ -274,7 +277,7 @@ describe('RGAP Hono API', () => {
     expect('name' in createdBody ? createdBody.name : undefined).toBe('acme');
 
     const listed = await client.resources.$get({
-      query: { parentId: null, limit: 10 },
+      query: { parentId: 'null', limit: 10 },
     });
     const listedBody = await listed.json();
     expect(Array.isArray(listedBody) ? listedBody.map((resource) => resource.name) : [])
@@ -427,8 +430,10 @@ describe('RGAP Hono API', () => {
 
     expect(child.parentId).toBe(root.id);
     expect(delegated.parentId).toBe(grant.id);
-    expect((await guarded.resources.list()).map((resource) => resource.id))
-      .toEqual([root.id, child.id]);
+    expect((await guarded.resources.list({ parentId: null })).map((resource) => resource.id))
+      .toEqual([root.id]);
+    expect((await guarded.resources.list({ parentId: root.id })).map((resource) => resource.id))
+      .toEqual([child.id]);
     await expect(admin.resources.get(resourceId('missing'))).rejects.toMatchObject({
       code: 'missing_resource',
     });

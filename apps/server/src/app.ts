@@ -241,7 +241,7 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
       const query = c.req.valid('query');
       const records = await repository(c).resources.list({
         ...query,
-        parentId: query.parentId === undefined ? undefined : query.parentId === null ? null : resourceId(query.parentId),
+        parentId: query.parentId === null ? null : resourceId(query.parentId),
         cursor: query.cursor ? resourceId(query.cursor) : undefined,
       });
       return c.json(records, 200);

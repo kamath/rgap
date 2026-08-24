@@ -331,13 +331,26 @@ tree.
 
 ### Guarded views
 
-`store.as(token)` returns a guarded repository. Resource collections contain
-the live resources reached by the token's effective authority and the live
-ancestors needed to present their hierarchy. Grant, token, and audit
-collections are filtered to the acting grant's lineage and delegated branch.
-The guard computes these views without exposing or materializing a complete
-resource-permission matrix. Call `authorize` when an explicit decision for one
-resource and permission is required.
+`store.as(token)` returns a guarded repository. Resource collection reads
+always name one parent ID or `null`; there is no unscoped flat resource list.
+The administrative plane lists every live root for `parentId: null`. A guarded
+plane lists only the live top-level ancestors that lead to one of the acting
+grant's binding resource IDs.
+
+Every grant binding carries `read`, and each child grant binding is contained
+by a binding on every ancestor grant. For a contextual ancestor above a bound
+resource, a guarded child read contains only the next live children on paths
+toward bound resources. At or below a bound resource, it contains the requested
+parent's live children. Callers recursively page these parent-scoped reads to
+present the visible hierarchy.
+
+The guard follows parent links from grant targets and requested parents. It
+does not enumerate a complete visible subtree, unrelated resource branches, or
+a resource-permission matrix. Grant, token, and audit collections are filtered
+to the acting grant's lineage and delegated branch.
+
+Call `authorize` when an explicit decision for one resource and permission is
+required.
 
 ## Resource operations
 

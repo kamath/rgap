@@ -30,7 +30,7 @@ export const maximumPageLimit = 100;
 
 export type Page<T> = T[];
 export type ListQuery = { cursor?: string; limit?: number };
-export type ResourceListQuery = ListQuery & { parentId?: ResourceId | null };
+export type ResourceListQuery = ListQuery & { parentId: ResourceId | null };
 export type GrantListQuery = ListQuery & { parentId?: GrantId | null };
 export type TokenListQuery = ListQuery & { grantId?: GrantId };
 export type AuditListQuery = ListQuery;
@@ -85,7 +85,7 @@ export interface RgapStore {
  */
 export interface RgapCommands {
   getResource(id: ResourceId): Promise<Resource | undefined>;
-  listResources(query?: ResourceListQuery): Promise<Page<Resource>>;
+  listResources(query: ResourceListQuery): Promise<Page<Resource>>;
   getGrant(id: GrantId): Promise<Grant | undefined>;
   listGrants(query?: GrantListQuery): Promise<Page<Grant>>;
   getToken(id: TokenId): Promise<Token | undefined>;
@@ -108,7 +108,7 @@ export interface RgapRepository {
   resources: {
     create(input: ResourceWrite): Promise<ResourceHandle>;
     get(id: ResourceId): Promise<ResourceHandle>;
-    list(query?: ResourceListQuery): Promise<Page<Resource>>;
+    list(query: ResourceListQuery): Promise<Page<Resource>>;
   };
   invoke(resourceId: ResourceId, input: InvokeInput): AsyncIterable<InvocationEvent>;
   grants: {
