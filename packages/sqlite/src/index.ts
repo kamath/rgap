@@ -17,7 +17,6 @@ import {
   guardCommands,
   inspectAuthority,
   invokeExecutable,
-  isPathResource,
   moveResource as move,
   pageLimit,
   pathParts,
@@ -655,11 +654,7 @@ class SqliteBackingRepository implements RgapCommands {
 
   private loadGrantResourceTargets(state: State, entries: GrantResource[]) {
     entries.forEach((entry) => {
-      if (isPathResource(entry)) {
-        this.loadResourcePath(state, entry.path);
-      } else {
-        this.loadResourceAncestry(state, entry.id);
-      }
+      this.loadResourceAncestry(state, entry.id);
     });
   }
 
@@ -671,8 +666,7 @@ class SqliteBackingRepository implements RgapCommands {
     const entries = grant.resources.map((entry, position) => ({
       grantId: grant.id,
       position,
-      id: isPathResource(entry) ? null : entry.id,
-      path: isPathResource(entry) ? entry.path : null,
+      id: entry.id,
     }));
     const carried = grant.resources.flatMap((entry, position) =>
       entry.permissions.map((permission) => ({ grantId: grant.id, position, permission })));
@@ -710,9 +704,7 @@ class SqliteBackingRepository implements RgapCommands {
       .orderBy(asc(schema.grantResources.position)).all()
       .map((entry) => {
         const permissions = canonicalPermissions.filter((permission) => held.get(entry.position)?.has(permission));
-        return entry.path !== null
-          ? { path: entry.path, permissions }
-          : { id: resourceId(entry.id!), permissions };
+        return { id: resourceId(entry.id), permissions };
       });
     return {
       id: grantId(row.id),
@@ -764,11 +756,7 @@ class SqliteBackingRepository implements RgapCommands {
         const carried = held.get(entryKey(row.grantId, row.position));
         // An entry's permissions are a set, so they are read in the protocol's canonical order.
         const permissions = canonicalPermissions.filter((permission) => carried?.has(permission));
-        state.grants[row.grantId].resources.push(
-          row.path !== null
-            ? { path: row.path, permissions }
-            : { id: resourceId(row.id!), permissions },
-        );
+        state.grants[row.grantId].resources.push({ id: resourceId(row.id), permissions });
       });
 
     this.db.select().from(schema.tokens).orderBy(asc(schema.tokens.id)).all().forEach((row) => {
@@ -829,8 +817,7 @@ class SqliteBackingRepository implements RgapCommands {
         entries.push({
           grantId: grant.id,
           position,
-          id: isPathResource(entry) ? null : entry.id,
-          path: isPathResource(entry) ? entry.path : null,
+          id: entry.id,
         });
         entry.permissions.forEach((permission) => {
           carried.push({ grantId: grant.id, position, permission });

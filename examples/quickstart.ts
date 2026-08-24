@@ -14,7 +14,7 @@ try {
   const agent = await admin.grants.create({
     name: 'company/documentation-agent',
     resources: [{
-      path: 'acme/platform/docs',
+      id: design.id,
       permissions: ['read'],
     }],
     expiresAt: null,

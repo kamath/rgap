@@ -113,6 +113,18 @@ describe('RGAP Hono API', () => {
     });
     expect(invalid.status).toBe(400);
     expect(await invalid.json()).toMatchObject({ error: { code: 'validation_error' } });
+
+    const pathTarget = await app.request('/grants', {
+      method: 'POST',
+      headers: { authorization, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'writer',
+        resources: [{ path: 'acme/docs', permissions: ['read'] }],
+        expiresAt: null,
+      }),
+    });
+    expect(pathTarget.status).toBe(400);
+    expect(await pathTarget.json()).toMatchObject({ error: { code: 'validation_error' } });
   });
 
   it('defaults the server and HTTP store administrative bearer to test', async () => {

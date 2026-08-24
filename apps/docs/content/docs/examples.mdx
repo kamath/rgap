@@ -170,7 +170,7 @@ name: company/project-coordinator
 resources:
   - id: tool_drive_search_files
     permissions: [invoke]
-  - path: acme/mcp/slack/tools/search_messages
+  - id: tool_slack_search_messages
     permissions: [invoke]
   - id: tool_github_create_issue
     permissions: [invoke]
@@ -190,7 +190,7 @@ parentId: grant_project_coordinator
 resources:
   - id: tool_drive_search_files
     permissions: [invoke]
-  - path: acme/mcp/slack/tools/search_messages
+  - id: tool_slack_search_messages
     permissions: [invoke]
 expiresAt: 2026-08-20T22:00:00.000Z
 ```
@@ -253,10 +253,7 @@ const coordinator = await companyPlane.grants.create({
 
 await coordinator.resources.set([
   { id: driveSearch.id, permissions: ['invoke'] },
-  {
-    path: 'acme/mcp/slack/tools/search_messages',
-    permissions: ['invoke'],
-  },
+  { id: slackSearch.id, permissions: ['invoke'] },
   { id: githubCreateIssue.id, permissions: ['invoke'] },
 ]);
 
@@ -273,10 +270,7 @@ const researcher = await coordinatorPlane.grants.create({
 
 await researcher.resources.set([
   { id: driveSearch.id, permissions: ['invoke'] },
-  {
-    path: 'acme/mcp/slack/tools/search_messages',
-    permissions: ['invoke'],
-  },
+  { id: slackSearch.id, permissions: ['invoke'] },
 ]);
 ```
 
