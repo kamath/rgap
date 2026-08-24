@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { openai } from '@ai-sdk/openai';
+import { createOpenAI } from '@ai-sdk/openai';
 import { generateText } from 'ai';
 import type { InvokeRuntime } from '@rgap/core';
 import { SqliteRgapStore } from '@rgap/sqlite';
@@ -15,6 +15,7 @@ const OpenAIOutputSchema = z.object({
 type OpenAIInput = z.infer<typeof OpenAIInputSchema>;
 type OpenAIOutput = z.infer<typeof OpenAIOutputSchema>;
 
+const openai = createOpenAI();
 const openaiRuntime: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
   inputSchema: OpenAIInputSchema,
   outputSchema: OpenAIOutputSchema,

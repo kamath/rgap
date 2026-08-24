@@ -15,7 +15,7 @@ sealed executable input, so each resource fixes the model its runtime calls.
 The runtime returns only generated text:
 
 ```ts
-import { openai } from '@ai-sdk/openai';
+import { createOpenAI } from '@ai-sdk/openai';
 import { generateText } from 'ai';
 
 const OpenAIInputSchema = z.object({
@@ -23,6 +23,7 @@ const OpenAIInputSchema = z.object({
   prompt: z.string().min(1),
 });
 
+const openai = createOpenAI();
 const openaiRuntime: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
   inputSchema: OpenAIInputSchema,
   outputSchema: OpenAIOutputSchema,
