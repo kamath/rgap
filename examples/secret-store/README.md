@@ -6,6 +6,7 @@ trusted `githubProfile` executable. A user receives `bind` on that safe
 function without receiving any permission on its credential. The user then
 creates a `profile-summary` executable resource that binds and invokes the
 safe function and delegates `invoke` on that wrapper to a consumer.
+Each resource create stores its executable and sealed bindings atomically.
 
 Both bindings contain ordinary RGAP resource IDs:
 

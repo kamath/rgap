@@ -50,10 +50,10 @@ await secretStore.set(githubToken.id, demoToken);
 
 const profile = await admin.resources.create({
   name: 'users/alice/functions/github-profile',
-});
-await profile.executable.set({
-  runtime: 'githubProfile',
-  bind: { credential: githubToken.id },
+  executable: {
+    runtime: 'githubProfile',
+    bind: { credential: githubToken.id },
+  },
 });
 
 const scripts = await admin.resources.create({
@@ -72,10 +72,10 @@ const authorToken = await author.tokens.create({ label: 'script-author' });
 const alice = store.as(authorToken.value);
 const script = await (await alice.resources.get(scripts.id)).create({
   name: 'profile-summary',
-});
-await script.executable.set({
-  runtime: 'profileSummary',
-  bind: { profile: profile.id },
+  executable: {
+    runtime: 'profileSummary',
+    bind: { profile: profile.id },
+  },
 });
 
 const actingAuthor = await alice.grants.get(author.id);

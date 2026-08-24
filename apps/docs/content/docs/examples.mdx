@@ -85,10 +85,10 @@ await secretStore.set(githubToken.id, process.env.ALICE_GITHUB_TOKEN);
 
 const githubProfile = await admin.resources.create({
   name: 'users/alice/functions/github-profile',
-});
-await githubProfile.executable.set({
-  runtime: 'githubProfile',
-  bind: { credential: githubToken.id },
+  executable: {
+    runtime: 'githubProfile',
+    bind: { credential: githubToken.id },
+  },
 });
 ```
 
@@ -136,10 +136,10 @@ direct dependency:
 const alice = store.as(authorToken.value);
 const script = await (await alice.resources.get(scripts.id)).create({
   name: 'profile-summary',
-});
-await script.executable.set({
-  runtime: 'profileSummary',
-  bind: { profile: githubProfile.id },
+  executable: {
+    runtime: 'profileSummary',
+    bind: { profile: githubProfile.id },
+  },
 });
 
 const actingAuthor = await alice.grants.get(author.id);
