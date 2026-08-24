@@ -196,13 +196,18 @@ describe('RGAP Hono API', () => {
     const set = await request(
       `/resources/${executable.id}/executable`,
       'PUT',
-      { runtime: 'test', bind: { source: source.id } },
+      {
+        runtime: 'test',
+        input: { model: 'gpt-5.6-sol' },
+        bind: { source: source.id },
+      },
     );
     expect(set.status).toBe(200);
     expect(await (await request(`/resources/${executable.id}/executable`, 'GET')).json())
       .toEqual({
         resourceId: executable.id,
         runtime: 'test',
+        input: { model: 'gpt-5.6-sol' },
         bind: {
           source: {
             resourceId: source.id,
@@ -221,7 +226,7 @@ describe('RGAP Hono API', () => {
     expect(invoked.status).toBe(200);
     expect(invoked.headers.get('content-type')).toContain('application/x-ndjson');
     expect((await invoked.text()).trim().split('\n').map((line) => JSON.parse(line))).toEqual([
-      { type: 'data', value: { message: 'hello' } },
+      { type: 'data', value: { message: 'hello', model: 'gpt-5.6-sol' } },
       { type: 'done' },
     ]);
     await request(`/resources/${executable.id}/executable`, 'PUT', { runtime: 'void' });
@@ -373,13 +378,19 @@ describe('RGAP Hono API', () => {
       fetch: async (input, init) => app.fetch(new Request(input, init)),
     });
     const admin = remote.admin();
-    const executable = await admin.resources.create({ name: 'remote-echo' });
     const source = await admin.resources.create({ name: 'remote-source' });
-    await executable.executable.set({
-      runtime: 'test',
-      bind: { source: source.id },
+    const executable = await admin.resources.create({
+      name: 'remote-echo',
+      executable: {
+        runtime: 'test',
+        input: { model: 'gpt-5.6-sol' },
+        bind: { source: source.id },
+      },
     });
-    expect((await executable.executable.get())?.runtime).toBe('test');
+    expect(await executable.executable.get()).toMatchObject({
+      runtime: 'test',
+      input: { model: 'gpt-5.6-sol' },
+    });
     const events = [];
     for await (const event of executable.invoke({
       input: { remote: true },
@@ -387,7 +398,7 @@ describe('RGAP Hono API', () => {
       events.push(event);
     }
     expect(events).toEqual([
-      { type: 'data', value: { remote: true } },
+      { type: 'data', value: { remote: true, model: 'gpt-5.6-sol' } },
       { type: 'done' },
     ]);
     await executable.executable.delete();

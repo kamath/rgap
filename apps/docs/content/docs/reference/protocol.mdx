@@ -354,6 +354,14 @@ Each newly created resource receives an unused ID minted from its segment name
 and is audited as `resource.create`. Creating a new root is administrative.
 Creating a child requires `write` on that child's parent.
 
+Create may include an `executable` containing `runtime`, optional sealed
+`input`, and an optional `bind` map. The executable attaches only to the new
+leaf. The command validates the registered runtime, sealed input, live binding
+targets, and `bind` authority before it commits any missing resource or
+executable record. A successful command records both `resource.create` and
+`executable.set`; any failure records neither. Administrative create records
+administrative binding provenance.
+
 ### Move
 
 A move requires a live resource and destination, rejects cycles, reparents the
@@ -368,18 +376,26 @@ permanently ineffective.
 ## Executables
 
 An executable definition attaches one registered runtime to one live resource,
-which remains the authorization target. It can also pre-bind top-level input
-fields to ordinary resource ID strings. Bound fields are sealed configuration
-rather than caller-controlled invocation values.
+which remains the authorization target. It can seal JSON-compatible top-level
+input values and pre-bind other top-level fields to ordinary resource ID
+strings. Configured and bound fields are sealed rather than caller-controlled
+invocation values.
 
-`setExecutable(state, resourceId, { runtime, bind }, at, runtimes)` trims and
-validates the runtime name, requires that runtime to be registered, and
-atomically creates or replaces the association together with its audit event.
-Setting requires `write` on the executable resource and `bind` on every
-directly bound resource. Each binding records the complete grant lineage that
-authorized it. Administrative bindings record administrative provenance.
-Binding names are top-level input property names. `__proto__`, `prototype`,
-and `constructor` are invalid binding names.
+Resource create can attach an executable to its new leaf. Existing resources
+use
+`setExecutable(state, resourceId, { runtime, input, bind }, at, runtimes)`.
+Both forms trim and validate the runtime name, require that runtime to be
+registered, and atomically store the association together with its audit event.
+Setting an existing executable requires `write` on its resource. Both forms
+require `bind` on every directly bound resource. Each binding records the
+complete grant lineage that authorized it. Administrative bindings record
+administrative provenance.
+
+Configured and binding names are top-level input property names and must be
+unique across both maps. `__proto__`, `prototype`, and `constructor` are
+invalid names. Invocation rejects caller input containing any configured or
+bound name, inserts both sets of sealed fields, and parses the complete input
+with the runtime schema.
 
 Binding creation validates authority immediately, and every invocation
 revalidates that the bound resource is live and its recorded lineage remains

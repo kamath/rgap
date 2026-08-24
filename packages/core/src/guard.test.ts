@@ -135,9 +135,47 @@ describe('command guard', () => {
 
     expect((await drive.create({ name: 'notes' })).id).toBe('created');
     expect((await guard.resources.create({ name: 'acme/drive/notes' })).id).toBe('created');
+    expect((await drive.create({
+      name: 'configured',
+      executable: {
+        runtime: 'test',
+        input: { model: 'gpt-5.6-sol' },
+        bind: { source: r('read-file') },
+      },
+    })).id).toBe('created');
+    expect((await guard.resources.create({
+      name: 'acme/drive/configured',
+      executable: {
+        runtime: 'test',
+        input: { model: 'gpt-5.6-sol' },
+      },
+    })).id).toBe('created');
     expect(calls).toEqual([
       { method: 'createResource', args: [{ name: 'notes', parentId: r('drive') }] },
       { method: 'createResource', args: [{ name: 'acme/drive/notes', parentId: null }] },
+      {
+        method: 'createResource',
+        args: [{
+          name: 'configured',
+          parentId: r('drive'),
+          executable: {
+            runtime: 'test',
+            input: { model: 'gpt-5.6-sol' },
+            bind: { source: r('read-file') },
+          },
+        }],
+      },
+      {
+        method: 'createResource',
+        args: [{
+          name: 'acme/drive/configured',
+          parentId: null,
+          executable: {
+            runtime: 'test',
+            input: { model: 'gpt-5.6-sol' },
+          },
+        }],
+      },
     ]);
 
     await expect(guard.resources.get(r('slack'))).rejects.toThrow('outside this token');
@@ -260,7 +298,7 @@ describe('command guard', () => {
   it('guards executable metadata, setting, and binding invocation', async () => {
     const initial = state();
     initial.executables['search-files'] = {
-      resourceId: r('search-files'), runtime: 'test', bind: {},
+      resourceId: r('search-files'), runtime: 'test', input: {}, bind: {},
     };
     const { commands, calls, resolveBearer } = stubCommands(initial, at);
     const guard = guardCommands(repositoryFrom(commands), bearer, resolveBearer);
@@ -298,6 +336,7 @@ describe('command guard', () => {
     initial.executables['search-files'] = {
       resourceId: r('search-files'),
       runtime: 'test',
+      input: {},
       bind: {},
     };
     const { commands, calls, resolveBearer } = stubCommands(initial, at);

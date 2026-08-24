@@ -14,15 +14,6 @@ export const ResourceSchema = z.object({
   deletedAt: NullableTimestampSchema,
 }).openapi('Resource');
 
-export const ExecutableDefinitionSchema = z.object({
-  resourceId: IdSchema,
-  runtime: z.string(),
-  bind: z.record(z.string(), z.object({
-    resourceId: IdSchema,
-    grantLineage: z.array(IdSchema).nullable(),
-  }).strict()),
-}).openapi('ExecutableDefinition');
-
 export const JsonValueSchema = z.union([
   z.null(),
   z.boolean(),
@@ -31,9 +22,21 @@ export const JsonValueSchema = z.union([
   z.array(z.unknown()),
   z.record(z.string(), z.unknown()),
 ]);
+const ExecutableInputSchema = z.record(z.string(), z.any());
+
+export const ExecutableDefinitionSchema = z.object({
+  resourceId: IdSchema,
+  runtime: z.string(),
+  input: ExecutableInputSchema,
+  bind: z.record(z.string(), z.object({
+    resourceId: IdSchema,
+    grantLineage: z.array(IdSchema).nullable(),
+  }).strict()),
+}).openapi('ExecutableDefinition');
 
 export const SetExecutableSchema = z.object({
   runtime: z.string().min(1),
+  input: ExecutableInputSchema.optional(),
   bind: z.record(z.string(), IdSchema).optional(),
 }).strict();
 
@@ -129,6 +132,7 @@ export const TokenListQuerySchema = PageQuerySchema.extend({
 
 export const ResourceWriteSchema = z.object({
   name: z.string().min(1),
+  executable: SetExecutableSchema.optional(),
 }).strict();
 
 export const MoveResourceSchema = z.object({

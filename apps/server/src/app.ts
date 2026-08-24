@@ -10,6 +10,7 @@ import {
   type GrantResource,
   type GrantHandle,
   type InvocationEvent,
+  type JsonValue,
   type ResourceHandle,
   type RgapRepository,
   type RgapStore,
@@ -253,6 +254,7 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
     return apiError(c, 500, 'internal_error', 'Internal server error.');
   });
 
+  // @ts-expect-error Hono's fluent route type exceeds TypeScript's instantiation depth.
   const app = base
     .openapi(getResourceRoute, async (c) => {
       const { id } = c.req.valid('param');
@@ -268,8 +270,22 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
       return c.json(records, 200);
     })
     .openapi(createResourceRoute, async (c) => {
-      const { name } = c.req.valid('json');
-      const record = await repository(c).resources.create({ name });
+      const { name, executable } = c.req.valid('json');
+      const record = await repository(c).resources.create({
+        name,
+        executable: executable
+          ? {
+            ...executable,
+            input: executableInput(executable.input),
+            bind: executable.bind
+              ? Object.fromEntries(
+                Object.entries(executable.bind)
+                  .map(([binding, boundId]) => [binding, resourceId(boundId)]),
+              )
+              : undefined,
+          }
+          : undefined,
+      });
       return c.json(resourceRecord(record), 200);
     })
     .openapi(moveResourceRoute, async (c) => {
@@ -291,9 +307,10 @@ export function createApp({ store, adminToken = 'test' }: AppOptions) {
     })
     .openapi(setExecutableRoute, async (c) => {
       const { id } = c.req.valid('param');
-      const { runtime, bind } = c.req.valid('json');
+      const { runtime, input, bind } = c.req.valid('json');
       return c.json(await repository(c).executables.set(resourceId(id), {
         runtime,
+        input: executableInput(input),
         bind: bind
           ? Object.fromEntries(
             Object.entries(bind).map(([name, boundId]) => [name, resourceId(boundId)]),
@@ -536,6 +553,10 @@ function brandedResources(
   entries: Array<{ permissions: GrantResource['permissions']; id: string }>,
 ): GrantResource[] {
   return entries.map((entry) => ({ ...entry, id: resourceId(entry.id) }));
+}
+
+function executableInput(input: Record<string, unknown> | undefined) {
+  return input as Record<string, JsonValue> | undefined;
 }
 
 function secretsEqual(left: string, right: string) {

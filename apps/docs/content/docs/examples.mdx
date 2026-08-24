@@ -10,24 +10,26 @@ and assigns stable IDs to servers, tools, prompts, and MCP resources.
 
 ## Invoke OpenAI through a resource
 
-Provider credentials stay in a deployment-owned runtime. The runtime reads
-`OPENAI_API_KEY`, uses AI SDK `generateText` with the OpenAI provider, and
-returns only generated text through RGAP:
+Provider credentials stay in deployment configuration. The model name is
+sealed executable input, so each resource fixes the model its runtime calls.
+The runtime returns only generated text:
 
 ```ts
 import { createOpenAI } from '@ai-sdk/openai';
 import { generateText } from 'ai';
 
-const openai: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
+const OpenAIInputSchema = z.object({
+  model: z.string(),
+  prompt: z.string().min(1),
+});
+
+const openai = createOpenAI();
+const openaiRuntime: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
   inputSchema: OpenAIInputSchema,
   outputSchema: OpenAIOutputSchema,
   async invoke({ input, signal }) {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error('OPENAI_API_KEY is required.');
-
-    const provider = createOpenAI({ apiKey });
     const { text } = await generateText({
-      model: provider(process.env.OPENAI_MODEL ?? 'gpt-5-mini'),
+      model: openai(input.model),
       prompt: input.prompt,
       abortSignal: signal,
     });
@@ -36,22 +38,28 @@ const openai: InvokeRuntime<OpenAIInput, OpenAIOutput> = {
 };
 ```
 
-The deployment registers that runtime, associates it with a resource, and
-grants an agent `invoke` on that resource. The stored entry also includes
-`read`, so the agent can look up the model before calling it:
+Creating the executable resource accepts its runtime and sealed literal input
+in the same atomic command:
 
 ```ts
-const model = await admin.resources.create({ name: 'acme/models/openai' });
-await model.executable.set({ runtime: 'openai' });
+const model = await admin.resources.create({
+  name: 'openai/gpt-5.6-sol',
+  executable: {
+    runtime: 'openai',
+    input: {
+      model: 'gpt-5.6-sol',
+    },
+  },
+});
 
-const agentGrant = await admin.grants.create({
-  name: 'company/openai-agent',
+const employeeGrant = await admin.grants.create({
+  name: 'company/platform-team/employee',
   resources: [{ id: model.id, permissions: ['invoke'] }],
   expiresAt: null,
 });
-const agentToken = await agentGrant.tokens.create({ label: 'openai-agent' });
-const agent = store.as(agentToken.value);
-const authorizedModel = await agent.resources.get(model.id);
+const employeeToken = await employeeGrant.tokens.create({ label: 'employee' });
+const employee = store.as(employeeToken.value);
+const authorizedModel = await employee.resources.get(model.id);
 
 for await (const event of authorizedModel.invoke({
   input: { prompt: 'Summarize why capability attenuation matters.' },
@@ -60,9 +68,8 @@ for await (const event of authorizedModel.invoke({
 }
 ```
 
-The guarded repository exposes the model because the agent holds `read` and
-`invoke`. The agent receives the RGAP token and output events. It never receives
-`OPENAI_API_KEY`. The complete executable version lives in
+The employee receives only `invoke` on the executable model resource. Callers
+cannot replace its sealed model name. The complete executable version lives in
 `examples/openai.ts`.
 
 ## Compose a secret-backed resource
@@ -79,10 +86,10 @@ await secretStore.set(githubToken.id, process.env.ALICE_GITHUB_TOKEN);
 
 const githubProfile = await admin.resources.create({
   name: 'users/alice/functions/github-profile',
-});
-await githubProfile.executable.set({
-  runtime: 'githubProfile',
-  bind: { credential: githubToken.id },
+  executable: {
+    runtime: 'githubProfile',
+    bind: { credential: githubToken.id },
+  },
 });
 ```
 
@@ -130,10 +137,10 @@ direct dependency:
 const alice = store.as(authorToken.value);
 const script = await (await alice.resources.get(scripts.id)).create({
   name: 'profile-summary',
-});
-await script.executable.set({
-  runtime: 'profileSummary',
-  bind: { profile: githubProfile.id },
+  executable: {
+    runtime: 'profileSummary',
+    bind: { profile: githubProfile.id },
+  },
 });
 
 const actingAuthor = await alice.grants.get(author.id);

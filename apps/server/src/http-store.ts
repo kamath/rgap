@@ -10,6 +10,7 @@ import {
   type GrantResource,
   type ExecutableDefinition,
   type InvocationEvent,
+  type JsonValue,
   type Grant,
   type Permission,
   type RecordId,
@@ -135,7 +136,12 @@ class HttpRgapCommands implements RgapCommands {
     const name = input.parentId === null
       ? input.name
       : `${await this.pathOf(input.parentId)}/${input.name}`;
-    return asResource(unwrap(await createResource(this.options({ body: { name } }))));
+    return asResource(unwrap(await createResource(this.options({
+      body: {
+        name,
+        executable: input.executable,
+      },
+    }))));
   }
 
   private async pathOf(id: ReturnType<typeof resourceId>) {
@@ -344,6 +350,7 @@ function asExecutableDefinition(record: HttpExecutableDefinition): ExecutableDef
   return {
     ...record,
     resourceId: resourceId(record.resourceId),
+    input: record.input as Record<string, JsonValue>,
     bind: Object.fromEntries(Object.entries(record.bind).map(([name, binding]) => [
       name,
       {
