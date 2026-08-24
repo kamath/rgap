@@ -38,8 +38,10 @@ const store = new SqliteRgapStore({
 
 try {
   const admin = store.admin();
-  const model = await admin.resources.create({ name: 'acme/models/openai' });
-  await model.executable.set({ runtime: 'openai' });
+  const model = await admin.resources.create({
+    name: 'acme/models/openai',
+    executable: { runtime: 'openai' },
+  });
 
   const agentGrant = await admin.grants.create({
     name: 'company/openai-agent',

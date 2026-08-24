@@ -35,6 +35,22 @@ const design = await admin.resources.create({
 `design.name` is `design`. `design.parentId` is the `docs` resource. The
 derived path of `design` is `acme/platform/docs/design`.
 
+Create may associate an executable runtime with the leaf resource:
+
+```ts
+const model = await admin.resources.create({
+  name: 'openai/gpt-5.6-sol',
+  executable: {
+    runtime: 'openai/gpt-5.6-sol',
+  },
+});
+```
+
+The executable applies only to `gpt-5.6-sol`, not to missing path prefixes
+created by the same command. The runtime must be registered with the store.
+Resource creation and executable association commit atomically, so validation
+failure creates neither the leaf nor any missing prefixes.
+
 The same command creates a relative path under an existing resource:
 
 ```ts
@@ -47,7 +63,8 @@ resources. Live prefixes are reused. The leaf must be absent: a second create
 at an occupied path fails with `duplicate_path`.
 
 Create is one state transition. Each newly created resource is audited as
-`resource.create` and receives a stable ID minted from its segment name.
+`resource.create` and receives a stable ID minted from its segment name. An
+inline executable is audited as `executable.set` in the same transition.
 
 Creating a new root resource is administrative. Creating a child requires
 `write` on that child's parent. `store.as(token).resources.create` walks from

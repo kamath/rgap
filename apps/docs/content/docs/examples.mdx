@@ -41,8 +41,10 @@ grants an agent `invoke` on that resource. The stored entry also includes
 `read`, so the agent can look up the model before calling it:
 
 ```ts
-const model = await admin.resources.create({ name: 'acme/models/openai' });
-await model.executable.set({ runtime: 'openai' });
+const model = await admin.resources.create({
+  name: 'acme/models/openai',
+  executable: { runtime: 'openai' },
+});
 
 const agentGrant = await admin.grants.create({
   name: 'company/openai-agent',
