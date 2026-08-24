@@ -19,6 +19,7 @@ import {
   isPathResource,
   moveResource as move,
   pageLimit,
+  pathParts,
   permissions as canonicalPermissions,
   setExecutable as associateExecutable,
   recordToken,
@@ -533,12 +534,19 @@ class SqliteBackingRepository implements RgapCommands {
       seen.add(current);
       const resource = this.loadResource(state, current);
       if (!resource) continue;
-      this.db.select().from(schema.resources).where(eq(schema.resources.parentId, current))
-        .orderBy(asc(schema.resources.id)).all().forEach((row) => {
+      let cursor: string | undefined;
+      do {
+        const rows = this.db.select().from(schema.resources).where(and(
+          eq(schema.resources.parentId, current),
+          cursor ? gt(schema.resources.id, cursor) : undefined,
+        )).orderBy(asc(schema.resources.id)).limit(100).all();
+        rows.forEach((row) => {
           const child = resourceRecord(row);
           state.resources[child.id] = child;
           queue.push(child.id);
         });
+        cursor = rows.length === 100 ? rows.at(-1)!.id : undefined;
+      } while (cursor);
     }
   }
 
@@ -576,12 +584,19 @@ class SqliteBackingRepository implements RgapCommands {
       seen.add(current);
       const grant = this.loadGrant(state, current, withResources);
       if (!grant) continue;
-      this.db.select().from(schema.grants).where(eq(schema.grants.parentId, current))
-        .orderBy(asc(schema.grants.id)).all().forEach((row) => {
+      let cursor: string | undefined;
+      do {
+        const rows = this.db.select().from(schema.grants).where(and(
+          eq(schema.grants.parentId, current),
+          cursor ? gt(schema.grants.id, cursor) : undefined,
+        )).orderBy(asc(schema.grants.id)).limit(100).all();
+        rows.forEach((row) => {
           const childId = grantId(row.id);
           this.loadGrant(state, childId, withResources);
           queue.push(childId);
         });
+        cursor = rows.length === 100 ? rows.at(-1)!.id : undefined;
+      } while (cursor);
     }
   }
 

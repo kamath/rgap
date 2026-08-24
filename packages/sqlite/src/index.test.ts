@@ -235,6 +235,58 @@ describe('SqliteRgapStore', () => {
     });
   });
 
+  it('authorizes and delegates across focused path and ID target loads', async () => {
+    const repository = open({ initialState: acme() }).admin();
+    const parent = await repository.grants.create({
+      name: 'Acme path reader',
+      resources: [{ path: 'acme', permissions: ['read'] }],
+      expiresAt: null,
+    });
+    const child = await parent.create({
+      name: 'Drive ID reader',
+      resources: [{ id: resourceId('drive'), permissions: ['read'] }],
+      expiresAt: null,
+    });
+    const issued = await child.tokens.create({ label: 'reader' });
+
+    expect((await repository.authorize(issued.value, resourceId('drive'), 'read')).allowed).toBe(true);
+  });
+
+  it('revokes the complete descendant grant branch after focused amendment', async () => {
+    const repository = open({ initialState: acme() }).admin();
+    const parent = await repository.grants.create({
+      name: 'Acme reader',
+      resources: [{ id: resourceId('acme'), permissions: ['read'] }],
+      expiresAt: null,
+    });
+    const child = await parent.create({
+      name: 'Drive reader',
+      resources: [{ id: resourceId('drive'), permissions: ['read'] }],
+      expiresAt: null,
+    });
+    const grandchild = await child.create({
+      name: 'Nested drive reader',
+      resources: [{ id: resourceId('drive'), permissions: ['read'] }],
+      expiresAt: null,
+    });
+
+    await parent.resources.set([]);
+
+    expect((await repository.grants.get(child.id)).revokedAt).not.toBeNull();
+    expect((await repository.grants.get(grandchild.id)).revokedAt).not.toBeNull();
+  });
+
+  it('allocates focused path IDs around command-local and tombstoned collisions', async () => {
+    const repository = open().admin();
+    const nested = await repository.resources.create({ name: 'same/same' });
+    expect(nested.id).toBe('same-2');
+
+    const first = await repository.resources.create({ name: 'retired' });
+    await first.delete();
+    const replacement = await repository.resources.create({ name: 'retired' });
+    expect(replacement.id).toBe('retired-2');
+  });
+
   it('keeps a file database across repositories and seeds only an empty one', async () => {
     const url = file();
     const firstStore = open({ url, initialState: acme() });
@@ -253,6 +305,36 @@ describe('SqliteRgapStore', () => {
     const state = await queriedState(second);
     expect(state.resources[created.id]).toEqual(resourceRecord(created));
     expect(Object.keys(state.resources)).toContain('acme');
+  });
+
+  it('does not replace unrelated rows during an ordinary command', async () => {
+    const url = file();
+    const firstStore = open({ url, initialState: acme() });
+    firstStore.close();
+
+    const connection = new Database(url);
+    connection.exec(`
+      create trigger protect_unrelated_resource_delete
+      before delete on resources when old.id = 'drive'
+      begin select raise(abort, 'unrelated resource was deleted'); end;
+      create trigger protect_unrelated_resource_update
+      before update on resources when old.id = 'drive'
+      begin select raise(abort, 'unrelated resource was updated'); end;
+    `);
+    connection.close();
+
+    const repository = open({ url }).admin();
+    const created = await repository.resources.create({ name: 'other' });
+    await created.move(resourceId('acme'));
+
+    expect(await repository.resources.get(resourceId('drive'))).toEqual({
+      ...acme().resources.drive,
+      create: expect.any(Function),
+      move: expect.any(Function),
+      delete: expect.any(Function),
+      executable: expect.any(Object),
+      invoke: expect.any(Function),
+    });
   });
 
   it('restores the initial state on reset', async () => {
