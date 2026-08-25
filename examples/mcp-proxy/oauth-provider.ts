@@ -7,7 +7,7 @@ import {
   type StoredOAuthClientInformation,
   type StoredOAuthTokens,
 } from '@modelcontextprotocol/client';
-import type { CredentialStore } from '@rgap/local-credential-store';
+import type { SecretStore } from '@rgap/secret-store';
 
 export type PendingAuthorization = {
   flowId: string;
@@ -29,14 +29,14 @@ type ProviderOptions = {
   credentialId: string;
   callbackUrl: URL;
   clientMetadataUrl?: string;
-  store: CredentialStore<McpCredential>;
+  store: SecretStore<McpCredential>;
 };
 
 export class PersistentOAuthProvider implements OAuthClientProvider {
   readonly clientMetadataUrl?: string;
   readonly #credentialId: string;
   readonly #callbackUrl: URL;
-  readonly #store: CredentialStore<McpCredential>;
+  readonly #store: SecretStore<McpCredential>;
 
   constructor(options: ProviderOptions) {
     this.#credentialId = options.credentialId;

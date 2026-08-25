@@ -5,7 +5,7 @@ import {
   type ResourceId,
   type RgapRepository,
 } from '@rgap/core';
-import { SqliteRgapStore } from '@rgap/sqlite';
+import { SqliteRgapStore } from '@rgap/store-sqlite';
 
 async function listResourceTree(repository: RgapRepository) {
   const resources: Resource[] = [];

@@ -157,7 +157,7 @@ credential resource ID. Credential values never enter RGAP invocation input,
 output, or audit records.
 
 The callback state index uses the `OAuthFlowStore` interface from
-`@rgap/local-oauth-flow-store`:
+`@rgap/oauth-store`:
 
 ```ts
 interface OAuthFlowStore {
@@ -168,7 +168,8 @@ interface OAuthFlowStore {
 }
 ```
 
-The example constructs `SqliteOAuthFlowStore`, which stores the index in
+The example constructs `SqliteOAuthFlowStore` from
+`@rgap/oauth-store-sqlite`, which stores the index in
 `examples/mcp-proxy/oauth-flows.db`. It hashes callback state values with
 SHA-256 before using them as keys and atomically permits one claim before the
 flow expires. Each record identifies the credential, MCP server, internal

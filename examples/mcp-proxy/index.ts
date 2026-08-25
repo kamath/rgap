@@ -8,22 +8,20 @@ import {
   type RgapRepository,
   type SetExecutableInput,
 } from '@rgap/core';
-import { SqliteCredentialStore } from '@rgap/local-credential-store';
-import {
-  SqliteOAuthFlowStore,
-} from '@rgap/local-oauth-flow-store';
+import { SqliteOAuthFlowStore } from '@rgap/oauth-store-sqlite';
 import {
   createMcpProxyApp,
   createMcpProxyRuntime,
   type McpCredential,
 } from '@rgap/mcp-proxy';
-import { SqliteRgapStore } from '@rgap/sqlite';
+import { SqliteSecretStore } from '@rgap/secret-store-sqlite';
+import { SqliteRgapStore } from '@rgap/store-sqlite';
 
 const directory = fileURLToPath(new URL('.', import.meta.url));
 const port = Number(process.env.PORT ?? 3003);
 const publicBaseUrl = new URL(process.env.PUBLIC_BASE_URL ?? `http://127.0.0.1:${port}`);
 const serverUrl = new URL(process.env.MCP_SERVER_URL ?? 'http://127.0.0.1:3001/mcp');
-const credentialStore = new SqliteCredentialStore<McpCredential>(
+const credentialStore = new SqliteSecretStore<McpCredential>(
   `${directory}/credentials.db`,
 );
 const flowStore = new SqliteOAuthFlowStore(`${directory}/oauth-flows.db`);

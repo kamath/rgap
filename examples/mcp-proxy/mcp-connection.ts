@@ -4,7 +4,7 @@ import {
   StreamableHTTPClientTransport,
   UnauthorizedError,
 } from '@modelcontextprotocol/client';
-import type { CredentialStore } from '@rgap/local-credential-store';
+import type { SecretStore } from '@rgap/secret-store';
 import { z } from 'zod';
 import {
   type McpCredential,
@@ -23,7 +23,7 @@ type ConnectionOptions = {
   credentialId: string;
   publicBaseUrl: URL;
   clientMetadataUrl?: string;
-  credentialStore: CredentialStore<McpCredential>;
+  credentialStore: SecretStore<McpCredential>;
 };
 
 export class McpConnection {
@@ -31,7 +31,7 @@ export class McpConnection {
   readonly #credentialId: string;
   readonly #publicBaseUrl: URL;
   readonly #clientMetadataUrl?: string;
-  readonly #credentialStore: CredentialStore<McpCredential>;
+  readonly #credentialStore: SecretStore<McpCredential>;
   #client?: Client;
   #transport?: StreamableHTTPClientTransport;
   #provider?: PersistentOAuthProvider;

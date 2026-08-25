@@ -46,16 +46,17 @@ The MCP SDK manages connection setup and protocol negotiation.
 
 OAuth tokens, registered client information, discovery state, PKCE data, and
 credential-bound pending authorization are stored through
-`@rgap/local-credential-store`, an example-support package in
-`packages/examples/local-credential-store`, in `credentials.db` under the
-credential resource ID. The browser callback validates state and expiry before
-asking the MCP SDK to validate the issuer and exchange the authorization code.
+the `SecretStore` interface from `@rgap/secret-store`. This example uses
+`SqliteSecretStore` from `@rgap/secret-store-sqlite` to keep them in
+`credentials.db` under the credential resource ID. The browser callback
+validates state and expiry before asking the MCP SDK to validate the issuer and
+exchange the authorization code.
 
-`@rgap/local-oauth-flow-store` provides the callback lookup store interface and
-its local SQLite implementation. `SqliteOAuthFlowStore` keys pending callback
+`@rgap/oauth-store` provides the callback lookup store interface.
+`SqliteOAuthFlowStore` from `@rgap/oauth-store-sqlite` keys pending callback
 records by a SHA-256 hash of state in `oauth-flows.db`. Claiming one is atomic
-and one-time. A replicated deployment supplies a shared implementation of the
-same interface and shares its credential store between proxy processes.
+and one-time. A replicated deployment supplies shared implementations of the
+OAuth and secret store interfaces.
 
 Start the proxy:
 
