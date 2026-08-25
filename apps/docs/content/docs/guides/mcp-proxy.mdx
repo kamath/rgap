@@ -1,14 +1,13 @@
 ---
-title: OAuth MCP proxy walkthrough
+title: OAuth MCP proxy
 description: Connect an OAuth-protected MCP server, authorize it, and invoke its RPCs through RGAP.
-icon: Plug
 ---
 
 The MCP proxy example turns one authenticated Streamable HTTP connection into
 an executable RGAP resource. RGAP authorizes the caller, while the proxy keeps
 the upstream OAuth credentials and MCP session.
 
-This walkthrough connects a remote MCP endpoint, completes OAuth when the
+This guide connects a remote MCP endpoint, completes OAuth when the
 server requires it, and sends `tools/list` and `tools/call` through the RGAP
 invoke API.
 
@@ -248,7 +247,7 @@ The RGAP database and credential database persist in
 stable resources and reuses stored OAuth state. The app creates a fresh RGAP
 invoker grant and overwrites `invoker.token` with its bearer.
 
-Delete the local databases and bearer when you want a clean walkthrough:
+Delete the local databases and bearer when you want a clean run:
 
 ```bash
 rm -f \
