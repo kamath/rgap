@@ -31,39 +31,41 @@ Resources keep stable IDs when names or catalog placement change.
 
 ## Register provider runtimes
 
-Define the trusted runtime in the host with the official OpenAI SDK. Provider
-credentials and the base URL stay in deployment configuration:
+Define the trusted runtime in the host with `fetch`. Provider credentials and
+the base URL stay in deployment configuration:
 
 ```ts
-import OpenAI from 'openai';
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  baseURL: process.env.OPENAI_BASE_URL,
-});
+const providerApiKey = process.env.OPENAI_API_KEY;
+const providerBaseURL = new URL(
+  process.env.OPENAI_BASE_URL ?? 'https://api.openai.com',
+);
 
 const openaiRuntime = {
   inputSchema: OpenAIInputSchema,
   outputSchema: z.unknown(),
   async invoke({ input, signal }) {
-    const stream = input.body.stream === true;
     const body = {
       ...input.body,
       model: input.model,
     };
-    return openai.post(input.url, {
-      headers: input.headers,
-      body,
-      stream,
+    const response = await fetch(new URL(input.endpoint, providerBaseURL), {
+      method: input.method,
+      headers: {
+        ...input.headers,
+        'content-type': 'application/json',
+        authorization: `Bearer ${providerApiKey}`,
+      },
+      body: JSON.stringify(body),
       signal,
     });
+    return input.body.stream === true ? jsonSse(response) : response.json();
   },
 } satisfies InvokeRuntime<OpenAIInput, unknown>;
 ```
 
-The SDK defaults `apiKey` and `baseURL` to `OPENAI_API_KEY` and
-`OPENAI_BASE_URL`. The runtime forwards the request path, headers, and body, then
-applies the separately sealed model after the caller-controlled body.
+The host reads `OPENAI_API_KEY` and `OPENAI_BASE_URL`. The runtime forwards the
+resource's method, endpoint, and headers plus the caller's body, then applies the
+separately sealed model after the caller-controlled body.
 
 ```ts
 const model = await admin.resources.create({
@@ -71,7 +73,8 @@ const model = await admin.resources.create({
   executable: {
     runtime: 'openai',
     input: {
-      url: '/chat/completions',
+      method: 'POST',
+      endpoint: '/v1/chat/completions',
       headers: {
         'x-rgap-example': 'gated-openai-api',
       },
@@ -81,10 +84,10 @@ const model = await admin.resources.create({
 });
 ```
 
-The sealed URL, headers, and model prevent a caller from redirecting the
-credentialed request, replacing deployment-controlled headers, or turning
-authority for one model into authority for another. The caller supplies the
-remaining OpenAI body under `body`.
+The sealed method, endpoint, headers, and model prevent a caller from redirecting
+the credentialed request, replacing deployment-controlled headers, changing the
+operation, or turning authority for one model into authority for another. The
+caller supplies the remaining OpenAI body under `body`.
 
 ## Grant the smallest useful scope
 

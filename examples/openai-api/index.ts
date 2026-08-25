@@ -12,8 +12,6 @@ import {
 import { SqliteRgapStore } from '@rgap/store-sqlite';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import OpenAI from 'openai';
-import type { Stream } from 'openai/streaming';
 import { z } from 'zod';
 
 const directory = fileURLToPath(new URL('.', import.meta.url));
@@ -33,7 +31,8 @@ for (const model of grantedModels) {
 }
 
 const OpenAIInputSchema = z.object({
-  url: z.string().startsWith('/'),
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
+  endpoint: z.string().startsWith('/'),
   headers: z.record(z.string(), z.string()),
   model: z.string().min(1),
   body: z.record(z.string(), z.unknown()),
@@ -44,29 +43,31 @@ const ChatRequestSchema = z.object({
 
 type OpenAIInput = z.infer<typeof OpenAIInputSchema>;
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  baseURL: process.env.OPENAI_BASE_URL,
-});
+const providerApiKey = process.env.OPENAI_API_KEY;
+if (!providerApiKey) throw new Error('OPENAI_API_KEY is required.');
+const providerBaseURL = new URL(
+  process.env.OPENAI_BASE_URL ?? 'https://api.openai.com',
+);
 const openaiRuntime: InvokeRuntime<OpenAIInput, unknown> = {
   inputSchema: OpenAIInputSchema,
   outputSchema: z.unknown(),
   async invoke({ input, signal }) {
     const stream = input.body.stream === true;
     const body = { ...input.body, model: input.model };
-    if (stream) {
-      return openai.post<Stream<unknown>>(input.url, {
-        headers: input.headers,
-        body,
-        stream: true,
-        signal,
-      });
-    }
-    return openai.post<unknown>(input.url, {
-      headers: input.headers,
-      body,
+    const response = await fetch(new URL(input.endpoint, providerBaseURL), {
+      method: input.method,
+      headers: {
+        ...input.headers,
+        'content-type': 'application/json',
+        authorization: `Bearer ${providerApiKey}`,
+      },
+      body: input.method === 'GET' ? undefined : JSON.stringify(body),
       signal,
     });
+    if (!response.ok) {
+      throw new Error(`Provider request failed with status ${response.status}.`);
+    }
+    return stream ? jsonSse(response) : response.json();
   },
 };
 
@@ -84,7 +85,8 @@ for (const modelName of providerModels) {
     executable: {
       runtime: 'openai',
       input: {
-        url: '/chat/completions',
+        method: 'POST',
+        endpoint: '/v1/chat/completions',
         headers: {
           'x-rgap-example': 'gated-openai-api',
         },
@@ -206,6 +208,34 @@ function openAIError(
       code,
     },
   }, status);
+}
+
+async function* jsonSse(response: Response): AsyncIterable<unknown> {
+  if (!response.body) throw new Error('Provider stream has no body.');
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += value.replaceAll('\r\n', '\n');
+      let boundary: number;
+      while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+        const event = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const data = event
+          .split('\n')
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trimStart())
+          .join('\n');
+        if (!data) continue;
+        if (data === '[DONE]') return;
+        yield JSON.parse(data);
+      }
+    }
+  } finally {
+    await reader.cancel();
+  }
 }
 
 function close() {

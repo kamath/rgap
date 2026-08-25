@@ -16,25 +16,30 @@ The request's `model` selects a resource from this deployment-owned catalog.
 It does not become provider input. The executable definition supplies the
 provider model only after RGAP validates the bearer and its `invoke` grant.
 
-The host defines its runtime directly with the official OpenAI SDK:
+The host defines its runtime directly with `fetch`:
 
 ```ts
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  baseURL: process.env.OPENAI_BASE_URL,
-});
+const providerApiKey = process.env.OPENAI_API_KEY;
+const providerBaseURL = new URL(
+  process.env.OPENAI_BASE_URL ?? 'https://api.openai.com',
+);
+
 const openaiRuntime = {
   inputSchema: OpenAIInputSchema,
   outputSchema: z.unknown(),
   async invoke({ input, signal }) {
-    const stream = input.body.stream === true;
     const body = { ...input.body, model: input.model };
-    return openai.post(input.url, {
-      headers: input.headers,
-      body,
-      stream,
+    const response = await fetch(new URL(input.endpoint, providerBaseURL), {
+      method: input.method,
+      headers: {
+        ...input.headers,
+        'content-type': 'application/json',
+        authorization: `Bearer ${providerApiKey}`,
+      },
+      body: JSON.stringify(body),
       signal,
     });
+    return input.body.stream === true ? jsonSse(response) : response.json();
   },
 } satisfies InvokeRuntime<OpenAIInput, unknown>;
 
@@ -44,11 +49,11 @@ const store = new SqliteRgapStore({
 });
 ```
 
-Each model resource seals `url`, `headers`, and `model`. The route forwards every
-other request body field unchanged, and the runtime applies the sealed model
-after the caller's body. Callers therefore cannot redirect the provider request,
-replace deployment-controlled headers, or use authority for one model to call
-another.
+Each model resource seals `method`, `endpoint`, `headers`, and `model`. The route
+forwards every other request body field unchanged, and the runtime applies the
+sealed model after the caller's body. Callers therefore cannot redirect the
+provider request, replace deployment-controlled headers, change its method, or
+use authority for one model to call another.
 
 Start the API:
 
@@ -57,9 +62,9 @@ OPENAI_API_KEY=<provider-key> \
 pnpm --filter @rgap/examples openai-api
 ```
 
-`apiKey` defaults to `OPENAI_API_KEY` when omitted. `baseURL` defaults to the
-OpenAI API origin; set `OPENAI_BASE_URL` to target another OpenAI-compatible
-provider endpoint.
+The runtime reads `OPENAI_API_KEY` and uses `OPENAI_BASE_URL` as the provider
+origin. The base URL defaults to `https://api.openai.com`; each resource supplies
+the endpoint path beneath that origin.
 
 The example writes a local RGAP bearer to `client.token`. By default, that
 bearer can invoke `gpt-5.6-sol`, while `gpt-5.6-luna` remains outside its grant.

@@ -73,26 +73,31 @@ cannot replace its sealed model name. The complete executable version lives in
 
 ### Run an OpenAI-compatible HTTP gateway
 
-`examples/openai-api` defines its runtime directly with the official OpenAI SDK
-and registers it before constructing the store:
+`examples/openai-api` defines its runtime directly with `fetch` and registers it
+before constructing the store:
 
 ```ts
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  baseURL: process.env.OPENAI_BASE_URL,
-});
+const providerApiKey = process.env.OPENAI_API_KEY;
+const providerBaseURL = new URL(
+  process.env.OPENAI_BASE_URL ?? 'https://api.openai.com',
+);
+
 const openaiRuntime = {
   inputSchema: OpenAIInputSchema,
   outputSchema: z.unknown(),
   async invoke({ input, signal }) {
-    const stream = input.body.stream === true;
     const body = { ...input.body, model: input.model };
-    return openai.post(input.url, {
-      headers: input.headers,
-      body,
-      stream,
+    const response = await fetch(new URL(input.endpoint, providerBaseURL), {
+      method: input.method,
+      headers: {
+        ...input.headers,
+        'content-type': 'application/json',
+        authorization: `Bearer ${providerApiKey}`,
+      },
+      body: JSON.stringify(body),
       signal,
     });
+    return input.body.stream === true ? jsonSse(response) : response.json();
   },
 } satisfies InvokeRuntime<OpenAIInput, unknown>;
 
@@ -104,7 +109,7 @@ const store = new SqliteRgapStore({
 
 The request bearer selects an RGAP authorization plane, and the request's
 `model` selects a deployment-owned resource. The route checks `invoke` before
-starting the provider request. Each resource seals the request path, headers,
+starting the provider request. Each resource seals the method, endpoint, headers,
 and model. The caller controls the remaining OpenAI request body, which the
 runtime forwards without enumerating its fields.
 

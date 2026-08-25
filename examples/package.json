@@ -28,7 +28,6 @@
     "@rgap/store-sqlite": "workspace:*",
     "ai": "^7.0.77",
     "hono": "^4.13.3",
-    "openai": "^7.5.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
