@@ -66,10 +66,16 @@ body:has(#nd-docs-layout) {
 
 #nd-docs-layout {
   --fd-layout-width: 92rem;
-  --fd-sidebar-width: 252px;
+  --fd-sidebar-width: 0px;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
+}
+
+@media (min-width: 768px) {
+  #nd-docs-layout {
+    --fd-sidebar-width: 252px;
+  }
 }
 
 #nd-page {
