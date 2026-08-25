@@ -74,6 +74,16 @@ describe('SqliteOAuthFlowStore', () => {
     await store.close();
   });
 
+  it('does not reset a state that was already claimed', async () => {
+    const store = new SqliteOAuthFlowStore();
+    await store.register('state', flow);
+    await store.claim('state', new Date('2026-08-25T08:00:00.000Z'));
+    await store.register('state', flow);
+
+    await expect(store.claim('state')).rejects.toThrow('already consumed');
+    await store.close();
+  });
+
   it('deletes completed flows', async () => {
     const store = new SqliteOAuthFlowStore();
     await store.register('state', flow);

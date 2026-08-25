@@ -77,7 +77,11 @@ export class McpProxyRuntime {
     const status = await connection.finishAuthorization(flow.flowId, callbackUrl);
     await this.#flowStore.complete(state);
     await this.#registerFlow(connection);
-    return status;
+    return {
+      ...status,
+      credentialId: flow.credentialId,
+      serverUrl: flow.serverUrl,
+    };
   }
 
   async disconnect(serverUrl: URL, credentialId: string) {
