@@ -3,8 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import type { InvokeRuntime } from '@rgap/core';
 import {
-  type CredentialStore,
   SqliteCredentialStore,
+  type CredentialStore,
 } from '@rgap/local-credential-store';
 import { createApp } from '@rgap/server';
 import { SqliteRgapStore } from '@rgap/sqlite';
