@@ -73,15 +73,11 @@ export class McpProxyRuntime {
       new URL(flow.serverUrl),
       flow.credentialId,
     );
-    try {
-      if (!connection.isConnected()) await connection.connect();
-      const status = await connection.finishAuthorization(flow.flowId, callbackUrl);
-      await this.#flowStore.complete(state);
-      await this.#registerFlow(connection);
-      return status;
-    } catch (error) {
-      throw error;
-    }
+    if (!connection.isConnected()) await connection.connect();
+    const status = await connection.finishAuthorization(flow.flowId, callbackUrl);
+    await this.#flowStore.complete(state);
+    await this.#registerFlow(connection);
+    return status;
   }
 
   async close() {

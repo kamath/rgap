@@ -76,9 +76,6 @@ export function createMcpProxyApp({ mcp, store }: McpProxyAppOptions) {
 
     const message = parsed.data;
     if (message.id === undefined) {
-      if (message.method !== 'notifications/initialized') {
-        console.warn(`Ignoring unsupported MCP notification: ${message.method}`);
-      }
       return context.body(null, 202);
     }
 
@@ -201,10 +198,6 @@ function invocationError(id: JsonRpcId, error: unknown) {
   console.error('MCP proxy invocation failed.');
   return {
     status: 500 as const,
-    body: jsonRpcError(
-      id,
-      -32603,
-      error instanceof Error ? error.message : 'MCP invocation failed.',
-    ),
+    body: jsonRpcError(id, -32603, 'MCP invocation failed.'),
   };
 }

@@ -78,6 +78,7 @@ export class McpConnection {
     try {
       await client.connect(transport);
       this.#connected = true;
+      await provider.complete();
       return { status: 'connected' as const };
     } catch (error) {
       if (!(error instanceof UnauthorizedError)) throw error;
