@@ -19,6 +19,7 @@
     "@rgap/core": "workspace:*",
     "@rgap/local-credential-store": "workspace:*",
     "@rgap/local-oauth-flow-store": "workspace:*",
+    "@rgap/postgres": "workspace:*",
     "@rgap/server": "workspace:*",
     "@rgap/sqlite": "workspace:*",
     "ai": "^7.0.77",
