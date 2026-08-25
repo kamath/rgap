@@ -111,7 +111,10 @@ The request bearer selects an RGAP authorization plane, and the request's
 `model` selects a deployment-owned resource. The route checks `invoke` before
 starting the provider request. Each resource seals the method, endpoint, headers,
 and model. The caller controls the remaining OpenAI request body, which the
-runtime forwards without enumerating its fields.
+runtime forwards without enumerating its fields. The public Hono route and its
+resources share one operation descriptor, so adding an endpoint such as
+`POST /v1/images/generations` adds a matching route that invokes resources
+parameterized for that operation.
 
 The example writes a scoped bearer to `examples/openai-api/client.token`. Use
 that bearer as an OpenAI client's API key and set its base URL to

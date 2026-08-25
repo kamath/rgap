@@ -55,6 +55,32 @@ sealed model after the caller's body. Callers therefore cannot redirect the
 provider request, replace deployment-controlled headers, change its method, or
 use authority for one model to call another.
 
+The Hono route and resource share one operation descriptor:
+
+```ts
+const chatCompletions = {
+  method: 'POST',
+  endpoint: '/v1/chat/completions',
+} as const;
+
+const model = await admin.resources.create({
+  name: 'models/openai/gpt-5.6-sol',
+  executable: {
+    runtime: 'openai',
+    input: {
+      ...chatCompletions,
+      headers: {},
+      model: 'gpt-5.6-sol',
+    },
+  },
+});
+
+app.on(chatCompletions.method, chatCompletions.endpoint, handler);
+```
+
+Add another descriptor, resource map, and route for operations such as
+`POST /v1/images/generations`.
+
 Start the API:
 
 ```sh

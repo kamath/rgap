@@ -68,13 +68,17 @@ resource's method, endpoint, and headers plus the caller's body, then applies th
 separately sealed model after the caller-controlled body.
 
 ```ts
+const chatCompletions = {
+  method: 'POST',
+  endpoint: '/v1/chat/completions',
+} as const;
+
 const model = await admin.resources.create({
   name: 'models/openai/gpt-5.6-sol',
   executable: {
     runtime: 'openai',
     input: {
-      method: 'POST',
-      endpoint: '/v1/chat/completions',
+      ...chatCompletions,
       headers: {
         'x-rgap-example': 'gated-openai-api',
       },
@@ -142,7 +146,7 @@ The host maps public model names to deployment-owned RGAP resource IDs. Its Hono
 route removes `model` from the caller's body and invokes the mapped resource:
 
 ```ts
-app.post('/v1/chat/completions', async (context) => {
+app.on(chatCompletions.method, chatCompletions.endpoint, async (context) => {
   const request = ChatRequestSchema.parse(await context.req.json());
   const { model, ...body } = request;
   const resource = models.get(model);
@@ -161,13 +165,20 @@ app.post('/v1/chat/completions', async (context) => {
 ```
 
 The complete example performs request validation and error translation directly
-in the route. It reads the request bearer, selects `store.as(bearer)`, authorizes
-`invoke` on the mapped model resource, and returns either the provider's chat
-completion object or server-sent completion chunks. The caller-supplied model
-name selects only from the host's fixed map.
+in the route. The public route and executable share the same operation
+descriptor, so the request invokes a resource parameterized for that method and
+endpoint. The route reads the request bearer, selects `store.as(bearer)`,
+authorizes `invoke` on the mapped model resource, and returns either the
+provider's response object or server-sent events. The caller-supplied model name
+selects only from the host's fixed map.
 
 Existing OpenAI clients connect by setting the app's `/v1` URL as their base
 URL and using an RGAP bearer as the API key.
+
+Other operations use the same pattern. An image-generation resource seals
+`POST /v1/images/generations`, its headers, and its approved model; the public
+Hono route mounts that descriptor and invokes the selected resource. JSON
+responses and JSON SSE streams use the same runtime.
 
 ## Apply policy at the right level
 

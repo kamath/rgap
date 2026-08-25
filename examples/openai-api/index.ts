@@ -19,6 +19,10 @@ const port = Number(process.env.PORT ?? 3004);
 const providerModels = commaSeparated(
   process.env.OPENAI_MODELS ?? 'gpt-5.6-sol,gpt-5.6-luna',
 );
+const chatCompletions = {
+  method: 'POST',
+  endpoint: '/v1/chat/completions',
+} as const;
 const grantedModels = new Set(commaSeparated(
   process.env.GRANTED_OPENAI_MODELS ?? providerModels[0]!,
 ));
@@ -85,8 +89,7 @@ for (const modelName of providerModels) {
     executable: {
       runtime: 'openai',
       input: {
-        method: 'POST',
-        endpoint: '/v1/chat/completions',
+        ...chatCompletions,
         headers: {
           'x-rgap-example': 'gated-openai-api',
         },
@@ -111,7 +114,7 @@ writeFileSync(tokenPath, bearer.value, { mode: 0o600 });
 
 const app = new Hono();
 
-app.post('/v1/chat/completions', async (context) => {
+app.on(chatCompletions.method, chatCompletions.endpoint, async (context) => {
   const token = bearerFrom(context);
   if (!token) return openAIError(context, 401, 'A bearer token is required.', 'invalid_api_key');
 
