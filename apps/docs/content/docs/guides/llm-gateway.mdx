@@ -31,25 +31,74 @@ Resources keep stable IDs when names or catalog placement change.
 
 ## Register provider runtimes
 
-The gateway registers one trusted runtime for each provider integration.
-Provider credentials stay in deployment configuration or a credential store.
-The runtime accepts caller-controlled fields such as a prompt, but obtains the
-provider and model from the executable definition.
+Define the trusted runtime in the host with `fetch`. Provider credentials and
+the base URL stay in deployment configuration:
 
 ```ts
+const providerApiKey = process.env.OPENAI_API_KEY;
+const providerBaseURL = new URL(
+  process.env.OPENAI_BASE_URL ?? 'https://api.openai.com',
+);
+
+const OpenAIInputSchema = z.object({
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
+  endpoint: z.string().startsWith('/'),
+  headers: z.record(z.string(), z.string()).default({}),
+  model: z.string().min(1),
+  body: z.record(z.string(), z.unknown()),
+});
+
+const openaiRuntime = {
+  inputSchema: OpenAIInputSchema,
+  outputSchema: z.unknown(),
+  async invoke({ input, signal }) {
+    const body = {
+      ...input.body,
+      model: input.model,
+    };
+    const response = await fetch(new URL(input.endpoint, providerBaseURL), {
+      method: input.method,
+      headers: {
+        ...input.headers,
+        'content-type': 'application/json',
+        authorization: `Bearer ${providerApiKey}`,
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
+    return input.body.stream === true ? jsonSse(response) : response.json();
+  },
+} satisfies InvokeRuntime<OpenAIInput, unknown>;
+```
+
+The host reads `OPENAI_API_KEY` and `OPENAI_BASE_URL`. Headers default to an
+empty object when the resource does not provide them. The runtime forwards the
+resource's method and endpoint plus the caller's body, then applies the
+separately sealed model after the caller-controlled body.
+
+```ts
+const chatCompletions = {
+  method: 'POST',
+  endpoint: '/v1/chat/completions',
+} as const;
+
 const model = await admin.resources.create({
   name: 'models/openai/gpt-5.6-sol',
   executable: {
     runtime: 'openai',
     input: {
+      ...chatCompletions,
       model: 'gpt-5.6-sol',
     },
   },
 });
 ```
 
-The sealed model field prevents a caller from turning authority for one model
-into authority for another.
+The sealed method, endpoint, and model prevent a caller from redirecting the
+credentialed request, changing the operation, or turning authority for one model
+into authority for another. An operation can also seal custom headers when it
+needs them; otherwise the runtime uses `{}`. The caller supplies the remaining
+OpenAI body under `body`.
 
 ## Grant the smallest useful scope
 
@@ -74,6 +123,38 @@ The grant path can mirror a company, team, service, environment, or workload.
 Delegated child grants can shorten expiration or narrow model coverage, but
 cannot add models or permissions outside their parent.
 
+## Manage access to models
+
+Create a grant for one model, read its current bindings, replace those bindings
+to change model access, and revoke the grant to remove access:
+
+```ts
+const access = await admin.grants.create({
+  name: 'company/product/chat-client',
+  bindings: [{
+    id: models.get('gpt-5.6-sol')!.id,
+    permissions: ['invoke'],
+  }],
+  expiresAt: null,
+});
+const token = await access.tokens.create({ label: 'chat-client' });
+
+const current = await admin.grants.get(access.id);
+console.log([...current.bindings]);
+
+const updated = await current.bindings.set([{
+  id: models.get('gpt-5.6-luna')!.id,
+  permissions: ['invoke'],
+}]);
+
+await updated.revoke();
+```
+
+Replacing bindings changes what existing bearers can invoke on their next
+request. Revocation invalidates the grant and its bearers. Grants are retained
+for lineage and audit records, so removing access uses `revoke()` rather than
+deleting the grant record.
+
 ## Invoke through the gateway
 
 The application resolves the model with its RGAP bearer and invokes its narrow
@@ -85,7 +166,10 @@ const authorizedModel = await plane.resources.get(model.id);
 
 for await (const event of authorizedModel.invoke({
   input: {
-    prompt: 'Summarize the incident report.',
+    messages: [{
+      role: 'user',
+      content: 'Summarize the incident report.',
+    }],
   },
 })) {
   console.log(event);
@@ -94,6 +178,41 @@ for await (const event of authorizedModel.invoke({
 
 The same operation is available through
 `POST /resources/{id}/invoke` on the [HTTP API](/docs/guides/http-api).
+
+## Mount an OpenAI-compatible API
+
+The host maps public model names to deployment-owned RGAP resource IDs. Its Hono
+route removes `model` from the caller's body and invokes the mapped resource:
+
+```ts
+app.on(chatCompletions.method, chatCompletions.endpoint, async (context) => {
+  const request = ChatRequestSchema.parse(await context.req.json());
+  const { model, ...body } = request;
+  const resource = models.get(model);
+  const bearer = tokenValue(
+    context.req.header('authorization').replace(/^Bearer\s+/i, ''),
+  );
+  const repository = store.as(bearer);
+  const invocation = repository.invoke(resource.id, {
+    input: {
+      body,
+    },
+    signal: context.req.raw.signal,
+  });
+  // Write each invocation data event as an OpenAI response or SSE chunk.
+});
+```
+
+The complete example performs request validation and error translation directly
+in the route. The public route and executable share the same operation
+descriptor, so the request invokes a resource parameterized for that method and
+endpoint. The route reads the request bearer, selects `store.as(bearer)`,
+authorizes `invoke` on the mapped model resource, and returns either the
+provider's response object or server-sent events. The caller-supplied model name
+selects only from the host's fixed map.
+
+Existing OpenAI clients connect by setting the app's `/v1` URL as their base
+URL and using an RGAP bearer as the API key.
 
 ## Apply policy at the right level
 
@@ -111,5 +230,7 @@ The same operation is available through
   runtime.
 </Callout>
 
-The complete OpenAI runtime and invocation live in
-[`examples/openai.ts`](/docs/examples#invoke-openai-through-a-resource).
+The minimal OpenAI runtime and direct invocation live in
+[`examples/openai.ts`](/docs/examples#invoke-openai-through-a-resource). The
+runnable OpenAI-compatible HTTP gateway, scoped bearer, and streaming route live
+in [`examples/openai-api`](/docs/examples#run-an-openai-compatible-http-gateway).
