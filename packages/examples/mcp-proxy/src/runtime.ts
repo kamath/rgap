@@ -1,8 +1,8 @@
 import type { InvokeRuntime } from '@rgap/core';
-import type { CredentialStore } from '@rgap/local-credential-store';
+import type { CredentialStore } from '@rgap/credential-store-sqlite';
 import type {
   OAuthFlowStore,
-} from '@rgap/local-oauth-flow-store';
+} from '@rgap/oauth-flow-store-sqlite';
 import { z } from 'zod';
 import {
   McpConnection,

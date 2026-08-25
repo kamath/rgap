@@ -2,11 +2,11 @@ import type {
   RgapRepository,
   RgapStore,
 } from '@rgap/core';
-import type { CredentialStore } from '@rgap/local-credential-store';
+import type { CredentialStore } from '@rgap/credential-store-sqlite';
 import type {
   OAuthFlowRecord,
   OAuthFlowStore,
-} from '@rgap/local-oauth-flow-store';
+} from '@rgap/oauth-flow-store-sqlite';
 import { ProtocolError } from '@modelcontextprotocol/client';
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';

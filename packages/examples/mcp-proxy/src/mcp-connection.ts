@@ -4,7 +4,7 @@ import {
   StreamableHTTPClientTransport,
   UnauthorizedError,
 } from '@modelcontextprotocol/client';
-import type { CredentialStore } from '@rgap/local-credential-store';
+import type { CredentialStore } from '@rgap/credential-store-sqlite';
 import { z } from 'zod';
 import {
   type McpCredential,

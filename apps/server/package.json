@@ -19,7 +19,7 @@
     "@hono/swagger-ui": "^0.6.1",
     "@hono/zod-openapi": "^1.6.1",
     "@rgap/core": "workspace:*",
-    "@rgap/sqlite": "workspace:*",
+    "@rgap/store-sqlite": "workspace:*",
     "hono": "^4.13.3",
     "zod": "^4.4.3"
   },

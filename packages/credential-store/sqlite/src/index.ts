@@ -13,6 +13,10 @@ export interface CredentialStore<T> {
   close(): Awaitable<void>;
 }
 
+export type SqliteCredentialStoreOptions = {
+  url?: string;
+};
+
 export class SqliteCredentialStore<T> implements CredentialStore<T> {
   readonly #database: Database.Database;
   readonly #select: Database.Statement<[string], { value: string }>;
@@ -23,8 +27,8 @@ export class SqliteCredentialStore<T> implements CredentialStore<T> {
     update: (current: T | undefined) => T,
   ) => T;
 
-  constructor(url = ':memory:') {
-    this.#database = new Database(url);
+  constructor(options: SqliteCredentialStoreOptions = {}) {
+    this.#database = new Database(options.url ?? ':memory:');
     this.#database.exec(`
       CREATE TABLE IF NOT EXISTS credentials (
         resource_id TEXT PRIMARY KEY,

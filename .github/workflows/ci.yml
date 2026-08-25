@@ -51,7 +51,9 @@ jobs:
         env:
           TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/rgap
         run: |
-          pnpm --filter @rgap/postgres test
+          pnpm --filter @rgap/store-postgres test
+          pnpm --filter @rgap/credential-store-postgres test
+          pnpm --filter @rgap/oauth-flow-store-postgres test
           pnpm --filter @rgap/invariant-tests test
 
       - name: Test invariant walkthrough

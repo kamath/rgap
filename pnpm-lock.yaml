@@ -80,9 +80,9 @@ importers:
       '@rgap/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@rgap/sqlite':
+      '@rgap/store-sqlite':
         specifier: workspace:*
-        version: link:../../packages/sqlite
+        version: link:../../packages/store/sqlite
       hono:
         specifier: ^4.13.3
         version: 4.13.3
@@ -117,27 +117,33 @@ importers:
       '@rgap/core':
         specifier: workspace:*
         version: link:../packages/core
-      '@rgap/local-credential-store':
+      '@rgap/credential-store-postgres':
         specifier: workspace:*
-        version: link:../packages/local-credential-store
-      '@rgap/local-oauth-flow-store':
+        version: link:../packages/credential-store/postgres
+      '@rgap/credential-store-sqlite':
         specifier: workspace:*
-        version: link:../packages/local-oauth-flow-store
+        version: link:../packages/credential-store/sqlite
       '@rgap/mcp-proxy':
         specifier: workspace:*
         version: link:../packages/examples/mcp-proxy
       '@rgap/mcp-proxy-client':
         specifier: workspace:*
         version: link:../packages/examples/mcp-proxy-client
-      '@rgap/postgres':
+      '@rgap/oauth-flow-store-postgres':
         specifier: workspace:*
-        version: link:../packages/postgres
+        version: link:../packages/oauth-flow-store/postgres
+      '@rgap/oauth-flow-store-sqlite':
+        specifier: workspace:*
+        version: link:../packages/oauth-flow-store/sqlite
       '@rgap/server':
         specifier: workspace:*
         version: link:../apps/server
-      '@rgap/sqlite':
+      '@rgap/store-postgres':
         specifier: workspace:*
-        version: link:../packages/sqlite
+        version: link:../packages/store/postgres
+      '@rgap/store-sqlite':
+        specifier: workspace:*
+        version: link:../packages/store/sqlite
       ai:
         specifier: ^7.0.77
         version: 7.0.77(zod@4.4.3)
@@ -170,6 +176,41 @@ importers:
         specifier: latest
         version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.11)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
+  packages/credential-store/postgres:
+    dependencies:
+      postgres:
+        specifier: latest
+        version: 3.4.9
+    devDependencies:
+      '@types/node':
+        specifier: latest
+        version: 26.2.0
+      typescript:
+        specifier: latest
+        version: 7.0.2
+      vitest:
+        specifier: latest
+        version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.11)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/credential-store/sqlite:
+    dependencies:
+      better-sqlite3:
+        specifier: latest
+        version: 13.0.3
+    devDependencies:
+      '@types/better-sqlite3':
+        specifier: latest
+        version: 9.6.0
+      '@types/node':
+        specifier: latest
+        version: 26.2.0
+      typescript:
+        specifier: latest
+        version: 7.0.2
+      vitest:
+        specifier: latest
+        version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.11)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
   packages/examples/mcp-proxy:
     dependencies:
       '@modelcontextprotocol/client':
@@ -178,12 +219,12 @@ importers:
       '@rgap/core':
         specifier: workspace:*
         version: link:../../core
-      '@rgap/local-credential-store':
+      '@rgap/credential-store-sqlite':
         specifier: workspace:*
-        version: link:../../local-credential-store
-      '@rgap/local-oauth-flow-store':
+        version: link:../../credential-store/sqlite
+      '@rgap/oauth-flow-store-sqlite':
         specifier: workspace:*
-        version: link:../../local-oauth-flow-store
+        version: link:../../oauth-flow-store/sqlite
       hono:
         specifier: ^4.13.3
         version: 4.13.3
@@ -217,7 +258,23 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.11)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
-  packages/local-credential-store:
+  packages/oauth-flow-store/postgres:
+    dependencies:
+      postgres:
+        specifier: latest
+        version: 3.4.9
+    devDependencies:
+      '@types/node':
+        specifier: latest
+        version: 26.2.0
+      typescript:
+        specifier: latest
+        version: 7.0.2
+      vitest:
+        specifier: latest
+        version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.11)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/oauth-flow-store/sqlite:
     dependencies:
       better-sqlite3:
         specifier: latest
@@ -236,30 +293,11 @@ importers:
         specifier: latest
         version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.11)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
-  packages/local-oauth-flow-store:
-    dependencies:
-      better-sqlite3:
-        specifier: latest
-        version: 13.0.3
-    devDependencies:
-      '@types/better-sqlite3':
-        specifier: latest
-        version: 9.6.0
-      '@types/node':
-        specifier: latest
-        version: 26.2.0
-      typescript:
-        specifier: latest
-        version: 7.0.2
-      vitest:
-        specifier: latest
-        version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.11)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
-
-  packages/postgres:
+  packages/store/postgres:
     dependencies:
       '@rgap/core':
         specifier: workspace:*
-        version: link:../core
+        version: link:../../core
       drizzle-orm:
         specifier: latest
         version: 0.45.2(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(postgres@3.4.9)
@@ -280,11 +318,11 @@ importers:
         specifier: latest
         version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.11)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
-  packages/sqlite:
+  packages/store/sqlite:
     dependencies:
       '@rgap/core':
         specifier: workspace:*
-        version: link:../core
+        version: link:../../core
       better-sqlite3:
         specifier: latest
         version: 13.0.3
@@ -313,12 +351,12 @@ importers:
       '@rgap/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@rgap/postgres':
+      '@rgap/store-postgres':
         specifier: workspace:*
-        version: link:../../packages/postgres
-      '@rgap/sqlite':
+        version: link:../../packages/store/postgres
+      '@rgap/store-sqlite':
         specifier: workspace:*
-        version: link:../../packages/sqlite
+        version: link:../../packages/store/sqlite
     devDependencies:
       '@types/node':
         specifier: latest
@@ -6521,7 +6559,7 @@ snapshots:
       '@next/eslint-plugin-next': 16.3.0(eslint@9.39.5(jiti@2.7.0))
       eslint: 9.39.5(jiti@2.7.0)
       eslint-import-resolver-node: 0.3.10
-      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@6.0.3))(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0))
+      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0)(eslint@9.39.5(jiti@2.7.0))
       eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@6.0.3))(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.5(jiti@2.7.0))
       eslint-plugin-jsx-a11y: 6.10.2(eslint@9.39.5(jiti@2.7.0))
       eslint-plugin-react: 7.37.5(eslint@9.39.5(jiti@2.7.0))
@@ -6544,7 +6582,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@6.0.3))(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0)):
+  eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0)(eslint@9.39.5(jiti@2.7.0)):
     dependencies:
       '@nolyfill/is-core-module': 1.0.39
       debug: 4.4.3
@@ -6559,14 +6597,14 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-module-utils@2.14.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@6.0.3))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@6.0.3))(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0)):
+  eslint-module-utils@2.14.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@6.0.3))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.5(jiti@2.7.0)):
     dependencies:
       debug: 3.2.7
     optionalDependencies:
       '@typescript-eslint/parser': 8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@6.0.3)
       eslint: 9.39.5(jiti@2.7.0)
       eslint-import-resolver-node: 0.3.10
-      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@6.0.3))(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0))
+      eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0)(eslint@9.39.5(jiti@2.7.0))
     transitivePeerDependencies:
       - supports-color
 
@@ -6581,7 +6619,7 @@ snapshots:
       doctrine: 2.1.0
       eslint: 9.39.5(jiti@2.7.0)
       eslint-import-resolver-node: 0.3.10
-      eslint-module-utils: 2.14.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@6.0.3))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@6.0.3))(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0)))(eslint@9.39.5(jiti@2.7.0))
+      eslint-module-utils: 2.14.0(@typescript-eslint/parser@8.67.0(eslint@9.39.5(jiti@2.7.0))(typescript@6.0.3))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.5(jiti@2.7.0))
       hasown: 2.0.4
       is-core-module: 2.16.2
       is-glob: 4.0.3

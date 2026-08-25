@@ -1,5 +1,5 @@
-import { PostgresRgapStore } from '@rgap/postgres';
-import { SqliteRgapStore } from '@rgap/sqlite';
+import { PostgresRgapStore } from '@rgap/store-postgres';
+import { SqliteRgapStore } from '@rgap/store-sqlite';
 import { describe, expect, it } from 'vitest';
 import { runAdapterConformance } from './conformance';
 

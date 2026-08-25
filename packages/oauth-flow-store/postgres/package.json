@@ -1,5 +1,5 @@
 {
-  "name": "@rgap/local-oauth-flow-store",
+  "name": "@rgap/oauth-flow-store-postgres",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -10,10 +10,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "better-sqlite3": "latest"
+    "postgres": "latest"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "latest",
     "@types/node": "latest",
     "typescript": "latest",
     "vitest": "latest"

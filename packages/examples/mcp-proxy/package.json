@@ -12,8 +12,8 @@
   "dependencies": {
     "@modelcontextprotocol/client": "^2.0.0",
     "@rgap/core": "workspace:*",
-    "@rgap/local-credential-store": "workspace:*",
-    "@rgap/local-oauth-flow-store": "workspace:*",
+    "@rgap/credential-store-sqlite": "workspace:*",
+    "@rgap/oauth-flow-store-sqlite": "workspace:*",
     "hono": "^4.13.3",
     "zod": "^4.4.3"
   },

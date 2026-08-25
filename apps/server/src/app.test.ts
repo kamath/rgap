@@ -4,7 +4,7 @@ import {
   resourceId,
   type InvokeRuntime,
 } from '@rgap/core';
-import { SqliteRgapStore } from '@rgap/sqlite';
+import { SqliteRgapStore } from '@rgap/store-sqlite';
 import { createApp, type AppType } from './app';
 import { createClient } from './client/generated/client';
 import * as sdk from './client/generated/sdk.gen';
