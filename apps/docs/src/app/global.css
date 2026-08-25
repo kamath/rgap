@@ -292,18 +292,11 @@ button[data-search-full] kbd {
 }
 
 @media (max-width: 767px) {
-  #nd-subnav {
+  body:has(#nd-docs-layout) {
     position: fixed;
-    inset-inline: 0;
-    top: 0;
-    z-index: 50;
+    inset: 0;
     width: 100%;
-    background: color-mix(
-      in oklab,
-      var(--color-fd-background) 90%,
-      transparent
-    );
-    backdrop-filter: blur(12px);
+    height: 100dvh;
   }
 
   .docs-page-header {
