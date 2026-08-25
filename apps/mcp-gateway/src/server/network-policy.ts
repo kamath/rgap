@@ -1,16 +1,17 @@
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
+import { HttpError } from './http'
 
 export async function assertAllowedServerUrl(value: string) {
   const url = new URL(value)
   if (url.username || url.password) {
-    throw new Error('MCP server URLs cannot contain credentials.')
+    throw new HttpError(400, 'MCP server URLs cannot contain credentials.')
   }
   const allowPrivate =
     process.env.ALLOW_PRIVATE_MCP_URLS === 'true' ||
     process.env.NODE_ENV !== 'production'
   if (url.protocol !== 'https:' && !(allowPrivate && url.protocol === 'http:')) {
-    throw new Error('MCP server URLs must use HTTPS.')
+    throw new HttpError(400, 'MCP server URLs must use HTTPS.')
   }
   if (allowPrivate) return url
 
@@ -18,7 +19,7 @@ export async function assertAllowedServerUrl(value: string) {
     ? [{ address: url.hostname }]
     : await lookup(url.hostname, { all: true, verbatim: true })
   if (!addresses.length || addresses.some(({ address }) => isPrivate(address))) {
-    throw new Error('MCP server URL resolves to a private network.')
+    throw new HttpError(400, 'MCP server URL resolves to a private network.')
   }
   return url
 }

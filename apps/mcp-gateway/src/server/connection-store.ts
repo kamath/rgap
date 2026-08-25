@@ -100,6 +100,16 @@ export class GatewayConnectionStore {
     return row ? fromRow(row) : undefined
   }
 
+  getByCredentialId(credentialResourceId: string) {
+    const row = this.database
+      .prepare(`
+        SELECT * FROM gateway_connections
+        WHERE credential_resource_id = ?
+      `)
+      .get(credentialResourceId) as ConnectionRow | undefined
+    return row ? fromRow(row) : undefined
+  }
+
   updateStatus(
     id: string,
     userId: string,

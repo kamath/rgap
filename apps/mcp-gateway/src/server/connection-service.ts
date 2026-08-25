@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import {
   grantId,
   resourceId,
+  RgapError,
   type ResourceHandle,
   type ResourceId,
   type RgapRepository,
@@ -37,14 +38,13 @@ export class ConnectionService {
   constructor(private readonly options: ConnectionServiceOptions) {}
 
   async list(userId: string) {
-    const connections = this.options.connections.list(userId)
-    return Promise.all(connections.map((connection) => this.refresh(connection)))
+    return this.options.connections.list(userId).map(publicConnection)
   }
 
   async get(id: string, userId: string) {
     const connection = this.options.connections.get(id, userId)
     if (!connection) return undefined
-    return this.refresh(connection)
+    return publicConnection(connection)
   }
 
   async create(userId: string, input: CreateConnectionInput) {
@@ -109,9 +109,9 @@ export class ConnectionService {
     } catch (error) {
       if (grant) await grant.revoke().catch(() => undefined)
       if (credentialResource) {
-        await this.options.credentialStore
-          .delete(credentialResource.id)
-          .catch(() => undefined)
+        await Promise.resolve(
+          this.options.credentialStore.delete(credentialResource.id),
+        ).catch(() => undefined)
       }
       if (connectionResource) {
         await connectionResource.delete().catch(() => undefined)
@@ -133,28 +133,22 @@ export class ConnectionService {
     const connection = this.options.connections.get(id, userId)
     if (!connection) return false
     const admin = this.options.store.admin()
-    await admin.grants
-      .get(grantId(connection.grantId))
-      .then((grant) => grant.revoke())
-      .catch(() => undefined)
+    const grant = await admin.grants.get(grantId(connection.grantId))
+    await grant.revoke()
     await this.options.mcp
       .disconnect(
         new URL(connection.serverUrl),
         connection.credentialResourceId,
       )
       .catch(() => undefined)
-    await this.options.credentialStore
-      .delete(connection.credentialResourceId)
-      .catch(() => undefined)
+    await Promise.resolve(
+      this.options.credentialStore.delete(
+        connection.credentialResourceId,
+      ),
+    )
+    await deleteResourceIfPresent(admin, connection.resourceId)
+    await deleteResourceIfPresent(admin, connection.credentialResourceId)
     this.options.connections.delete(id, userId)
-    await admin.resources
-      .get(resourceId(connection.resourceId))
-      .then((resource) => resource.delete())
-      .catch(() => undefined)
-    await admin.resources
-      .get(resourceId(connection.credentialResourceId))
-      .then((resource) => resource.delete())
-      .catch(() => undefined)
     return true
   }
 
@@ -169,6 +163,7 @@ export class ConnectionService {
     target.pathname = `/mcp/${encodeURIComponent(connection.resourceId)}`
     const headers = new Headers(request.headers)
     headers.set('authorization', `Bearer ${bearer}`)
+    headers.delete('cookie')
     const delegated = new Request(target, request)
     return proxy.fetch(new Request(delegated, { headers }))
   }
@@ -284,4 +279,17 @@ function resourceName(url: URL) {
     .digest('hex')
     .slice(0, 8)
   return `${label}-${digest}`
+}
+
+async function deleteResourceIfPresent(
+  repository: RgapRepository,
+  id: string,
+) {
+  try {
+    const resource = await repository.resources.get(resourceId(id))
+    await resource.delete()
+  } catch (error) {
+    if (error instanceof RgapError && error.code === 'missing_resource') return
+    throw error
+  }
 }

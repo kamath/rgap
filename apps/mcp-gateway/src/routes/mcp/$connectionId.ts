@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { requireSession } from '../../server/auth'
-import { jsonError } from '../../server/http'
+import { assertTrustedOrigin, jsonError } from '../../server/http'
 import { gatewayRuntime } from '../../server/runtime'
 
 export const Route = createFileRoute('/mcp/$connectionId')({
@@ -8,6 +8,7 @@ export const Route = createFileRoute('/mcp/$connectionId')({
     handlers: {
       POST: async ({ request, params }) => {
         try {
+          assertTrustedOrigin(request)
           const session = await requireSession(request.headers)
           return gatewayRuntime.service.dispatch(
             request,

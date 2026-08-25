@@ -9,7 +9,7 @@ export const ConnectionStatusSchema = z.enum([
 export const CreateConnectionInputSchema = z
   .object({
     displayName: z.string().trim().min(1).max(80),
-    serverUrl: z.url({ protocol: /^https?:$/ }),
+    serverUrl: z.url({ protocol: /^https?$/ }),
   })
   .strict()
 
@@ -17,7 +17,7 @@ export const ConnectionSchema = z
   .object({
     id: z.string().startsWith('cn_'),
     displayName: z.string(),
-    serverUrl: z.url({ protocol: /^https?:$/ }),
+    serverUrl: z.url({ protocol: /^https?$/ }),
     status: ConnectionStatusSchema,
     authorizationUrl: z.url().optional(),
   })

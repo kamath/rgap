@@ -124,6 +124,24 @@ function Dashboard({
     setConnections(body.connections)
   }, [])
 
+  const refreshAfterAuthorization = useCallback(() => {
+    for (const delay of [2_000, 5_000, 10_000, 20_000]) {
+      window.setTimeout(() => load().catch(() => undefined), delay)
+    }
+  }, [load])
+
+  const openAuthorization = useCallback(
+    (authorizationUrl: string) => {
+      window.open(
+        authorizationUrl,
+        'mcp-authorization',
+        'popup,width=720,height=760',
+      )
+      refreshAfterAuthorization()
+    },
+    [refreshAfterAuthorization],
+  )
+
   useEffect(() => {
     load().catch((cause: unknown) =>
       setError(cause instanceof Error ? cause.message : 'Request failed.'),
@@ -178,11 +196,7 @@ function Dashboard({
               setServerUrl('')
               await load()
               if (body.authorizationUrl) {
-                window.open(
-                  body.authorizationUrl,
-                  'mcp-authorization',
-                  'popup,width=720,height=760',
-                )
+                openAuthorization(body.authorizationUrl)
               }
             } catch (cause) {
               setError(
@@ -236,13 +250,23 @@ function Dashboard({
                   {connection.authorizationUrl ? (
                     <button
                       type="button"
-                      onClick={() =>
-                        window.open(
-                          connection.authorizationUrl,
-                          'mcp-authorization',
-                          'popup,width=720,height=760',
+                      onClick={async () => {
+                        const response = await fetch(
+                          `/api/connections/${connection.id}/authorize`,
+                          { method: 'POST' },
                         )
-                      }
+                        const updated = (await response.json()) as Connection & {
+                          error?: string
+                        }
+                        if (!response.ok || !updated.authorizationUrl) {
+                          setError(
+                            updated.error ??
+                              'Unable to start MCP authorization.',
+                          )
+                          return
+                        }
+                        openAuthorization(updated.authorizationUrl)
+                      }}
                     >
                       Authorize
                     </button>
@@ -259,9 +283,19 @@ function Dashboard({
                     type="button"
                     onClick={async () => {
                       if (!window.confirm('Delete this MCP connection?')) return
-                      await fetch(`/api/connections/${connection.id}`, {
-                        method: 'DELETE',
-                      })
+                      const response = await fetch(
+                        `/api/connections/${connection.id}`,
+                        {
+                          method: 'DELETE',
+                        },
+                      )
+                      if (!response.ok) {
+                        const body = (await response.json()) as {
+                          error?: string
+                        }
+                        setError(body.error ?? 'Unable to delete connection.')
+                        return
+                      }
                       await load()
                     }}
                   >

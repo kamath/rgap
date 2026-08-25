@@ -23,6 +23,9 @@ export const Route = createRootRoute({
       },
     ],
   }),
+  notFoundComponent: () => (
+    <main className="centered">The requested gateway route does not exist.</main>
+  ),
   shellComponent: RootDocument,
 })
 
