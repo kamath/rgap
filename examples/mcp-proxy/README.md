@@ -88,22 +88,28 @@ endpoint. HTTP loopback development uses dynamic registration because CIMD
 client IDs require public HTTPS URLs.
 
 The app writes an RGAP bearer to `invoker.token` and prints the executable
-connection resource ID. Invoke any client-to-server request through that
-resource:
+connection resource ID. Initialize an MCP client with that route and bearer:
 
-```sh
-TOKEN=$(<examples/mcp-proxy/invoker.token)
-
-curl --no-buffer \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  --data '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
-  http://localhost:3003/mcp/<connection-resource-id>
+```ts
+const transport = new StreamableHTTPClientTransport(
+  new URL(`http://localhost:3003/mcp/${connectionId}`),
+  {
+    requestInit: {
+      headers: { Authorization: `Bearer ${rgapToken}` },
+    },
+  },
+);
+const client = new Client({ name: 'example', version: '0.0.0' });
+await client.connect(transport);
+const tools = await client.request(
+  { method: 'tools/list', params: {} },
+  z.unknown(),
+);
 ```
 
-The response is an MCP JSON-RPC response. An MCP client first sends
-`initialize`; the proxy handles lifecycle messages locally and forwards
-ordinary request-response methods through the executable RGAP connection.
+`client.connect()` sends `initialize`. The proxy handles lifecycle messages
+locally and forwards ordinary request-response methods through the executable
+RGAP connection.
 
 The example accepts one upstream URL from deployment configuration. A service
 that accepts user-supplied URLs also validates redirects and resolved

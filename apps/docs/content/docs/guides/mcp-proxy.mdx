@@ -200,54 +200,81 @@ started authorization.
   a deployed proxy.
 </Callout>
 
-## 4. List the upstream tools
+## 4. Initialize an MCP client
 
-In another terminal, load the generated RGAP bearer:
+Create an MCP SDK client for the executable connection ID printed by the app.
+The RGAP bearer is the proxy's incoming access token:
 
-```bash
-TOKEN=$(<examples/mcp-proxy/invoker.token)
+```ts
+import {
+  Client,
+  StreamableHTTPClientTransport,
+} from '@modelcontextprotocol/client';
+import { readFile } from 'node:fs/promises';
+import { z } from 'zod';
+
+const token = (await readFile(
+  'examples/mcp-proxy/invoker.token',
+  'utf8',
+)).trim();
+const connectionId = process.env.MCP_CONNECTION_ID!;
+
+const transport = new StreamableHTTPClientTransport(
+  new URL(`http://localhost:3003/mcp/${connectionId}`),
+  {
+    requestInit: {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  },
+);
+const client = new Client({
+  name: 'rgap-walkthrough',
+  version: '0.0.0',
+});
+
+await client.connect(transport);
 ```
 
-Copy the executable connection resource ID printed by the app, then invoke
-`tools/list`:
+`client.connect()` sends `initialize` and the initialized notification. The
+proxy handles that lifecycle locally and advertises request-response
+capabilities only. It does not forward lifecycle messages through RGAP and
+does not open an SSE channel.
 
-```bash
-curl --no-buffer \
-  --header "Authorization: Bearer $TOKEN" \
-  --header "Content-Type: application/json" \
-  --data '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
-  http://localhost:3003/mcp/<connection-resource-id>
+List the upstream tools through the initialized client:
+
+```ts
+const tools = await client.request(
+  { method: 'tools/list', params: {} },
+  z.unknown(),
+);
+console.log(tools);
 ```
 
-The response is an MCP JSON-RPC response:
-
-```json
-{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"example_tool"}]}}
-```
-
-The exact `result` comes from the upstream MCP server. RGAP validates `invoke`
-before the runtime resolves the credential binding or sends the MCP request.
+RGAP validates `invoke` before the runtime resolves the credential binding or
+sends the MCP request.
 
 ## 5. Call a tool
 
 Use a tool name and arguments returned by `tools/list`:
 
-```bash
-curl --no-buffer \
-  --header "Authorization: Bearer $TOKEN" \
-  --header "Content-Type: application/json" \
-  --data '{
-    "jsonrpc": "2.0",
-    "id": 2,
-    "method": "tools/call",
-    "params": {
-      "name": "example_tool",
-      "arguments": {
-        "query": "authorization"
-      }
-    }
-  }' \
-  http://localhost:3003/mcp/<connection-resource-id>
+```ts
+const result = await client.request(
+  {
+    method: 'tools/call',
+    params: {
+      name: 'example_tool',
+      arguments: {
+        query: 'authorization',
+      },
+    },
+  },
+  z.unknown(),
+);
+console.log(result);
+
+await client.close();
 ```
 
 The connection accepts every client-to-server request supported by the
