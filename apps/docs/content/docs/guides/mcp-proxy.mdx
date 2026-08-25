@@ -4,9 +4,10 @@ description: Connect an OAuth-protected MCP server, authorize it, and invoke its
 icon: Plug
 ---
 
-The MCP proxy example turns one authenticated Streamable HTTP connection into
-an executable RGAP resource. RGAP authorizes the caller, while the proxy keeps
-the upstream OAuth credentials and MCP session.
+`@rgap/mcp-proxy` provides a mountable Hono app and MCP runtime. The example
+turns one authenticated Streamable HTTP connection into an executable RGAP
+resource. RGAP authorizes the caller, while the proxy keeps the upstream OAuth
+credentials and MCP session.
 
 This walkthrough connects a remote MCP endpoint, completes OAuth when the
 server requires it, and sends `tools/list` and `tools/call` through the RGAP
@@ -30,7 +31,41 @@ http://127.0.0.1:3003/oauth/callback
 ```
 
 The authorization server must accept that callback URI. Use a public HTTPS
-origin for a remote deployment.
+URL for a remote deployment. `PUBLIC_BASE_URL` is the externally visible URL
+where the proxy app is mounted, including any path prefix.
+
+## Compose the proxy
+
+The MCP runtime exists before store construction so the deployment can
+register it with its RGAP store. The app then accepts that store and can be
+mounted beneath any Hono route:
+
+```ts
+import {
+  createMcpProxyApp,
+  createMcpProxyRuntime,
+} from '@rgap/mcp-proxy';
+import { Hono } from 'hono';
+
+const mcp = createMcpProxyRuntime({
+  publicBaseUrl: new URL('https://example.com/integrations/mcp'),
+  credentialStore,
+  flowStore,
+});
+const store = new SqliteRgapStore({
+  url: 'rgap.db',
+  runtimes: { mcp: mcp.runtime },
+});
+const proxy = createMcpProxyApp({ mcp, store, adminToken });
+
+const app = new Hono();
+app.route('/integrations/mcp', proxy);
+```
+
+The package derives the callback and client metadata URLs by appending their
+paths to `publicBaseUrl`. The public URL and Hono mount path must identify the
+same route. The caller owns all injected stores and calls `mcp.close()` before
+closing them.
 
 ## 1. Start the proxy
 
@@ -92,7 +127,8 @@ pnpm --filter @rgap/examples mcp-proxy
 ```
 
 The metadata URL and every value in its document derive from the same public
-base URL, so `client_id` and `redirect_uri` comparisons are exact.
+base URL, including its mount path, so `client_id` and `redirect_uri`
+comparisons are exact.
 
 ## 3. Complete OAuth
 

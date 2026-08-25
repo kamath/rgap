@@ -11,7 +11,10 @@ an executable scratchpad, and this MDX documentation application.
 ```text
 packages/
 ├── core/           # authorization, executable orchestration, and contracts
-└── sqlite/         # Drizzle and SQLite implementation
+├── sqlite/         # Drizzle and SQLite implementation
+└── examples/
+    ├── local-credential-store/ # local example credential persistence
+    └── mcp-proxy/              # mountable Hono MCP and OAuth adapter
 apps/
 ├── server/         # Hono HTTP API and generated clients
 └── docs/           # Next.js and Fumadocs documentation
@@ -253,6 +256,38 @@ obtains the first event before committing the response, propagates request
 cancellation, and closes the runtime iterator when the client disconnects.
 `HttpRgapStore` uses generated methods for JSON operations and a streaming
 fetch reader for invocation.
+
+## MCP proxy package
+
+`@rgap/mcp-proxy` provides MCP connections, OAuth persistence, an RGAP invoke
+runtime, and a mountable Hono app. It accepts deployment-owned credential and
+OAuth flow stores rather than choosing secret persistence.
+
+Runtime and app creation are separate because a deployment registers the MCP
+runtime while constructing its RGAP store:
+
+```ts
+const mcp = createMcpProxyRuntime({
+  publicBaseUrl,
+  credentialStore,
+  flowStore,
+});
+const store = new SqliteRgapStore({
+  url,
+  runtimes: { mcp: mcp.runtime },
+});
+const proxy = createMcpProxyApp({ mcp, store, adminToken });
+```
+
+The app contains the bearer-protected RGAP API and the public OAuth callback
+and client metadata routes. It has no listener, environment parsing, database
+paths, resource provisioning, or signal handling. A parent Hono app mounts it
+at any path. `publicBaseUrl` identifies that externally visible mount point so
+OAuth URLs remain correct when the route has a prefix.
+
+`@rgap/local-credential-store` lives beside the proxy in
+`packages/examples/local-credential-store`. It is local example
+infrastructure, and its SQLite values are plaintext.
 
 ## Documentation application
 

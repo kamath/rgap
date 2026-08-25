@@ -183,9 +183,10 @@ therefore disables it for every consumer.
 
 The complete Hono app lives in `examples/secret-store`. It uses one SQLite
 database for RGAP state and initializes `SqliteCredentialStore` from
-`@rgap/local-credential-store` with another SQLite database for secret values.
-Inputs, outputs, and secret values stay out of invocation audit records, logs,
-and errors.
+`@rgap/local-credential-store` in
+`packages/examples/local-credential-store` with another SQLite database for
+secret values. Inputs, outputs, and secret values stay out of invocation audit
+records, logs, and errors.
 
 ## Invoke an OAuth-protected MCP server
 
@@ -292,6 +293,27 @@ bound to the credential, checks its expiration, and consumes it exactly once
 with an atomic update. It then passes the callback parameters to the MCP SDK,
 which validates the authorization-server issuer and exchanges the code. The
 resulting tokens and client information remain in the credential store.
+
+`@rgap/mcp-proxy` separates runtime creation from Hono app creation:
+
+```ts
+const mcp = createMcpProxyRuntime({
+  publicBaseUrl,
+  credentialStore,
+  flowStore,
+});
+const store = new SqliteRgapStore({
+  url,
+  runtimes: { mcp: mcp.runtime },
+});
+const proxy = createMcpProxyApp({ mcp, store, adminToken });
+
+app.route('/integrations/mcp', proxy);
+```
+
+`publicBaseUrl` is the public URL of the Hono mount point, including its path.
+The package appends its OAuth route paths to that URL. The deployment owns the
+credential, flow, and RGAP stores and closes them after `mcp.close()`.
 
 An OAuth redirect does not call the RGAP invoke endpoint directly. Authorization
 servers send browser `GET` requests without an RGAP bearer, while resource
@@ -426,6 +448,9 @@ registered client credentials remain inside the MCP proxy.
   </Step>
 </Steps>
 
-The complete Hono application lives in `examples/mcp-proxy`. Follow the
+The mountable Hono application and MCP runtime live in
+`packages/examples/mcp-proxy`. The deployment bootstrap in
+`examples/mcp-proxy` supplies local stores, provisions resources, mounts the
+app, and starts the process. Follow the
 [OAuth MCP proxy walkthrough](/docs/guides/mcp-proxy) to connect a server,
 complete authorization, and invoke its RPCs.

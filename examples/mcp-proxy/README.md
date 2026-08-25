@@ -1,8 +1,36 @@
-# OAuth MCP proxy
+# Mountable OAuth MCP proxy
 
-This Hono app represents a remote Streamable HTTP MCP server as an executable
-RGAP connection. The server definition, authenticated connection, and
-credential are separate resources:
+This example mounts the Hono app from `@rgap/mcp-proxy`, whose source lives in
+`packages/examples/mcp-proxy`. The package represents remote Streamable HTTP
+MCP servers as executable RGAP connections while the example owns deployment
+configuration, storage, resource provisioning, and process lifecycle.
+
+The package uses two factories because the MCP runtime must exist when the RGAP
+store is constructed:
+
+```ts
+const mcp = createMcpProxyRuntime({
+  publicBaseUrl,
+  credentialStore,
+  flowStore,
+});
+const store = new SqliteRgapStore({
+  url: 'rgap.db',
+  runtimes: { mcp: mcp.runtime },
+});
+const proxy = createMcpProxyApp({ mcp, store, adminToken });
+
+const app = new Hono();
+app.route('/integrations/mcp', proxy);
+```
+
+`publicBaseUrl` is the externally visible URL of the mount point. For the
+mounting example above it is `https://example.com/integrations/mcp`. The
+package appends `/oauth/callback` and `/oauth/client-metadata.json` to that URL,
+so the configured public URL and Hono mount path must match.
+
+The server definition, authenticated connection, and credential are separate
+resources:
 
 ```text
 acme/mcp/
@@ -17,7 +45,8 @@ forward any client-to-server MCP request supported by the negotiated protocol.
 The MCP SDK manages connection setup and protocol negotiation.
 
 OAuth tokens, registered client information, discovery state, PKCE data, and
-pending callback state are stored through `@rgap/local-credential-store` in
+pending callback state are stored through `@rgap/local-credential-store`, an
+example-support package in `packages/examples/local-credential-store`, in
 `credentials.db` under the credential resource ID. The browser callback
 validates state and expiry before asking the MCP SDK to validate the issuer and
 exchange the authorization code.
