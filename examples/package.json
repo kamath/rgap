@@ -19,6 +19,7 @@
     "@rgap/local-oauth-flow-store": "workspace:*",
     "@rgap/mcp-proxy": "workspace:*",
     "@rgap/mcp-proxy-client": "workspace:*",
+    "@rgap/postgres": "workspace:*",
     "@rgap/server": "workspace:*",
     "@rgap/sqlite": "workspace:*",
     "ai": "^7.0.77",

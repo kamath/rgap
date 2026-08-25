@@ -1,12 +1,12 @@
 ---
 title: Repository implementation
-description: TypeScript rules, SQLite persistence, Hono transport, and documentation packages.
+description: TypeScript rules, SQLite and PostgreSQL persistence, Hono transport, and documentation packages.
 icon: Blocks
 ---
 
 The repository implements RGAP as framework-neutral TypeScript rules, durable
-SQLite persistence, deployment-owned executable runtimes, a Hono HTTP server,
-an executable scratchpad, and this MDX documentation application.
+SQLite and PostgreSQL persistence, deployment-owned executable runtimes, a Hono
+HTTP server, an executable scratchpad, and this MDX documentation application.
 
 ```text
 packages/
@@ -16,6 +16,7 @@ packages/
 │   └── mcp-proxy-client/    # initialized MCP client helper
 ├── local-credential-store/  # local SQLite credential persistence
 ├── local-oauth-flow-store/  # local SQLite OAuth callback state
+├── postgres/                # Drizzle and PostgreSQL RGAP implementation
 └── sqlite/                  # Drizzle and SQLite RGAP implementation
 apps/
 ├── server/         # Hono HTTP API and generated clients
@@ -120,7 +121,7 @@ grant bindings use `ResourceId`.
 
 ## Deployment-owned runtimes
 
-The SQLite store accepts deployment-owned runtime configuration:
+Storage adapters accept deployment-owned runtime configuration:
 
 ```ts
 new SqliteRgapStore({
@@ -193,6 +194,50 @@ tombstone or revision table.
 | `executables` | The normalized runtime and sealed input of each executable resource. |
 | `executable_bindings` | Resource IDs and authority lineages sealed into top-level input fields. |
 | `audit` | Ordered authorization, mutation, and invocation events. |
+
+## PostgreSQL store
+
+`@rgap/postgres` exports `PostgresRgapStore`. Its constructor accepts a
+PostgreSQL connection URL, an optional initial state, and a runtime registry
+without connecting to the database:
+
+```ts
+import { PostgresRgapStore } from '@rgap/postgres';
+
+const store = new PostgresRgapStore({
+  url: process.env.DATABASE_URL!,
+  runtimes,
+});
+
+await store.migrate();
+
+try {
+  const repository = store.admin();
+  // Use the same RgapRepository interface as every other adapter.
+} finally {
+  await store.close();
+}
+```
+
+`migrate()` applies the store's Drizzle migrations and installs the configured
+initial state when the database is empty. A populated database keeps its
+records. Callers choose when to run this adapter-specific operation, such as in
+a deployment task or during process startup. Store construction and ordinary
+commands never run migrations implicitly.
+
+The PostgreSQL schema contains the same normalized resources, grants, grant
+bindings, permissions, tokens, executables, executable bindings, and audit
+records described above. Each command loads its bounded working set, applies a
+pure core rule, and writes its row delta in one serializable transaction.
+Serialization failures are retried so concurrent commands observe a valid
+ordering. A rejected rule writes nothing.
+
+The PostgreSQL adapter uses the `postgres` driver and creates connections
+lazily. A serverless application constructs the store once at module scope,
+runs migrations in a controlled deployment or startup step, and reuses the
+store across warm invocations. `close()` asynchronously drains and releases
+its connection pool; a request handler does not close a shared store after
+each invocation.
 
 ## Invocation lifecycle
 
@@ -306,12 +351,14 @@ port 3001 so the HTTP API can run beside it on port 3000.
 
 ## Scratchpad
 
-`@rgap/examples` consumes `@rgap/sqlite` and `@rgap/core` like an external
-TypeScript application. The secret-store app configures one trusted runtime
-whose sealed input contains an externally stored credential resource ID and
-another runtime that invokes it by resource ID. It creates the outer
-executable through an ordinary delegated repository plane without granting
-that plane authority over the credential.
+`@rgap/examples` consumes the storage adapters and `@rgap/core` like an
+external TypeScript application. The deterministic invariant walkthrough uses
+PostgreSQL when `RGAP_POSTGRES_URL` is set and otherwise uses an in-memory
+SQLite database. The secret-store app configures one trusted runtime whose
+sealed input contains an externally stored credential resource ID and another
+runtime that invokes it by resource ID. It creates the outer executable
+through an ordinary delegated repository plane without granting that plane
+authority over the credential.
 
 Change only store construction to run the same walkthrough against HTTP:
 
@@ -372,7 +419,7 @@ contract as the core rules: each binding contains one stable resource `id` and
 a permission set. The checks use `bindingAuthorizes` for concrete requests and
 `setBindings` for grant amendments.
 
-The package also exports a deterministic adapter smoke harness. An adapter
+The package also exports a deterministic adapter smoke harness. Each adapter
 runs one fixed delegation and revocation scenario, then compares normalized
 resource paths, grant paths, and authorization decisions with the expected
 contract. Generated state-machine checks remain focused on the pure rules, and
@@ -385,10 +432,10 @@ cascading ancestor revocation without random generation.
 ## Verification
 
 `pnpm build` type-checks every workspace package and produces the documentation
-site. `pnpm test` runs the core, SQLite, server, and property-based invariant
-suites. Core's 100% coverage threshold is a gate over its source rather than a
-report, and each downstream package exercises its real adapter instead of a
-stand-in.
+site. `pnpm test` runs the core, SQLite, PostgreSQL, server, and property-based
+invariant suites. Core's 100% coverage threshold is a gate over its source
+rather than a report, and each downstream package exercises its real adapter
+instead of a stand-in.
 
 Continuous integration installs the frozen lockfile and runs three explicit
 checks:
@@ -399,6 +446,6 @@ pnpm test
 pnpm --filter @rgap/examples invariants
 ```
 
-The final check executes the deterministic invariant walkthrough against the
-SQLite adapter in addition to the property-based invariant package included by
-the workspace test command.
+The final check executes the deterministic invariant walkthrough against
+SQLite. PostgreSQL adapter tests and conformance checks run against the
+PostgreSQL service during the workspace test command.
