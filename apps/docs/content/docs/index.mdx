@@ -1,16 +1,19 @@
 ---
-title: Execute tools without sharing credentials
-description: Put a narrow, revocable execution boundary between agents and upstream services.
+title: Introduction
+description: Organize resources and delegated authority, then execute services without exposing credentials.
 icon: House
 ---
 
-RGAP is an execution proxy for tools, models, APIs, and MCP servers. An agent
-calls an executable resource with an RGAP bearer. The proxy checks whether that
-bearer can invoke the resource, adds deployment-owned credentials, and sends the
-request upstream.
+RGAP is a protocol for organizing resources and authority across teams,
+applications, tools, and services. Resources follow a familiar hierarchy,
+grants reflect how an organization delegates control, and each bearer carries a
+narrow, revocable slice of that authority.
 
-The agent gets the result without receiving an OAuth token, API key, refresh
-token, or other provider credential.
+The same protocol provides an execution proxy for tools, models, APIs, and MCP
+servers. A caller invokes an executable resource with an RGAP bearer; the proxy
+checks its authority, adds deployment-owned credentials, and sends the request
+upstream. The caller gets the result without receiving an OAuth token, API key,
+refresh token, or other provider credential.
 
 <Callout type="info" title="Want to see it run?">
   Follow the [OAuth MCP proxy walkthrough](/docs/guides/mcp-proxy) to connect an
@@ -38,24 +41,25 @@ token, or other provider credential.
   />
 </Cards>
 
-## What happens when an agent invokes a resource
+## What happens when a caller invokes a resource
 
-1. The agent sends input, an executable resource ID, and its RGAP bearer.
+1. The caller sends input, an executable resource ID, and its RGAP bearer.
 2. RGAP resolves the bearer and authorizes `invoke` against the complete grant
    lineage.
 3. The runtime receives the resource's sealed definition and explicitly bound
    resources. Deployment-owned credentials stay inside the proxy.
-4. The runtime calls the upstream service and streams events back to the agent.
+4. The runtime calls the upstream service and streams events back to the caller.
 
 This keeps authorization and credential handling at the network boundary. The
-agent cannot turn a purpose-built executable into an unrestricted authenticated
+caller cannot turn a purpose-built executable into an unrestricted authenticated
 proxy by replacing its upstream URL, credential binding, or other sealed
 configuration.
 
 ## Why use the proxy
 
-- **Keep secrets out of agent context.** Provider credentials live in a
-  deployment-owned store and never appear in prompts or invocation input.
+- **Keep secrets out of application context.** Provider credentials live in a
+  deployment-owned store and never appear in caller-controlled invocation
+  input.
 - **Expose useful operations, not raw credentials.** A resource can represent
   one tool, one model, one MCP connection, or a carefully designed composition.
 - **Narrow access for each task.** A bearer reaches only the executable
@@ -74,9 +78,9 @@ configuration.
 | **Grant** | Selects which resources and operations a caller may use. |
 | **Bearer** | Lets a caller exercise one grant without exposing upstream credentials. |
 
-Resources and grants form hierarchies so access can be delegated to agents and
-sub-agents without becoming broader. Read [Core concepts](/docs/concepts) when
-you need the full model.
+Resources and grants form hierarchies so authority can follow an organization's
+teams, services, workflows, and delegated operators without becoming broader.
+Read [Core concepts](/docs/concepts) when you need the full model.
 
 <Steps>
   <Step>
@@ -90,13 +94,13 @@ you need the full model.
     ### Proxy a real service
 
     Follow the [MCP proxy walkthrough](/docs/guides/mcp-proxy) to keep OAuth
-    credentials in the gateway while an agent invokes upstream tools.
+    credentials in the gateway while a caller invokes upstream tools.
   </Step>
   <Step>
     ### Design your execution boundary
 
     Review [privilege delegation](/docs/concepts/privilege-delegation) before
     exposing a runtime, then use the [HTTP API](/docs/guides/http-api) to
-    integrate it with your agent system.
+    integrate it with your application.
   </Step>
 </Steps>
