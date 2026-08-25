@@ -1,0 +1,41 @@
+{
+  "name": "@rgap/mcp-gateway",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#/*": "./src/*"
+  },
+  "scripts": {
+    "dev": "vite dev --port 3004",
+    "generate-routes": "tsr generate",
+    "build": "vite build && tsc --noEmit",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@rgap/core": "workspace:*",
+    "@rgap/credential-store-sqlite": "workspace:*",
+    "@rgap/mcp-proxy": "workspace:*",
+    "@rgap/oauth-flow-store-sqlite": "workspace:*",
+    "@rgap/store-sqlite": "workspace:*",
+    "@tanstack/react-router": "latest",
+    "@tanstack/react-start": "latest",
+    "better-auth": "^1.7.1",
+    "better-sqlite3": "^13.0.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tanstack/router-cli": "latest",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.0",
+    "vitest": "latest"
+  }
+}

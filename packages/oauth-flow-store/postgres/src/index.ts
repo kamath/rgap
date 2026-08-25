@@ -75,6 +75,7 @@ export class PostgresOAuthFlowStore implements OAuthFlowStore {
         server_url = excluded.server_url,
         expires_at = excluded.expires_at,
         claimed_at = excluded.claimed_at
+      WHERE oauth_flows.claimed_at IS NULL
     `;
   }
 

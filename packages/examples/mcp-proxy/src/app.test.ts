@@ -7,7 +7,10 @@ import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
 import { createMcpProxyApp } from './app';
 import type { McpCredential } from './oauth-provider';
-import { createMcpProxyRuntime } from './runtime';
+import {
+  createMcpProxyRuntime,
+  type McpProxyRuntime,
+} from './runtime';
 import type {
   CredentialStore,
   OAuthFlowRecord,
@@ -239,6 +242,34 @@ describe('createMcpProxyApp', () => {
       store: fakeRgapStore([]),
     });
     expect((await http.request('/oauth/client-metadata.json')).status).toBe(404);
+  });
+
+  it('reports completed OAuth without depending on an auth framework', async () => {
+    const completed = vi.fn();
+    const mcp = {
+      publicBaseUrl: new URL('https://example.com'),
+      finishAuthorization: vi.fn().mockResolvedValue({
+        status: 'connected',
+        credentialId: 'credential_1',
+        serverUrl: 'https://mcp.example.com',
+      }),
+    } as unknown as McpProxyRuntime;
+    const app = createMcpProxyApp({
+      mcp,
+      store: fakeRgapStore([]),
+      onAuthorizationComplete: completed,
+    });
+
+    const response = await app.request(
+      '/oauth/callback?state=state&code=code',
+    );
+
+    expect(response.status).toBe(200);
+    expect(completed).toHaveBeenCalledWith({
+      status: 'connected',
+      credentialId: 'credential_1',
+      serverUrl: 'https://mcp.example.com',
+    });
   });
 });
 

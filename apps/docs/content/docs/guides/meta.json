@@ -3,6 +3,7 @@
   "defaultOpen": true,
   "pages": [
     "llm-gateway",
+    "mcp-web-gateway",
     "mcp-proxy",
     "api-gateway",
     "api-to-mcp-gateway",

@@ -30,9 +30,16 @@ type JsonRpcId = z.infer<typeof JsonRpcIdSchema>;
 export type McpProxyAppOptions = {
   mcp: McpProxyRuntime;
   store: RgapStore;
+  onAuthorizationComplete?: (
+    status: Awaited<ReturnType<McpProxyRuntime['finishAuthorization']>>,
+  ) => void | Promise<void>;
 };
 
-export function createMcpProxyApp({ mcp, store }: McpProxyAppOptions) {
+export function createMcpProxyApp({
+  mcp,
+  store,
+  onAuthorizationComplete,
+}: McpProxyAppOptions) {
   const app = new Hono();
 
   app.get('/oauth/client-metadata.json', (context) => {
@@ -53,6 +60,11 @@ export function createMcpProxyApp({ mcp, store }: McpProxyAppOptions) {
       );
       if (status.status !== 'connected') {
         return context.text('OAuth authorization did not complete.', 409);
+      }
+      try {
+        await onAuthorizationComplete?.(status);
+      } catch {
+        console.error('MCP authorization completion hook failed.');
       }
       return context.html(
         '<h1>MCP authorization complete</h1><p>You may close this window.</p>',

@@ -1,0 +1,264 @@
+---
+title: MCP web gateway
+description: Build a TanStack Start connection dashboard with Better Auth and an internal RGAP authorization boundary.
+---
+
+The MCP web gateway gives authenticated users a frontend for creating and
+authorizing MCP connections. TanStack Start serves the application and its
+public routes, Better Auth identifies the user, and RGAP authorizes every MCP
+request without exposing its command plane or bearer values.
+
+The public application has two product surfaces:
+
+- connection management for the signed-in user; and
+- one Streamable HTTP MCP route for each connection.
+
+MCP methods such as `tools/list` and `tools/call` travel as JSON-RPC messages
+through the MCP route. The gateway does not publish REST endpoints for tools.
+
+## Public route contract
+
+The gateway exposes these routes:
+
+| Method | Route | Authentication | Purpose |
+| --- | --- | --- | --- |
+| `GET`, `POST` | `/api/auth/*` | Better Auth | Sign in, sign out, and session handling. |
+| `GET` | `/api/connections` | Better Auth session | List the current user's connections. |
+| `POST` | `/api/connections` | Better Auth session | Create a connection and begin upstream authorization. |
+| `GET` | `/api/connections/:connectionId` | Better Auth session | Read one owned connection. |
+| `DELETE` | `/api/connections/:connectionId` | Better Auth session | Revoke and remove one owned connection. |
+| `POST` | `/api/connections/:connectionId/authorize` | Better Auth session | Restart authorization for an owned connection. |
+| `POST` | `/mcp/:connectionId` | Better Auth session | Carry MCP JSON-RPC requests. |
+| `GET` | `/oauth/callback` | OAuth state | Complete upstream MCP OAuth. |
+| `GET` | `/oauth/client-metadata.json` | Public | Publish OAuth client metadata on HTTPS deployments. |
+
+The application does not mount `@rgap/server`. Routes for RGAP resources,
+grants, tokens, and audit records remain unavailable over HTTP.
+
+<Callout type="info" title="One MCP transport">
+  The MCP route carries the complete negotiated MCP request-response protocol.
+  Connection management never adds `/tools` or `/tools/:tool/call` routes.
+</Callout>
+
+## Separate the authentication layers
+
+The gateway uses three distinct credentials:
+
+| Credential | Holder | Purpose |
+| --- | --- | --- |
+| Better Auth session | Browser or MCP client | Authenticate the application user. |
+| RGAP bearer | Gateway only | Invoke one connection through the internal RGAP store. |
+| Upstream OAuth tokens | Gateway only | Authenticate the MCP SDK to the remote server. |
+
+The browser uses a secure session cookie. A non-browser MCP client uses the
+Better Auth bearer integration and sends its session token in the
+`Authorization` header. Both mechanisms resolve to the same Better Auth user.
+
+After authentication, the server loads the user's gateway connection record.
+That record contains a public connection ID, an internal RGAP resource ID, and
+an encrypted RGAP bearer. The server replaces the incoming application
+credential with the internal bearer before dispatching to
+`createMcpProxyApp`.
+
+The application credential is never passed to RGAP or to the upstream MCP
+server. The RGAP bearer and upstream OAuth tokens are never returned to the
+browser or MCP client.
+
+## Model a user-owned connection
+
+The gateway keeps a private mapping for every connection:
+
+```ts
+type GatewayConnection = {
+  id: string;
+  userId: string;
+  displayName: string;
+  serverUrl: string;
+  status: 'authorization_required' | 'connected' | 'error';
+  resourceId: string;
+  credentialResourceId: string;
+  grantId: string;
+  encryptedRgapBearer: string;
+};
+```
+
+`id` is the identifier used in public routes. It is not an RGAP resource ID.
+Every lookup includes both `id` and the authenticated Better Auth `userId`, so
+knowing another connection ID does not grant access.
+
+The encrypted RGAP bearer is recoverable because the gateway needs it for
+later MCP requests. RGAP stores only the bearer hash. Production deployments
+encrypt the gateway copy with a deployment-owned key and support key rotation.
+
+## Create a connection
+
+The frontend submits only a display name and upstream URL:
+
+```http
+POST /api/connections
+Content-Type: application/json
+
+{
+  "displayName": "GitHub",
+  "serverUrl": "https://mcp.example.com"
+}
+```
+
+The authenticated handler:
+
+1. validates the URL against the deployment's outbound-network policy;
+2. creates the server, credential, and executable connection resources through
+   `store.admin()` in the server process;
+3. creates a grant containing only `invoke` on the connection;
+4. issues and encrypts one RGAP bearer;
+5. stores the Better Auth user-to-connection mapping; and
+6. calls `mcp.connect(serverUrl, credentialResourceId)`.
+
+The response contains product-level state only:
+
+```json
+{
+  "id": "cn_01k...",
+  "displayName": "GitHub",
+  "serverUrl": "https://mcp.example.com",
+  "status": "authorization_required",
+  "authorizationUrl": "https://authorization.example.com/authorize?..."
+}
+```
+
+The frontend opens `authorizationUrl` when authorization is required. A
+connected server omits that field.
+
+Creation is transactional from the application's perspective. If provisioning
+fails, the handler revokes issued authority, removes stored credentials, and
+does not publish a connection record.
+
+## Complete upstream OAuth
+
+`@rgap/mcp-proxy` owns `/oauth/callback` and
+`/oauth/client-metadata.json`. The callback authenticates itself with
+credential-bound, expiring, one-time OAuth state rather than a Better Auth
+session.
+
+After the MCP SDK validates the authorization response and stores the upstream
+tokens, the callback marks the gateway connection as connected. The frontend
+polls or refreshes `GET /api/connections/:connectionId` to show the result.
+
+OAuth tokens, client registration, discovery state, and PKCE data stay in the
+injected credential store. They do not enter the Better Auth database, RGAP
+records, MCP responses, or browser state.
+
+## Dispatch the MCP route
+
+TanStack Start defines `POST /mcp/$connectionId` as a server route. Its handler
+authenticates the request before the mountable Hono app receives it:
+
+```ts
+export async function handleMcpRequest(
+  request: Request,
+  connectionId: string,
+) {
+  const session = await requireSession(request.headers);
+  const connection = await connections.requireOwned(
+    connectionId,
+    session.user.id,
+  );
+  const rgapBearer = await bearerVault.decrypt(
+    connection.encryptedRgapBearer,
+  );
+
+  const headers = new Headers(request.headers);
+  headers.set('authorization', `Bearer ${rgapBearer}`);
+
+  return mcpProxy.fetch(new Request(request, { headers }));
+}
+```
+
+The Hono proxy reads the internal bearer, calls
+`store.as(rgapBearer)`, and invokes the trusted RGAP connection resource. RGAP
+checks the connection grant before the runtime resolves its protected OAuth
+credential and forwards the MCP method upstream.
+
+The route preserves the MCP JSON-RPC body and response. It does not interpret
+or duplicate `tools/list`, `tools/call`, prompts, resources, completion, or
+extension methods in an application-specific API.
+
+## Build the frontend
+
+The TanStack Start frontend contains:
+
+- sign-up, sign-in, and sign-out controls backed by the Better Auth client;
+- a protected connection list;
+- a form for a display name and MCP server URL;
+- authorization, reconnect, and delete actions;
+- connection status and the `/mcp/:connectionId` URL.
+
+The frontend never accepts or displays an RGAP bearer, RGAP resource ID,
+upstream access token, refresh token, client secret, or PKCE verifier. It does
+not include a tool browser or tool invocation REST client.
+
+## Delete a connection
+
+Deleting a connection requires a current Better Auth session and ownership of
+the public connection ID. The handler:
+
+1. revokes the RGAP grant;
+2. closes the cached upstream MCP connection;
+3. deletes the stored upstream credential;
+4. removes the encrypted internal bearer and gateway mapping; and
+5. tombstones the internal RGAP resources.
+
+Revocation happens first so concurrent MCP requests fail authorization while
+cleanup continues.
+
+## Keep server state private
+
+The Start server creates `McpProxyRuntime` before `RgapStore`, then registers
+the MCP runtime during store construction:
+
+```ts
+const mcp = createMcpProxyRuntime({
+  publicBaseUrl,
+  credentialStore,
+  flowStore,
+});
+
+const store = new SqliteRgapStore({
+  url: 'rgap.db',
+  runtimes: { mcp: mcp.runtime },
+});
+
+const mcpProxy = createMcpProxyApp({ mcp, store });
+```
+
+These instances live in a server-only module and are shared by Start server
+routes. Client bundles never import that module. The host closes the MCP
+runtime before closing its databases.
+
+Local development uses SQLite for Better Auth, RGAP, OAuth flow state,
+credentials, and gateway connection metadata. Deployed applications use
+shared databases, encrypted credential and bearer stores, and one consistent
+public base URL on every replica.
+
+## Deployment checks
+
+A deployed gateway:
+
+- allows only HTTPS MCP servers and explicitly configured loopback development
+  endpoints;
+- blocks private, loopback, link-local, and metadata-service destinations;
+- revalidates redirects and DNS results to prevent server-side request forgery;
+- encrypts RGAP bearers and upstream OAuth material at rest;
+- configures Better Auth trusted origins, secure cookies, session expiration,
+  and request rate limits;
+- applies CSRF and origin checks to cookie-authenticated mutations;
+- verifies connection ownership on every management and MCP request;
+- limits connection count, request duration, and request and response sizes;
+- shares OAuth flow and credential state across replicas; and
+- never logs session tokens, RGAP bearers, OAuth callback queries, or MCP
+  request bodies.
+
+The executable route contract lives in
+`examples/mcp-web-gateway/contract.ts`. Continue with the
+[OAuth MCP proxy](/docs/guides/mcp-proxy) for the underlying runtime and OAuth
+behavior.
