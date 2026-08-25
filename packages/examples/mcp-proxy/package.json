@@ -1,0 +1,25 @@
+{
+  "name": "@rgap/mcp-proxy",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@rgap/core": "workspace:*",
+    "@rgap/local-credential-store": "workspace:*",
+    "@rgap/local-oauth-flow-store": "workspace:*",
+    "hono": "^4.13.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "typescript": "latest",
+    "vitest": "^4.1.11"
+  }
+}
