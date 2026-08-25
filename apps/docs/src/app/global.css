@@ -292,6 +292,20 @@ button[data-search-full] kbd {
 }
 
 @media (max-width: 767px) {
+  #nd-subnav {
+    position: fixed;
+    inset-inline: 0;
+    top: 0;
+    z-index: 50;
+    width: 100%;
+    background: color-mix(
+      in oklab,
+      var(--color-fd-background) 90%,
+      transparent
+    );
+    backdrop-filter: blur(12px);
+  }
+
   .docs-page-header {
     grid-template-columns: 1fr;
   }
