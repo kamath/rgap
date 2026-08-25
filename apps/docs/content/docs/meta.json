@@ -2,7 +2,7 @@
   "title": "RGAP Documentation",
   "pages": [
     "index",
-    "[Rocket][Quickstart](/docs/quickstarts/typescript)",
+    "[Quickstart](/docs/quickstarts/typescript)",
     "---Learn---",
     "concepts",
     "guides",

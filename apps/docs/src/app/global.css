@@ -80,7 +80,46 @@ body:has(#nd-docs-layout) {
   padding-inline: clamp(1.5rem, 4vw, 3.75rem);
   padding-top: clamp(2.5rem, 6vh, 4.5rem);
   scroll-behavior: smooth;
+  scrollbar-color: color-mix(in oklab, var(--color-fd-foreground) 22%, transparent)
+    transparent;
   scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+#nd-page::-webkit-scrollbar,
+#nd-sidebar .fd-scroll-container::-webkit-scrollbar {
+  width: 3px;
+  height: 3px;
+}
+
+#nd-page::-webkit-scrollbar-track,
+#nd-sidebar .fd-scroll-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#nd-page::-webkit-scrollbar-thumb,
+#nd-sidebar .fd-scroll-container::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(
+    in oklab,
+    var(--color-fd-foreground) 22%,
+    transparent
+  );
+}
+
+#nd-page::-webkit-scrollbar-thumb:hover,
+#nd-sidebar .fd-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: color-mix(
+    in oklab,
+    var(--color-fd-foreground) 36%,
+    transparent
+  );
+}
+
+#nd-sidebar .fd-scroll-container {
+  scrollbar-color: color-mix(in oklab, var(--color-fd-foreground) 18%, transparent)
+    transparent;
+  scrollbar-width: thin;
 }
 
 button[data-search-full] {

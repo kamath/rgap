@@ -1,6 +1,5 @@
 {
   "title": "Guides",
-  "icon": "Route",
   "defaultOpen": true,
   "pages": [
     "llm-gateway",
