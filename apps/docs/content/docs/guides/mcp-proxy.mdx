@@ -21,12 +21,12 @@ Create a TypeScript project and install the published packages:
 npm init -y
 npm install \
   @hono/node-server \
+  @rgap/local-credential-store \
+  @rgap/local-oauth-flow-store \
   @rgap/mcp-proxy \
   @rgap/mcp-proxy-client \
-  @rgap/oauth-store-sqlite \
-  @rgap/secret-store-sqlite \
   @rgap/server \
-  @rgap/store-sqlite \
+  @rgap/sqlite \
   hono \
   zod
 npm install --save-dev tsx typescript @types/node
@@ -58,17 +58,19 @@ import {
   createMcpProxyRuntime,
   type McpCredential,
 } from '@rgap/mcp-proxy';
-import { SqliteOAuthFlowStore } from '@rgap/oauth-store-sqlite';
-import { SqliteSecretStore } from '@rgap/secret-store-sqlite';
+import { SqliteCredentialStore } from '@rgap/local-credential-store';
+import { SqliteOAuthFlowStore } from '@rgap/local-oauth-flow-store';
 import { createApp as createRgapApp } from '@rgap/server';
-import { SqliteRgapStore } from '@rgap/store-sqlite';
+import { SqliteRgapStore } from '@rgap/sqlite';
 import { Hono } from 'hono';
 
 const port = Number(process.env.PORT ?? 3003);
 const publicBaseUrl = new URL(
   process.env.PUBLIC_BASE_URL ?? `http://127.0.0.1:${port}`,
 );
-const credentialStore = new SqliteSecretStore<McpCredential>('credentials.db');
+const credentialStore = new SqliteCredentialStore<McpCredential>(
+  'credentials.db',
+);
 const flowStore = new SqliteOAuthFlowStore('oauth-flows.db');
 const mcp = createMcpProxyRuntime({
   publicBaseUrl,
@@ -190,12 +192,12 @@ the browser to the Hono callback. The callback:
 The page displays `MCP authorization complete` when the connection succeeds.
 
 The proxy stores OAuth tokens, client registration, discovery state, and PKCE
-data in the configured secret store. With `SqliteSecretStore`, that is
+data in the configured credential store. With `SqliteCredentialStore`, that is
 `credentials.db`. The records are keyed by the RGAP credential resource ID.
 Credential values never enter RGAP invocation input, output, or audit records.
 
 The callback state index uses the `OAuthFlowStore` interface from
-`@rgap/oauth-store`:
+`@rgap/local-oauth-flow-store`:
 
 ```ts
 interface OAuthFlowStore {
@@ -206,12 +208,11 @@ interface OAuthFlowStore {
 }
 ```
 
-The gateway constructs `SqliteOAuthFlowStore` from
-`@rgap/oauth-store-sqlite`, which stores the index in
-`oauth-flows.db`. It hashes callback state values with SHA-256 before using
-them as keys and atomically permits one claim before the flow expires. Each
-record identifies the credential, MCP server, internal flow, expiration, and
-one-time claim.
+The gateway constructs `SqliteOAuthFlowStore` from the same package and stores
+the index in `oauth-flows.db`. It hashes callback state values with SHA-256
+before using them as keys and atomically permits one claim before the flow
+expires. Each record identifies the credential, MCP server, internal flow,
+expiration, and one-time claim.
 
 The interface keeps storage-specific concurrency inside each implementation.
 A deployed proxy can supply a Redis, PostgreSQL, or other shared implementation

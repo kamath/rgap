@@ -13,7 +13,7 @@ Create a TypeScript project and install the published SQLite adapter:
 
 ```bash
 npm init -y
-npm install @rgap/store-sqlite
+npm install @rgap/sqlite
 npm install --save-dev tsx typescript @types/node
 ```
 
@@ -22,7 +22,7 @@ Save the following file as `quickstart.ts`.
 ## Review the complete example
 
 ```ts title="quickstart.ts"
-import { SqliteRgapStore } from '@rgap/store-sqlite';
+import { SqliteRgapStore } from '@rgap/sqlite';
 
 const store = new SqliteRgapStore({ url: ':memory:' });
 

@@ -181,9 +181,9 @@ capability and publish her wrapper's interface. Revoking or narrowing
 therefore disables it for every consumer.
 
 A Hono deployment uses one SQLite database for RGAP state and initializes
-`SqliteSecretStore` from `@rgap/secret-store-sqlite` with another SQLite
-database for secret values. The runtime accepts the `SecretStore` interface
-from `@rgap/secret-store`. Inputs, outputs, and secret values stay out of
+`SqliteCredentialStore` from `@rgap/local-credential-store` with another
+SQLite database for secret values. The runtime accepts the `CredentialStore`
+interface from the same package. Inputs, outputs, and secret values stay out of
 invocation audit records, logs, and errors.
 
 ## Invoke an OAuth-protected MCP server

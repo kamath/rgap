@@ -1,4 +1,4 @@
-import { SqliteSecretStore } from '@rgap/secret-store-sqlite';
+import { SqliteCredentialStore } from '@rgap/local-credential-store';
 import { describe, expect, it } from 'vitest';
 import {
   type McpCredential,
@@ -29,7 +29,7 @@ describe('PersistentOAuthProvider', () => {
   });
 
   it('supplies the CIMD URL and replaces expired callback state', async () => {
-    const store = new SqliteSecretStore<McpCredential>();
+    const store = new SqliteCredentialStore<McpCredential>();
     const provider = new PersistentOAuthProvider({
       credentialId: 'credential_1',
       callbackUrl,

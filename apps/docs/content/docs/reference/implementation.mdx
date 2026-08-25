@@ -10,11 +10,9 @@ adapters, and HTTP and MCP integrations:
 | Package | Purpose |
 | --- | --- |
 | `@rgap/core` | Authorization rules, repository contracts, and executable orchestration. |
-| `@rgap/store-sqlite` | Durable SQLite implementation of the RGAP store. |
-| `@rgap/secret-store` | Deployment-owned typed secret-store contract. |
-| `@rgap/secret-store-sqlite` | Local SQLite secret-store adapter. |
-| `@rgap/oauth-store` | OAuth callback-flow store contract. |
-| `@rgap/oauth-store-sqlite` | Local SQLite OAuth-flow adapter. |
+| `@rgap/sqlite` | Durable SQLite implementation of the RGAP store. |
+| `@rgap/local-credential-store` | Typed credential-store contract and local SQLite adapter. |
+| `@rgap/local-oauth-flow-store` | OAuth-flow contract and local SQLite adapter. |
 | `@rgap/server` | Mountable Hono RGAP API, generated SDK, and HTTP store. |
 | `@rgap/mcp-proxy` | Mountable MCP and OAuth gateway routes. |
 | `@rgap/mcp-proxy-client` | Initialized MCP client for an RGAP gateway. |
@@ -128,17 +126,17 @@ on Zod. Runtime registration and behavior are not repository state.
 
 ## Store interfaces
 
-Storage contracts live with their domains instead of in a shared interfaces
-package. `@rgap/secret-store` exports `SecretStore<T>`.
-`@rgap/oauth-store` exports `OAuthFlowStore` and `OAuthFlowRecord`. Neither
-interface package chooses persistence or imports a SQLite driver.
+`@rgap/local-credential-store` exports `CredentialStore<T>` and
+`SqliteCredentialStore<T>`. `@rgap/local-oauth-flow-store` exports
+`OAuthFlowStore`, `OAuthFlowRecord`, and `SqliteOAuthFlowStore`. Deployments
+can supply other implementations of either structural interface.
 
 The RGAP repository contracts remain in `@rgap/core` because they are part of
 the core command and handle model.
 
 ## SQLite store
 
-`@rgap/store-sqlite` exports `SqliteRgapStore`. It accepts a file path or
+`@rgap/sqlite` exports `SqliteRgapStore`. It accepts a file path or
 `:memory:`, an optional initial state, and a runtime registry.
 
 `src/schema.ts` declares normalized tables, and Drizzle Kit generates the DDL.
@@ -313,11 +311,10 @@ ID, RGAP bearer, and client identity. It constructs the Streamable HTTP
 transport, attaches the bearer, completes MCP initialization, and returns the
 connected MCP SDK client. The caller closes that client.
 
-The proxy depends on `SecretStore` from `@rgap/secret-store` and
-`OAuthFlowStore` from `@rgap/oauth-store`. A local deployment injects
-`SqliteSecretStore` from `@rgap/secret-store-sqlite` and
-`SqliteOAuthFlowStore` from `@rgap/oauth-store-sqlite`. SQLite secret values
-are plaintext and remain suitable for local development only.
+The proxy accepts `CredentialStore` from `@rgap/local-credential-store` and
+`OAuthFlowStore` from `@rgap/local-oauth-flow-store`. A local deployment
+injects their SQLite implementations. SQLite credential values are plaintext
+and remain suitable for local development only.
 
 ## Verification
 

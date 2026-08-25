@@ -23,7 +23,7 @@ import {
   type TokenValue,
 } from '@rgap/core';
 import { HttpRgapStore } from '@rgap/server';
-import { SqliteRgapStore } from '@rgap/store-sqlite';
+import { SqliteRgapStore } from '@rgap/sqlite';
 
 type TreeNode<Id extends string> = { id: Id; parentId: Id | null; name: string };
 

@@ -13,7 +13,7 @@ types, and the generated fetch client.
 Install the published server and SQLite adapter:
 
 ```bash
-npm install @rgap/server @rgap/store-sqlite @hono/node-server
+npm install @rgap/server @rgap/sqlite @hono/node-server
 npm install --save-dev tsx typescript @types/node
 ```
 
@@ -22,7 +22,7 @@ Create `server.ts`:
 ```ts
 import { serve } from '@hono/node-server';
 import { createApp } from '@rgap/server';
-import { SqliteRgapStore } from '@rgap/store-sqlite';
+import { SqliteRgapStore } from '@rgap/sqlite';
 
 const store = new SqliteRgapStore({
   url: process.env.RGAP_DATABASE_URL ?? 'rgap.db',

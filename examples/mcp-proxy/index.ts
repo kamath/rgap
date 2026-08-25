@@ -8,15 +8,15 @@ import {
   type RgapRepository,
   type SetExecutableInput,
 } from '@rgap/core';
-import { SqliteOAuthFlowStore } from '@rgap/oauth-store-sqlite';
+import { SqliteCredentialStore } from '@rgap/local-credential-store';
+import { SqliteOAuthFlowStore } from '@rgap/local-oauth-flow-store';
 import {
   createMcpProxyApp,
   createMcpProxyRuntime,
   type McpCredential,
 } from '@rgap/mcp-proxy';
-import { SqliteSecretStore } from '@rgap/secret-store-sqlite';
 import { createApp as createRgapApp } from '@rgap/server';
-import { SqliteRgapStore } from '@rgap/store-sqlite';
+import { SqliteRgapStore } from '@rgap/sqlite';
 import { Hono } from 'hono';
 
 const directory = fileURLToPath(new URL('.', import.meta.url));
@@ -27,7 +27,7 @@ const publicBaseUrl = new URL(
 const serverUrl = new URL(
   process.env.MCP_SERVER_URL ?? 'https://server.smithery.ai/gmail',
 );
-const credentialStore = new SqliteSecretStore<McpCredential>(
+const credentialStore = new SqliteCredentialStore<McpCredential>(
   `${directory}/credentials.db`,
 );
 const flowStore = new SqliteOAuthFlowStore(`${directory}/oauth-flows.db`);

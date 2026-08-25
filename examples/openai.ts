@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { createOpenAI } from '@ai-sdk/openai';
 import { generateText } from 'ai';
 import type { InvokeRuntime } from '@rgap/core';
-import { SqliteRgapStore } from '@rgap/store-sqlite';
+import { SqliteRgapStore } from '@rgap/sqlite';
 
 const OpenAIInputSchema = z.object({
   model: z.string(),
