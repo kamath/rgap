@@ -1,6 +1,6 @@
 {
   "title": "Concepts",
-  "icon": "Network",
+  "defaultOpen": true,
   "pages": [
     "index",
     "resources",

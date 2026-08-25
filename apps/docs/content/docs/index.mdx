@@ -1,117 +1,118 @@
 ---
 title: Introduction
-description: Hierarchical capability access for resources, tools, and agent-accessible services.
-icon: House
+description: Build fine-grained gateways for models, MCP servers, functions, and organizational resources.
 ---
 
-RGAP is an authorization model for filesystem-like resources, tools, and
-agent-accessible services. It supports hierarchical delegation, strict
-downscoping, immediate revocation, and predictable access across resource
-moves and renames.
+RGAP is a protocol for organizing resources and authority across teams,
+applications, tools, and services.
 
-<Callout type="info" title="The security invariant">
-  Authority may only stay the same or become narrower as it is delegated. It
-  can never expand.
-</Callout>
+Use it to put one consistent, programmable boundary in front of anything your
+users or software can access. RGAP combines hierarchical resources, delegated
+grants, opaque bearers, and an execution proxy, so the same protocol can protect
+a model catalog, an MCP deployment, internal functions, or a complete
+organization.
 
 <Cards>
   <Card
-    title="Understand the model"
-    description="Learn how resources, grants, and tokens fit together."
-    href="/docs/concepts"
-    icon="Network"
+    title="Build an LLM proxy"
+    description="Expose a streaming OpenAI-compatible proxy that gates access to approved models without distributing provider keys."
+    href="/docs/guides/llm-gateway"
   />
   <Card
-    title="Run the quickstart"
-    description="Create a resource tree and delegate a narrower grant."
-    href="/docs/quickstarts/typescript"
-    icon="Terminal"
+    title="Build an MCP gateway"
+    description="Expose a complete MCP connection or selected tools while the gateway retains OAuth credentials."
+    href="/docs/guides/mcp-proxy"
   />
   <Card
-    title="Read the protocol"
-    description="See the normative records, algebra, and decision procedure."
-    href="/docs/reference/protocol"
-    icon="BookOpen"
+    title="Build an API gateway"
+    description="Expose secure functions and upstream APIs through narrow, revocable routes."
+    href="/docs/guides/api-gateway"
   />
   <Card
-    title="Explore examples"
-    description="Apply RGAP to MCP servers, tools, agents, and sub-agents."
-    href="/docs/examples"
-    icon="Workflow"
+    title="Build an API to MCP gateway"
+    description="Publish protected API operations as MCP tools without sharing service credentials."
+    href="/docs/guides/api-to-mcp-gateway"
   />
 </Cards>
 
-## The model in one minute
+## One protocol, several gateways
 
-RGAP separates three concerns:
+### Streaming, OpenAI-compatible model access
 
-| Concern | Purpose |
+Expose a streaming OpenAI-compatible proxy while RGAP gates each request to the
+models its caller can access. RBAC and scoped grants support policies for a
+complete catalog, one provider, or one model, and the proxy adds provider
+credentials only after RGAP authorizes the call.
+
+### MCP access without credential sharing
+
+Represent an MCP server, authenticated connection, and discovered operations in
+one resource hierarchy. Grant `invoke` on the connection for complete access or
+on selected child resources for specific tools, prompts, and resources. OAuth
+tokens, refresh tokens, and session state stay in the gateway.
+
+### Secure functions and compositions
+
+Turn a function into an executable resource with a sealed runtime definition.
+Its public input stays separate from deployment-controlled configuration and
+bound resources. A function can call explicitly bound models, APIs, or other
+functions without giving that broader authority to its caller.
+
+### Authority that follows the organization
+
+Resource paths organize what exists; grant paths organize who can act. A
+company can delegate to a division, team, service, or temporary workflow, and
+every descendant is mechanically constrained to the authority of its
+ancestors. Revoking one grant stops its complete descendant tree on the next
+authorization check.
+
+## How an invocation works
+
+1. The caller sends input, an executable resource ID, and its RGAP bearer.
+2. RGAP resolves the bearer and checks `invoke` through its complete grant
+   lineage.
+3. The execution proxy loads the resource's sealed definition and the protected
+   resources explicitly bound to it.
+4. The runtime performs the operation and streams its result back to the
+   caller.
+
+The caller never receives the provider key, OAuth token, or secret used by the
+runtime. It also cannot replace sealed details such as the upstream service,
+model, credential binding, or function implementation.
+
+## The protocol underneath
+
+| Piece | What it does |
 | --- | --- |
-| **Resources** | Describe where objects live in a mutable hierarchy. |
-| **Grants** | Describe where authority comes from and how it delegates. |
-| **Tokens** | Provide opaque bearer credentials used to exercise a grant. |
+| **Resource** | Gives a model, tool, function, service, or organizational object a stable identity in a hierarchy. |
+| **Grant** | Selects resources and permissions, then delegates only equal or narrower authority. |
+| **Bearer** | Lets a caller exercise one grant through an opaque, revocable credential. |
+| **Executable definition** | Seals how a callable resource runs and which configuration the caller cannot override. |
+| **Binding** | Gives an executable explicit access to another protected resource it needs. |
 
-```text
-Resource tree                   Grant tree
-
-acme/                           company
-├── platform/                   └── platform-team
-│   ├── docs/                       └── agent
-│   └── tools/                          └── subagent
-└── finance/
-```
-
-A resource keeps the same stable identity when it moves. A grant contains one
-or more bindings to stable resource IDs. A child grant can only narrow its
-parent's bindings, permissions, constraints, and expiration.
-
-## Why RGAP
-
-Agent runtimes often hold broad user authority while one execution needs a
-small, auditable subset. Giving an agent the upstream OAuth token or API key
-makes that boundary impossible to enforce.
-
-RGAP lets a gateway retain provider credentials and issue an opaque token that
-represents only the selected tools and resources. A sub-agent receives a new,
-narrower token—not the parent token and never the provider credential.
-
-<Cards>
-  <Card
-    title="Stable identities"
-    description="ID entries follow resources through moves and renames."
-    href="/docs/concepts/resources"
-  />
-  <Card
-    title="Provable attenuation"
-    description="Every child binding is covered by a parent binding."
-    href="/docs/concepts/delegation"
-  />
-  <Card
-    title="Live revocation"
-    description="Revoking an ancestor disables every descendant on the next check."
-    href="/docs/concepts/tokens"
-  />
-</Cards>
-
-## Choose where to start
+The authorization model and execution proxy use the same resource identities,
+so moving or renaming an object does not invalidate grants or integrations.
 
 <Steps>
   <Step>
-    ### Learn the vocabulary
+    ### Learn the core API
 
-    Start with [core concepts](/docs/concepts) to understand the resource and
-    grant trees.
+    Use the [TypeScript quickstart](/docs/quickstarts/typescript) for the
+    smallest runnable path through resource creation, bearer issuance, and
+    revocation.
   </Step>
   <Step>
-    ### Build a delegation
+    ### Choose a gateway pattern
 
-    Follow the [quickstart](/docs/quickstarts/typescript) with the TypeScript
-    repository API.
+    Review the [model and function examples](/docs/examples), or follow the
+    [OAuth MCP proxy](/docs/guides/mcp-proxy) with a real OAuth-protected
+    server.
   </Step>
   <Step>
-    ### Integrate an enforcement point
+    ### Integrate the protocol
 
-    Use the [HTTP API guide](/docs/guides/http-api) or implement the
-    [normative protocol](/docs/reference/protocol).
+    Read [Core concepts](/docs/concepts) to design your resource and grant
+    hierarchies, then use the [HTTP API](/docs/guides/http-api) to connect RGAP
+    to your application.
   </Step>
 </Steps>
