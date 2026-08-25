@@ -10,36 +10,15 @@ types, and the generated fetch client.
 
 ## Start the server
 
-In a TypeScript project with `@rgap/server`, `@rgap/sqlite`, and
-`@hono/node-server` available, create `server.ts`:
-
-```ts
-import { serve } from '@hono/node-server';
-import { createApp } from '@rgap/server';
-import { SqliteRgapStore } from '@rgap/sqlite';
-
-const store = new SqliteRgapStore({
-  url: process.env.RGAP_DATABASE_URL ?? 'rgap.db',
-});
-const app = createApp({
-  store,
-  adminToken: process.env.RGAP_ADMIN_TOKEN ?? 'test',
-});
-
-serve({ fetch: app.fetch, port: 3000 });
-```
-
-Start it:
-
 ```bash
-tsx server.ts
+pnpm --filter @rgap/server dev
 ```
 
 The server uses these environment variables:
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `RGAP_DATABASE_URL` | SQLite database path | `rgap.db` |
+| `RGAP_DATABASE_URL` | SQLite database path | Package default |
 | `RGAP_ADMIN_TOKEN` | Administrative bearer for trusted operations | `test` |
 
 ## Open the generated reference
@@ -119,11 +98,15 @@ Successful requests return the JSON-compatible RGAP records and decisions
 described by the generated schema. Commands with no response value return
 `204`.
 
-## Use the TypeScript client
+## Generate the TypeScript client
 
-`@rgap/server` includes the generated fetch SDK, model types, and
-`HttpRgapStore`. Applications import those exports directly from the installed
-package; no local generation step is required.
+```bash
+pnpm --filter @rgap/server generate
+```
+
+The command derives `openapi.json` from Hono's route declarations, then runs
+HeyAPI to generate a fetch-based SDK and model types. Generated output is not
+committed.
 
 <Callout type="warn" title="Do not treat Swagger UI as an administrative boundary">
   The OpenAPI document and interactive UI are public documentation routes. The

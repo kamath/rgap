@@ -1,21 +1,31 @@
 ---
-title: Implementation packages
-description: Published TypeScript contracts, persistence adapters, and Hono transports.
+title: Repository implementation
+description: TypeScript rules, SQLite persistence, Hono transport, and documentation packages.
 icon: Blocks
 ---
 
-RGAP is distributed as framework-neutral TypeScript contracts, persistence
-adapters, and HTTP and MCP integrations:
+The repository implements RGAP as framework-neutral TypeScript rules, durable
+SQLite persistence, deployment-owned executable runtimes, a Hono HTTP server,
+an executable scratchpad, and this MDX documentation application.
 
-| Package | Purpose |
-| --- | --- |
-| `@rgap/core` | Authorization rules, repository contracts, and executable orchestration. |
-| `@rgap/sqlite` | Durable SQLite implementation of the RGAP store. |
-| `@rgap/local-credential-store` | Typed credential-store contract and local SQLite adapter. |
-| `@rgap/local-oauth-flow-store` | OAuth-flow contract and local SQLite adapter. |
-| `@rgap/server` | Mountable Hono RGAP API, generated SDK, and HTTP store. |
-| `@rgap/mcp-proxy` | Mountable MCP and OAuth gateway routes. |
-| `@rgap/mcp-proxy-client` | Initialized MCP client for an RGAP gateway. |
+```text
+packages/
+├── core/                    # authorization, orchestration, and contracts
+├── examples/
+│   ├── mcp-proxy/           # mountable Hono MCP and OAuth adapter
+│   └── mcp-proxy-client/    # initialized MCP client helper
+├── local-credential-store/  # local SQLite credential persistence
+├── local-oauth-flow-store/  # local SQLite OAuth callback state
+└── sqlite/                  # Drizzle and SQLite RGAP implementation
+apps/
+├── server/         # Hono HTTP API and generated clients
+└── docs/           # Next.js and Fumadocs documentation
+examples/
+├── index.ts        # executable scratchpad
+└── invariants.ts   # executable invariant walkthrough
+tests/
+└── invariants/     # property and state-machine verification
+```
 
 ## Core boundary
 
@@ -124,20 +134,10 @@ input and output schemas and its invocation implementation. The schemas expose
 `parse(value: unknown)`, so Zod schemas work directly without a core dependency
 on Zod. Runtime registration and behavior are not repository state.
 
-## Store interfaces
-
-`@rgap/local-credential-store` exports `CredentialStore<T>` and
-`SqliteCredentialStore<T>`. `@rgap/local-oauth-flow-store` exports
-`OAuthFlowStore`, `OAuthFlowRecord`, and `SqliteOAuthFlowStore`. Deployments
-can supply other implementations of either structural interface.
-
-The RGAP repository contracts remain in `@rgap/core` because they are part of
-the core command and handle model.
-
 ## SQLite store
 
-`@rgap/sqlite` exports `SqliteRgapStore`. It accepts a file path or
-`:memory:`, an optional initial state, and a runtime registry.
+`@rgap/sqlite` exports `SqliteRgapStore`. It accepts a file path or `:memory:`,
+an optional initial state, and a runtime registry.
 
 `src/schema.ts` declares normalized tables, and Drizzle Kit generates the DDL.
 The constructor applies that DDL when it opens a database.
@@ -259,14 +259,12 @@ cancellation, and closes the runtime iterator when the client disconnects.
 `HttpRgapStore` uses generated methods for JSON operations and a streaming
 fetch reader for invocation.
 
-## MCP proxy package
+## MCP proxy packages
 
-`@rgap/mcp-proxy` provides MCP connections, OAuth persistence, an RGAP invoke
-runtime, and a mountable Hono app. It accepts deployment-owned credential and
-OAuth flow stores rather than choosing secret persistence.
-
-Runtime and app creation are separate because a deployment registers the MCP
-runtime while constructing its RGAP store:
+`@rgap/mcp-proxy` provides MCP connections, upstream OAuth persistence, an RGAP
+invoke runtime, and a mountable Hono app. Runtime and app creation are separate
+because the deployment registers the MCP runtime while constructing its RGAP
+store:
 
 ```ts
 const mcp = createMcpProxyRuntime({
@@ -281,50 +279,126 @@ const store = new SqliteRgapStore({
 const proxy = createMcpProxyApp({ mcp, store });
 ```
 
-The app contains one stateless MCP Streamable HTTP route and the public OAuth
-callback and client metadata routes, relative to its mount point:
-
-```text
-POST /mcp/:connectionId
-GET  /oauth/callback
-GET  /oauth/client-metadata.json
-```
-
-It does not expose the RGAP API. Each MCP request uses its bearer to open the
-guarded RGAP repository and invoke `connectionId`. The route handles MCP
-initialization locally, forwards request-response methods, advertises no
-server-initiated capabilities, and does not provide SSE.
+The app exposes `POST /mcp/:connectionId`, `GET /oauth/callback`, and
+`GET /oauth/client-metadata.json`. It does not expose the generic RGAP API.
+Each MCP request uses its bearer to open the guarded RGAP repository and invoke
+`connectionId`. Initialization is handled locally, request-response methods
+are forwarded through RGAP, and SSE and server-initiated messages are not
+supported.
 
 The host mounts `@rgap/server` separately when it needs generic resource
 management routes. The proxy and RGAP apps share the same `RgapStore`, but the
 proxy calls its guarded repository directly rather than making loopback HTTP
-requests or receiving an administrative bearer.
+requests.
 
-The package has no listener, environment parsing, database paths, or signal
-handling. A parent Hono app mounts it at any path. `publicBaseUrl` identifies
-the app's externally visible mount point so callback URLs remain correct when
-the route has a prefix.
+`@rgap/mcp-proxy-client` exports `createMcpProxyClient`. The factory accepts the
+proxy mount URL, connection resource ID, RGAP bearer, and client identity. It
+attaches the bearer, completes MCP initialization, and returns the connected
+MCP SDK client. The caller closes that client.
 
-`@rgap/mcp-proxy-client` is a separate client helper package. Its
-`createMcpProxyClient` factory accepts the proxy mount URL, connection resource
-ID, RGAP bearer, and client identity. It constructs the Streamable HTTP
-transport, attaches the bearer, completes MCP initialization, and returns the
-connected MCP SDK client. The caller closes that client.
+## Documentation application
 
-The proxy accepts `CredentialStore` from `@rgap/local-credential-store` and
-`OAuthFlowStore` from `@rgap/local-oauth-flow-store`. A local deployment
-injects their SQLite implementations. SQLite credential values are plaintext
-and remain suitable for local development only.
+`@rgap/docs` is a Next.js application using Fumadocs and MDX. Content metadata
+defines navigation order and sidebar groups. The application generates search,
+tables of contents, syntax highlighting, theme controls, social images, and
+LLM-readable Markdown routes from the same pages. `pnpm docs:dev` serves it on
+port 3001 so the HTTP API can run beside it on port 3000.
+
+## Scratchpad
+
+`@rgap/examples` consumes `@rgap/sqlite` and `@rgap/core` like an external
+TypeScript application. The secret-store app configures one trusted runtime
+whose sealed input contains an externally stored credential resource ID and
+another runtime that invokes it by resource ID. It creates the outer
+executable through an ordinary delegated repository plane without granting
+that plane authority over the credential.
+
+Change only store construction to run the same walkthrough against HTTP:
+
+```ts
+const store = new HttpRgapStore({
+  baseUrl: 'http://localhost:3000',
+  adminToken: process.env.RGAP_ADMIN_TOKEN ?? 'test',
+});
+```
+
+## Commands
+
+```bash
+pnpm install
+pnpm build
+pnpm test
+pnpm scratch
+pnpm docs:dev
+pnpm docs:build
+```
+
+The core package enforces 100% statement, branch, function, and line coverage
+over its source. SQLite tests use real in-memory databases. Server tests cover
+validation, authorization plane selection, OpenAPI generation, generated SDK
+calls, and the HTTP store.
+
+## Property-based invariant suite
+
+`tests/invariants` is a separate workspace package for security properties
+that span individual modules. It uses generated resource trees, grant
+lineages, requests, and command sequences. A failure reports the random seed
+and the smallest counterexample so the sequence can be replayed as an
+ordinary regression test.
+
+The suite verifies these properties over the authority dimensions represented
+by the protocol:
+
+- ID-based grant-binding containment is reflexive and transitive.
+- Every concrete request authorized by a covered child binding is authorized by
+  its parent binding.
+- Every request allowed through a child grant is allowed through every active
+  ancestor in the current resource tree.
+- Delegation and token issuance leave the parent's authority unchanged.
+- A child grant never outlives its parent.
+- Grant amendment revokes children that the replacement no longer covers.
+- Grant revocation disables every descendant, while token revocation disables
+  only that bearer.
+- Resource moves, deletion, and expiration cannot bypass complete-lineage
+  evaluation.
+- A denied transition does not mutate authorization state.
+
+State-machine checks apply generated commands one at a time and validate the
+invariants after every transition. Resource topology changes are evaluated
+against current state: moving a resource beneath a bound resource can
+intentionally change the covered subtree, but an allowed request must still be
+covered by every ancestor. Generated states use the same `GrantBinding`
+contract as the core rules: each binding contains one stable resource `id` and
+a permission set. The checks use `bindingAuthorizes` for concrete requests and
+`setBindings` for grant amendments.
+
+The package also exports a deterministic adapter smoke harness. An adapter
+runs one fixed delegation and revocation scenario, then compares normalized
+resource paths, grant paths, and authorization decisions with the expected
+contract. Generated state-machine checks remain focused on the pure rules, and
+adapter-specific integration tests remain beside their adapters.
+
+`examples/invariants.ts` is the deterministic, executable introduction to the
+same contract. It checks child-to-parent authorization containment and
+cascading ancestor revocation without random generation.
 
 ## Verification
 
-RGAP verifies generated resource trees, grant lineages, requests, and command
-sequences against protocol invariants. These checks cover binding containment,
-complete grant ancestry, delegation, expiration, revocation, resource moves,
-deletion, and rejected-transition atomicity.
+`pnpm build` type-checks every workspace package and produces the documentation
+site. `pnpm test` runs the core, SQLite, server, and property-based invariant
+suites. Core's 100% coverage threshold is a gate over its source rather than a
+report, and each downstream package exercises its real adapter instead of a
+stand-in.
 
-Adapter conformance checks run a deterministic delegation and revocation
-scenario against each store and compare normalized resources, grants, and
-authorization decisions. SQLite and HTTP integration checks exercise their
-real adapters, and the core authorization package enforces complete statement,
-branch, function, and line coverage.
+Continuous integration installs the frozen lockfile and runs three explicit
+checks:
+
+```bash
+pnpm build
+pnpm test
+pnpm --filter @rgap/examples invariants
+```
+
+The final check executes the deterministic invariant walkthrough against the
+SQLite adapter in addition to the property-based invariant package included by
+the workspace test command.

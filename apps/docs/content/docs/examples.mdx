@@ -69,7 +69,8 @@ for await (const event of authorizedModel.invoke({
 ```
 
 The employee receives only `invoke` on the executable model resource. Callers
-cannot replace its sealed model name.
+cannot replace its sealed model name. The complete executable version lives in
+`examples/openai.ts`.
 
 ## Compose a secret-backed resource
 
@@ -180,11 +181,11 @@ capability and publish her wrapper's interface. Revoking or narrowing
 `author` invalidates the recorded `profile` edge on its next invocation and
 therefore disables it for every consumer.
 
-A Hono deployment uses one SQLite database for RGAP state and initializes
-`SqliteCredentialStore` from `@rgap/local-credential-store` with another
-SQLite database for secret values. The runtime accepts the `CredentialStore`
-interface from the same package. Inputs, outputs, and secret values stay out of
-invocation audit records, logs, and errors.
+The complete Hono app lives in `examples/secret-store`. It uses one SQLite
+database for RGAP state and initializes `SqliteCredentialStore` from
+`@rgap/local-credential-store` with another SQLite database for secret values.
+Inputs, outputs, and secret values stay out of invocation audit records, logs,
+and errors.
 
 ## Invoke an OAuth-protected MCP server
 
@@ -217,7 +218,7 @@ const connection = await admin.resources.create({
   executable: {
     runtime: 'mcp',
     input: {
-      serverUrl: 'https://server.smithery.ai/gmail',
+      serverUrl: 'https://mcp.example.com',
     },
     bind: {
       server: server.id,
@@ -295,49 +296,6 @@ exactly once. It then passes the callback parameters to the MCP SDK, which
 validates the authorization-server issuer and exchanges the code. The resulting
 tokens and client information remain in the credential store.
 
-`@rgap/mcp-proxy` separates runtime creation from Hono app creation:
-
-```ts
-const mcp = createMcpProxyRuntime({
-  publicBaseUrl,
-  credentialStore,
-  flowStore,
-});
-const store = new SqliteRgapStore({
-  url,
-  runtimes: { mcp: mcp.runtime },
-});
-
-app.route('/integrations/mcp', createMcpProxyApp({ mcp, store }));
-app.route('/rgap', createRgapApp({ store, adminToken }));
-```
-
-`publicBaseUrl` is the public URL of the Hono mount point, including its path.
-`createMcpProxyApp` exposes `/mcp/:connectionId` plus the OAuth callback and
-client metadata routes. It opens the supplied RGAP store with the request
-bearer and invokes the selected connection through that guarded repository. It
-does not expose generic RGAP commands.
-
-The host mounts `@rgap/server` separately when it wants the RGAP resource
-management API. Both apps receive the same store, but the MCP proxy calls the
-store directly rather than making HTTP requests to `/rgap`. The deployment owns
-the credential, flow, and RGAP stores and closes them after `mcp.close()`.
-
-Clients use the separate `@rgap/mcp-proxy-client` helper package:
-
-```ts
-const client = await createMcpProxyClient({
-  proxyUrl,
-  connectionId,
-  rgapToken,
-  clientInfo: { name: 'agent', version: '0.0.0' },
-});
-```
-
-The factory attaches the RGAP bearer and completes MCP initialization before it
-returns. The caller uses the ordinary MCP SDK client surface and closes the
-client when finished.
-
 An OAuth redirect does not call the RGAP invoke endpoint directly. Authorization
 servers send browser `GET` requests without an RGAP bearer, while resource
 invocation is an authenticated `POST`. The Hono callback is the adapter between
@@ -362,9 +320,9 @@ type McpCredential = {
 ```
 
 Atomic updates prevent simultaneous token refreshes from overwriting each
-other. The SQLite adapter contains plaintext values and is suitable for local
-development only. A deployed proxy supplies an encrypted credential store and
-a shared OAuth flow store through their respective interfaces.
+other. The example SQLite store contains plaintext values and is suitable for
+local development only. A deployed proxy supplies an encrypted credential
+store and a shared OAuth flow store through their respective interfaces.
 
 ## Publish OAuth client metadata
 
@@ -471,9 +429,9 @@ registered client credentials remain inside the MCP proxy.
   </Step>
 </Steps>
 
-Install `@rgap/mcp-proxy` for the mountable Hono application and runtime and
-`@rgap/mcp-proxy-client` for the initialized client helper. A deployment
-supplies stores, provisions resources, mounts the MCP and RGAP apps
-independently, and starts the process. Follow the
+The mountable app and initialized client helper live in
+`packages/examples/mcp-proxy` and `packages/examples/mcp-proxy-client`.
+`examples/mcp-proxy` supplies the local stores, resource bootstrap, server
+process, and executable client walkthrough. Follow the
 [OAuth MCP proxy walkthrough](/docs/guides/mcp-proxy) to connect a server,
 complete authorization, and invoke its RPCs.

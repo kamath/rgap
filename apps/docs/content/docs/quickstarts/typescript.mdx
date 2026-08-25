@@ -7,14 +7,15 @@ icon: FileCode
 This quickstart runs against an in-memory SQLite database and exercises the
 same repository interface used by durable and HTTP-backed stores.
 
-## Set up a project
+## Set up the repository
 
-In a TypeScript project with `@rgap/sqlite` available, save the following file
-as `quickstart.ts`.
+1. Clone `https://github.com/kamath/rgap.git`.
+2. Run `pnpm install` from the repository root.
+3. Open the included `examples/quickstart.ts` file shown in full below.
 
 ## Review the complete example
 
-```ts title="quickstart.ts"
+```ts title="examples/quickstart.ts"
 import { SqliteRgapStore } from '@rgap/sqlite';
 
 const store = new SqliteRgapStore({ url: ':memory:' });
@@ -76,11 +77,8 @@ try {
 
 ## Run it
 
-Run the file:
-
-```bash
-tsx quickstart.ts
-```
+From the repository root, run
+`pnpm --filter @rgap/examples exec tsx quickstart.ts`.
 
 The first result reports the `design` resource with `read: true` and
 `write: false`. The second reports `readAfterAncestorRevocation: false`.
