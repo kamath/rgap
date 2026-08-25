@@ -292,14 +292,16 @@ const store = new SqliteRgapStore({
   url,
   runtimes: { mcp: mcp.runtime },
 });
-const proxy = createMcpProxyApp({ mcp, store, adminToken });
+const oauth = createMcpProxyApp({ mcp });
 ```
 
-The app contains the bearer-protected RGAP API and the public OAuth callback
-and client metadata routes. It has no listener, environment parsing, database
-paths, resource provisioning, or signal handling. A parent Hono app mounts it
-at any path. `publicBaseUrl` identifies that externally visible mount point so
-OAuth URLs remain correct when the route has a prefix.
+The app contains only the public OAuth callback and client metadata routes,
+relative to its mount point. It does not expose the RGAP API or accept an RGAP
+store or administrative token. It has no listener, environment parsing,
+database paths, resource provisioning, or signal handling. A parent Hono app
+mounts it at any path and mounts `@rgap/server` independently when needed.
+`publicBaseUrl` identifies the OAuth app's externally visible mount point so
+callback URLs remain correct when the route has a prefix.
 
 The proxy depends on `SecretStore` from `@rgap/secret-store` and
 `OAuthFlowStore` from `@rgap/oauth-store`. The example injects

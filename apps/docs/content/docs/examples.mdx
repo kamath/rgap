@@ -309,14 +309,16 @@ const store = new SqliteRgapStore({
   url,
   runtimes: { mcp: mcp.runtime },
 });
-const proxy = createMcpProxyApp({ mcp, store, adminToken });
 
-app.route('/integrations/mcp', proxy);
+app.route('/integrations/mcp/oauth', createMcpProxyApp({ mcp }));
+app.route('/rgap', createRgapApp({ store, adminToken }));
 ```
 
-`publicBaseUrl` is the public URL of the Hono mount point, including its path.
-The package appends its OAuth route paths to that URL. The deployment owns the
-credential, flow, and RGAP stores and closes them after `mcp.close()`.
+`publicBaseUrl` is the public URL of the OAuth Hono mount point, including its
+path. `createMcpProxyApp` exposes only `/callback` and
+`/client-metadata.json`; the deployment mounts its RGAP API separately. The
+deployment owns the credential, flow, and RGAP stores and closes them after
+`mcp.close()`.
 
 An OAuth redirect does not call the RGAP invoke endpoint directly. Authorization
 servers send browser `GET` requests without an RGAP bearer, while resource
@@ -451,9 +453,9 @@ registered client credentials remain inside the MCP proxy.
   </Step>
 </Steps>
 
-The mountable Hono application and MCP runtime live in
+The mountable OAuth Hono application and MCP runtime live in
 `packages/examples/mcp-proxy`. The deployment bootstrap in
 `examples/mcp-proxy` supplies local stores, provisions resources, mounts the
-app, and starts the process. Follow the
+OAuth and RGAP apps independently, and starts the process. Follow the
 [OAuth MCP proxy walkthrough](/docs/guides/mcp-proxy) to connect a server,
 complete authorization, and invoke its RPCs.

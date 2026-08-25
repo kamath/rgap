@@ -18,16 +18,17 @@ const store = new SqliteRgapStore({
   url: 'rgap.db',
   runtimes: { mcp: mcp.runtime },
 });
-const proxy = createMcpProxyApp({ mcp, store, adminToken });
 
 const app = new Hono();
-app.route('/integrations/mcp', proxy);
+app.route('/integrations/mcp/oauth', createMcpProxyApp({ mcp }));
+app.route('/rgap', createRgapApp({ store, adminToken }));
 ```
 
-`publicBaseUrl` is the externally visible URL of the mount point. For the
-mounting example above it is `https://example.com/integrations/mcp`. The
-package appends `/oauth/callback` and `/oauth/client-metadata.json` to that URL,
-so the configured public URL and Hono mount path must match.
+`createMcpProxyApp` exposes only `GET /callback` and
+`GET /client-metadata.json`, relative to its mount point. It does not mount the
+RGAP API. `publicBaseUrl` is the externally visible URL of that mount point.
+For the example above it is `https://example.com/integrations/mcp/oauth`.
+The configured public URL and Hono mount path must match.
 
 The server definition, authenticated connection, and credential are separate
 resources:
@@ -62,7 +63,7 @@ Start the proxy:
 
 ```sh
 MCP_SERVER_URL=https://mcp.example.com \
-PUBLIC_BASE_URL=http://127.0.0.1:3003 \
+PUBLIC_BASE_URL=http://127.0.0.1:3003/oauth \
 pnpm --filter @rgap/examples mcp-proxy
 ```
 

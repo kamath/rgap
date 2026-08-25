@@ -37,18 +37,19 @@ where the proxy app is mounted, including any path prefix.
 ## Compose the proxy
 
 The MCP runtime exists before store construction so the deployment can
-register it with its RGAP store. The app then accepts that store and can be
-mounted beneath any Hono route:
+register it with its RGAP store. The OAuth app is independent from the RGAP
+HTTP API and can be mounted beneath any Hono route:
 
 ```ts
 import {
   createMcpProxyApp,
   createMcpProxyRuntime,
 } from '@rgap/mcp-proxy';
+import { createApp as createRgapApp } from '@rgap/server';
 import { Hono } from 'hono';
 
 const mcp = createMcpProxyRuntime({
-  publicBaseUrl: new URL('https://example.com/integrations/mcp'),
+  publicBaseUrl: new URL('https://example.com/integrations/mcp/oauth'),
   credentialStore,
   flowStore,
 });
@@ -56,16 +57,17 @@ const store = new SqliteRgapStore({
   url: 'rgap.db',
   runtimes: { mcp: mcp.runtime },
 });
-const proxy = createMcpProxyApp({ mcp, store, adminToken });
 
 const app = new Hono();
-app.route('/integrations/mcp', proxy);
+app.route('/integrations/mcp/oauth', createMcpProxyApp({ mcp }));
+app.route('/rgap', createRgapApp({ store, adminToken }));
 ```
 
-The package derives the callback and client metadata URLs by appending their
-paths to `publicBaseUrl`. The public URL and Hono mount path must identify the
-same route. The caller owns all injected stores and calls `mcp.close()` before
-closing them.
+`createMcpProxyApp` exposes only `GET /callback` and
+`GET /client-metadata.json`. It does not expose RGAP routes. The package derives
+the OAuth URLs by appending those paths to `publicBaseUrl`. The public URL and
+Hono mount path must identify the same route. The caller owns all injected
+stores and calls `mcp.close()` before closing them.
 
 ## 1. Start the proxy
 
@@ -73,7 +75,7 @@ Run the example from the repository root:
 
 ```bash
 MCP_SERVER_URL=https://mcp.example.com/mcp \
-PUBLIC_BASE_URL=http://127.0.0.1:3003 \
+PUBLIC_BASE_URL=http://127.0.0.1:3003/oauth \
 pnpm --filter @rgap/examples mcp-proxy
 ```
 
@@ -122,7 +124,7 @@ the matching public origin:
 
 ```bash
 MCP_SERVER_URL=https://mcp.example.com/mcp \
-PUBLIC_BASE_URL=https://proxy.example.com \
+PUBLIC_BASE_URL=https://proxy.example.com/oauth \
 pnpm --filter @rgap/examples mcp-proxy
 ```
 
