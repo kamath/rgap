@@ -4,6 +4,7 @@ import {
   tokenValue,
   type RgapStore,
 } from '@rgap/core';
+import { ProtocolError } from '@modelcontextprotocol/client';
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import type { McpProxyRuntime } from './runtime';
@@ -18,6 +19,11 @@ const JsonRpcMessageSchema = z.object({
 const InitializeParamsSchema = z.object({
   protocolVersion: z.string().min(1),
 }).passthrough();
+const streamableHttpVersions = new Set([
+  '2025-03-26',
+  '2025-06-18',
+  '2025-11-25',
+]);
 
 type JsonRpcId = z.infer<typeof JsonRpcIdSchema>;
 
@@ -58,9 +64,19 @@ export function createMcpProxyApp({ mcp, store }: McpProxyAppOptions) {
   });
 
   app.post('/mcp/:connectionId', async (context) => {
+    const origin = context.req.header('origin');
+    if (origin && origin !== mcp.publicBaseUrl.origin) {
+      return context.json(jsonRpcError(null, -32003, 'Origin is not allowed.'), 403);
+    }
     const bearer = bearerToken(context.req.header('authorization'));
     if (!bearer) {
       return context.json(jsonRpcError(null, -32001, 'A bearer token is required.'), 401);
+    }
+    if (!context.req.header('content-type')?.toLowerCase().startsWith('application/json')) {
+      return context.json(
+        jsonRpcError(null, -32600, 'Content-Type must be application/json.'),
+        415,
+      );
     }
 
     let body: unknown;
@@ -76,7 +92,17 @@ export function createMcpProxyApp({ mcp, store }: McpProxyAppOptions) {
 
     const message = parsed.data;
     if (message.id === undefined) {
-      return context.body(null, 202);
+      return message.method === 'notifications/initialized'
+        ? context.body(null, 202)
+        : context.json(
+            jsonRpcError(null, -32600, 'Unsupported MCP notification.'),
+            400,
+          );
+    }
+    if (message.method === 'server/discover') {
+      return context.json(
+        jsonRpcError(message.id, -32601, 'Method not found.'),
+      );
     }
 
     const repository = store.as(tokenValue(bearer));
@@ -86,6 +112,15 @@ export function createMcpProxyApp({ mcp, store }: McpProxyAppOptions) {
     if (initializeParams && !initializeParams.success) {
       return context.json(
         jsonRpcError(message.id, -32602, 'Invalid initialize parameters.'),
+        400,
+      );
+    }
+    if (
+      initializeParams &&
+      !streamableHttpVersions.has(initializeParams.data.protocolVersion)
+    ) {
+      return context.json(
+        jsonRpcError(message.id, -32602, 'Unsupported MCP protocol version.'),
         400,
       );
     }
@@ -106,7 +141,14 @@ export function createMcpProxyApp({ mcp, store }: McpProxyAppOptions) {
           id: message.id,
           result: {
             protocolVersion: initializeParams!.data.protocolVersion,
-            ...description,
+            capabilities: requestResponseCapabilities(description.capabilities),
+            serverInfo: {
+              name: 'rgap-mcp-proxy',
+              version: '0.0.0',
+            },
+            ...(description.instructions
+              ? { instructions: description.instructions }
+              : {}),
           },
         });
       }
@@ -175,6 +217,17 @@ function jsonRpcError(id: JsonRpcId | null, code: number, message: string) {
 }
 
 function invocationError(id: JsonRpcId, error: unknown) {
+  if (error instanceof ProtocolError) {
+    return {
+      status: 200 as const,
+      body: {
+        ...jsonRpcError(id, error.code, error.message),
+        ...(error.data === undefined
+          ? {}
+          : { error: { code: error.code, message: error.message, data: error.data } }),
+      },
+    };
+  }
   if (error instanceof RgapError) {
     if (error.code === 'invalid_bearer') {
       return {
@@ -200,4 +253,14 @@ function invocationError(id: JsonRpcId, error: unknown) {
     status: 500 as const,
     body: jsonRpcError(id, -32603, 'MCP invocation failed.'),
   };
+}
+
+function requestResponseCapabilities(
+  capabilities: Record<string, unknown>,
+) {
+  return Object.fromEntries(
+    ['tools', 'prompts', 'resources', 'completions']
+      .filter((capability) => capabilities[capability] !== undefined)
+      .map((capability) => [capability, {}]),
+  );
 }

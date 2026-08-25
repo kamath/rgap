@@ -15,10 +15,17 @@ afterEach(async () => {
 describe('createMcpProxyClient integration', () => {
   it('sends authenticated initialize lifecycle messages over POST', async () => {
     const methods: string[] = [];
+    const requestMethods: (string | undefined)[] = [];
     const authorizations: (string | undefined)[] = [];
+    let resolveGet!: () => void;
+    const getAttempted = new Promise<void>((resolve) => {
+      resolveGet = resolve;
+    });
     const server = createServer(async (request, response) => {
+      requestMethods.push(request.method);
       authorizations.push(request.headers.authorization);
       if (request.method !== 'POST') {
+        if (request.method === 'GET') resolveGet();
         response.writeHead(405, { Allow: 'POST' }).end();
         return;
       }
@@ -56,9 +63,15 @@ describe('createMcpProxyClient integration', () => {
       rgapToken: 'rgap-token',
       clientInfo: { name: 'test-client', version: '1.0.0' },
     });
+    await getAttempted;
     await client.close();
 
     expect(methods).toEqual(['initialize', 'notifications/initialized']);
-    expect(authorizations).toEqual(['Bearer rgap-token', 'Bearer rgap-token']);
+    expect(requestMethods).toEqual(['POST', 'POST', 'GET']);
+    expect(authorizations).toEqual([
+      'Bearer rgap-token',
+      'Bearer rgap-token',
+      'Bearer rgap-token',
+    ]);
   });
 });
