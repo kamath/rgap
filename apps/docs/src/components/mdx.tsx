@@ -47,33 +47,33 @@ const calloutStyles: Record<
 > = {
   info: {
     icon: Info,
-    className: 'border-fd-info/25 bg-fd-info/8',
-    iconClassName: 'text-fd-info',
+    className: 'border-fd-border bg-fd-muted/45',
+    iconClassName: 'text-fd-muted-foreground',
   },
   warn: {
     icon: TriangleAlert,
-    className: 'border-fd-warning/25 bg-fd-warning/8',
-    iconClassName: 'text-fd-warning',
+    className: 'border-fd-border bg-fd-muted/45',
+    iconClassName: 'text-fd-warning/80',
   },
   warning: {
     icon: TriangleAlert,
-    className: 'border-fd-warning/25 bg-fd-warning/8',
-    iconClassName: 'text-fd-warning',
+    className: 'border-fd-border bg-fd-muted/45',
+    iconClassName: 'text-fd-warning/80',
   },
   error: {
     icon: CircleX,
-    className: 'border-fd-error/25 bg-fd-error/8',
-    iconClassName: 'text-fd-error',
+    className: 'border-fd-border bg-fd-muted/45',
+    iconClassName: 'text-fd-error/80',
   },
   success: {
     icon: CircleCheck,
-    className: 'border-fd-success/25 bg-fd-success/8',
-    iconClassName: 'text-fd-success',
+    className: 'border-fd-border bg-fd-muted/45',
+    iconClassName: 'text-fd-success/80',
   },
   idea: {
     icon: Lightbulb,
-    className: 'border-fd-idea/25 bg-fd-idea/8',
-    iconClassName: 'text-fd-idea',
+    className: 'border-fd-border bg-fd-muted/45',
+    iconClassName: 'text-fd-idea/80',
   },
 };
 
@@ -96,7 +96,7 @@ function CalloutContainer({
     <div
       {...props}
       className={cn(
-        'my-4 flex gap-3 rounded-xl border p-4 text-sm text-fd-card-foreground',
+        'my-5 flex gap-3 rounded-lg border p-4 text-sm text-fd-card-foreground shadow-none',
         style.className,
         className,
       )}

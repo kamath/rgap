@@ -4,43 +4,43 @@
 @import 'fumadocs-ui/css/preset.css';
 
 :root {
-  --color-fd-background: oklch(98.7% 0.006 255);
-  --color-fd-foreground: oklch(20% 0.025 255);
-  --color-fd-muted: oklch(96.2% 0.01 255);
-  --color-fd-muted-foreground: oklch(50% 0.03 255);
+  --color-fd-background: oklch(98.5% 0.002 255);
+  --color-fd-foreground: oklch(18% 0.008 255);
+  --color-fd-muted: oklch(95.5% 0.004 255);
+  --color-fd-muted-foreground: oklch(47% 0.012 255);
   --color-fd-popover: oklch(100% 0 0);
-  --color-fd-popover-foreground: oklch(20% 0.025 255);
-  --color-fd-card: oklch(97.5% 0.008 255);
-  --color-fd-card-foreground: oklch(20% 0.025 255);
-  --color-fd-border: oklch(88% 0.018 255 / 65%);
-  --color-fd-primary: oklch(52% 0.19 263);
-  --color-fd-primary-foreground: oklch(98% 0.01 255);
-  --color-fd-secondary: oklch(94% 0.02 255);
-  --color-fd-secondary-foreground: oklch(25% 0.04 255);
-  --color-fd-accent: oklch(92% 0.035 255 / 70%);
-  --color-fd-accent-foreground: oklch(25% 0.04 255);
-  --color-fd-ring: oklch(58% 0.18 263);
+  --color-fd-popover-foreground: oklch(18% 0.008 255);
+  --color-fd-card: oklch(100% 0 0);
+  --color-fd-card-foreground: oklch(18% 0.008 255);
+  --color-fd-border: oklch(88% 0.006 255 / 75%);
+  --color-fd-primary: oklch(25% 0.012 255);
+  --color-fd-primary-foreground: oklch(98% 0.002 255);
+  --color-fd-secondary: oklch(94.5% 0.004 255);
+  --color-fd-secondary-foreground: oklch(23% 0.01 255);
+  --color-fd-accent: oklch(92.5% 0.006 255 / 80%);
+  --color-fd-accent-foreground: oklch(20% 0.01 255);
+  --color-fd-ring: oklch(55% 0.015 255);
   --font-sans: 'General Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont,
     'Segoe UI', sans-serif;
 }
 
 .dark {
-  --color-fd-background: oklch(14% 0.025 255);
-  --color-fd-foreground: oklch(94% 0.012 255);
-  --color-fd-muted: oklch(19% 0.025 255);
-  --color-fd-muted-foreground: oklch(70% 0.025 255);
-  --color-fd-popover: oklch(17% 0.026 255);
-  --color-fd-popover-foreground: oklch(94% 0.012 255);
-  --color-fd-card: oklch(17% 0.025 255);
-  --color-fd-card-foreground: oklch(94% 0.012 255);
-  --color-fd-border: oklch(35% 0.035 255 / 45%);
-  --color-fd-primary: oklch(72% 0.145 263);
-  --color-fd-primary-foreground: oklch(15% 0.03 255);
-  --color-fd-secondary: oklch(22% 0.03 255);
-  --color-fd-secondary-foreground: oklch(92% 0.015 255);
-  --color-fd-accent: oklch(30% 0.045 255 / 65%);
-  --color-fd-accent-foreground: oklch(94% 0.012 255);
-  --color-fd-ring: oklch(70% 0.14 263);
+  --color-fd-background: oklch(10.5% 0.004 255);
+  --color-fd-foreground: oklch(93% 0.004 255);
+  --color-fd-muted: oklch(15.5% 0.006 255);
+  --color-fd-muted-foreground: oklch(65% 0.009 255);
+  --color-fd-popover: oklch(13.5% 0.005 255);
+  --color-fd-popover-foreground: oklch(93% 0.004 255);
+  --color-fd-card: oklch(13.5% 0.005 255);
+  --color-fd-card-foreground: oklch(93% 0.004 255);
+  --color-fd-border: oklch(25% 0.008 255 / 80%);
+  --color-fd-primary: oklch(91% 0.004 255);
+  --color-fd-primary-foreground: oklch(11% 0.004 255);
+  --color-fd-secondary: oklch(17% 0.006 255);
+  --color-fd-secondary-foreground: oklch(89% 0.005 255);
+  --color-fd-accent: oklch(21% 0.008 255 / 85%);
+  --color-fd-accent-foreground: oklch(95% 0.003 255);
+  --color-fd-ring: oklch(70% 0.01 255);
 }
 
 html {
@@ -55,8 +55,9 @@ html > body[data-scroll-locked] {
 
 body {
   font-family: var(--font-sans);
-  background-image:
-    radial-gradient(circle at 20% -20%, color-mix(in oklab, var(--color-fd-primary) 5%, transparent), transparent 28rem);
+  background: var(--color-fd-background);
+  font-feature-settings: 'ss01' 1, 'ss02' 1;
+  text-rendering: optimizeLegibility;
 }
 
 body:has(#nd-docs-layout) {
@@ -64,21 +65,33 @@ body:has(#nd-docs-layout) {
 }
 
 #nd-docs-layout {
+  --fd-layout-width: 92rem;
+  --fd-sidebar-width: 252px;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
 }
 
 #nd-page {
+  max-width: 850px;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  padding-inline: clamp(1.5rem, 4vw, 3.75rem);
+  padding-top: clamp(2.5rem, 6vh, 4.5rem);
   scroll-behavior: smooth;
   scrollbar-gutter: stable;
 }
 
 button[data-search-full] {
+  border-color: color-mix(in oklab, var(--color-fd-border) 72%, transparent);
+  background: color-mix(in oklab, var(--color-fd-muted) 55%, transparent);
   letter-spacing: -0.01em;
+}
+
+button[data-search-full]:hover {
+  border-color: var(--color-fd-border);
+  background: var(--color-fd-muted);
 }
 
 button[data-search-full] kbd {
@@ -89,6 +102,149 @@ button[data-search-full] kbd {
   font-size: 0.68rem;
   letter-spacing: 0.02em;
   padding-inline: 0.08rem;
+}
+
+#nd-sidebar {
+  border-color: color-mix(in oklab, var(--color-fd-border) 70%, transparent);
+  background: var(--color-fd-background);
+}
+
+#nd-sidebar [data-active='true'] {
+  background: var(--color-fd-accent);
+  color: var(--color-fd-foreground);
+}
+
+#nd-toc {
+  color: var(--color-fd-muted-foreground);
+}
+
+#nd-page .prose {
+  --tw-prose-body: var(--color-fd-muted-foreground);
+  --tw-prose-headings: var(--color-fd-foreground);
+  --tw-prose-bold: var(--color-fd-foreground);
+  font-size: 0.9375rem;
+  line-height: 1.72;
+}
+
+#nd-page .prose :where(h2, h3, h4) {
+  letter-spacing: -0.025em;
+}
+
+#nd-page .prose :where(h2) {
+  margin-top: 2.75rem;
+}
+
+#nd-page .prose :where(h3) {
+  margin-top: 2rem;
+}
+
+#nd-page .prose :where(a) {
+  text-decoration-color: color-mix(in oklab, currentColor 35%, transparent);
+  text-underline-offset: 0.2em;
+  transition: text-decoration-color 160ms ease;
+}
+
+#nd-page .prose :where(a:hover) {
+  text-decoration-color: currentColor;
+}
+
+#nd-page .prose :where(code):not(:where(pre *)) {
+  border: 1px solid var(--color-fd-border);
+  border-radius: 0.3rem;
+  background: var(--color-fd-muted);
+  padding: 0.08rem 0.3rem;
+  font-size: 0.84em;
+  font-weight: 500;
+}
+
+#nd-page .prose :where(table) {
+  font-size: 0.875rem;
+}
+
+#nd-page .prose :where(th) {
+  color: var(--color-fd-foreground);
+  font-weight: 550;
+}
+
+#nd-page [data-card] {
+  border-color: color-mix(in oklab, var(--color-fd-border) 82%, transparent);
+  border-radius: 0.625rem;
+  background: color-mix(in oklab, var(--color-fd-card) 82%, transparent);
+  box-shadow: none;
+  padding: 1.15rem;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+#nd-page [data-card]:hover {
+  border-color: color-mix(in oklab, var(--color-fd-foreground) 22%, transparent);
+  background: var(--color-fd-card);
+  transform: translateY(-1px);
+}
+
+#nd-page [data-card] > div:first-child {
+  box-shadow: none;
+}
+
+#nd-page figure.shiki {
+  border-color: var(--color-fd-border);
+  border-radius: 0.625rem;
+  background: var(--color-fd-card);
+  box-shadow: none;
+}
+
+#nd-page figure.shiki > div[role='region'] {
+  background: color-mix(in oklab, var(--color-fd-card) 88%, black);
+}
+
+.docs-page-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1.25rem 2rem;
+  align-items: start;
+  border-bottom: 1px solid var(--color-fd-border);
+  padding-bottom: 1.75rem;
+}
+
+.docs-page-header h1 {
+  letter-spacing: -0.04em;
+  line-height: 1.12;
+}
+
+.docs-page-header p {
+  max-width: 42rem;
+  margin-top: 0.75rem;
+  color: var(--color-fd-muted-foreground);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.docs-page-actions {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.docs-page-actions :where(button, a) {
+  border-color: var(--color-fd-border);
+  background: transparent;
+  box-shadow: none;
+}
+
+.docs-page-actions :where(button, a):hover {
+  background: var(--color-fd-muted);
+}
+
+@media (max-width: 767px) {
+  .docs-page-header {
+    grid-template-columns: 1fr;
+  }
+
+  .docs-page-actions {
+    grid-row: 2;
+  }
 }
 
 ::selection {

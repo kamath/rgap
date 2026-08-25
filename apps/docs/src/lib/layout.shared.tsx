@@ -5,13 +5,15 @@ export function baseOptions(): BaseLayoutProps {
   return {
     nav: {
       title: (
-        <span className="font-semibold tracking-[-0.02em]">{appName}</span>
+        <span className="text-[0.9375rem] font-semibold tracking-[-0.025em]">
+          {appName}
+        </span>
       ),
     },
     searchToggle: {
       full: {
         className:
-          'h-10 w-full rounded-xl border-fd-border/60 bg-fd-background/65 px-3 shadow-[0_1px_2px_color-mix(in_oklab,var(--color-fd-foreground)_4%,transparent)] backdrop-blur transition-all hover:border-fd-border hover:bg-fd-background hover:shadow-sm',
+          'h-9 w-full rounded-lg border-fd-border/60 bg-fd-muted/40 px-3 shadow-none transition-colors hover:border-fd-border hover:bg-fd-muted/70',
       },
     },
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
