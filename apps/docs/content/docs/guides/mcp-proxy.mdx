@@ -203,6 +203,7 @@ started authorization.
 ## 4. Initialize an MCP client
 
 Create an MCP SDK client for the executable connection ID printed by the app.
+Set `RGAP_TOKEN` to the generated bearer and `MCP_CONNECTION_ID` to that ID.
 The RGAP bearer is the proxy's incoming access token:
 
 ```ts
@@ -210,13 +211,9 @@ import {
   Client,
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
-import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 
-const token = (await readFile(
-  'examples/mcp-proxy/invoker.token',
-  'utf8',
-)).trim();
+const token = process.env.RGAP_TOKEN!;
 const connectionId = process.env.MCP_CONNECTION_ID!;
 
 const transport = new StreamableHTTPClientTransport(
