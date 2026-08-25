@@ -25,8 +25,10 @@ async function listResourceTree(repository: RgapRepository) {
 
 const postgresUrl = process.env.RGAP_POSTGRES_URL;
 const store = postgresUrl
-  ? await PostgresRgapStore.open({ url: postgresUrl })
+  ? new PostgresRgapStore({ url: postgresUrl })
   : new SqliteRgapStore({ url: ':memory:' });
+
+if (store instanceof PostgresRgapStore) await store.migrate();
 
 try {
   const admin = store.admin();

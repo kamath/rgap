@@ -192,17 +192,19 @@ tombstone or revision table.
 
 ## PostgreSQL store
 
-`@rgap/postgres` exports `PostgresRgapStore`. Its asynchronous `open` method
-accepts a PostgreSQL connection URL, an optional initial state, and a runtime
-registry:
+`@rgap/postgres` exports `PostgresRgapStore`. Its constructor accepts a
+PostgreSQL connection URL, an optional initial state, and a runtime registry
+without connecting to the database:
 
 ```ts
 import { PostgresRgapStore } from '@rgap/postgres';
 
-const store = await PostgresRgapStore.open({
+const store = new PostgresRgapStore({
   url: process.env.DATABASE_URL!,
   runtimes,
 });
+
+await store.migrate();
 
 try {
   const repository = store.admin();
@@ -212,9 +214,11 @@ try {
 }
 ```
 
-Opening the store applies its Drizzle migrations. An empty database receives
-the configured initial state, while a populated database opens without
-replacing its records.
+`migrate()` applies the store's Drizzle migrations and installs the configured
+initial state when the database is empty. A populated database keeps its
+records. Callers choose when to run this adapter-specific operation, such as in
+a deployment task or during process startup. Store construction and ordinary
+commands never run migrations implicitly.
 
 The PostgreSQL schema contains the same normalized resources, grants, grant
 bindings, permissions, tokens, executables, executable bindings, and audit
@@ -223,8 +227,12 @@ pure core rule, and writes its row delta in one serializable transaction.
 Serialization failures are retried so concurrent commands observe a valid
 ordering. A rejected rule writes nothing.
 
-The PostgreSQL adapter uses the `postgres` driver. `close()` asynchronously
-drains and releases its connection pool.
+The PostgreSQL adapter uses the `postgres` driver and creates connections
+lazily. A serverless application constructs the store once at module scope,
+runs migrations in a controlled deployment or startup step, and reuses the
+store across warm invocations. `close()` asynchronously drains and releases
+its connection pool; a request handler does not close a shared store after
+each invocation.
 
 ## Invocation lifecycle
 
