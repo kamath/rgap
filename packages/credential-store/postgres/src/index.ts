@@ -63,8 +63,8 @@ export class PostgresCredentialStore<T> implements CredentialStore<T> {
   async update(
     resourceId: string,
     update: (current: T | undefined) => T,
-  ) {
-    return this.#connection.begin(async (transaction) => {
+  ): Promise<T> {
+    return await this.#connection.begin(async (transaction) => {
       await transaction`
         SELECT pg_advisory_xact_lock(hashtextextended(${resourceId}, 0))
       `;
@@ -85,7 +85,7 @@ export class PostgresCredentialStore<T> implements CredentialStore<T> {
         SET value = excluded.value
       `;
       return next;
-    });
+    }) as T;
   }
 
   async delete(resourceId: string) {
