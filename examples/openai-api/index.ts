@@ -52,8 +52,9 @@ const openaiRuntime: InvokeRuntime<OpenAIInput, unknown> = {
   inputSchema: OpenAIInputSchema,
   outputSchema: z.unknown(),
   async invoke({ input, signal }) {
+    const stream = input.body.stream === true;
     const body = { ...input.body, model: input.model };
-    if (body.stream === true) {
+    if (stream) {
       return openai.post<Stream<unknown>>(input.url, {
         headers: input.headers,
         body,

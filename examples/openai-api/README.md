@@ -27,11 +27,12 @@ const openaiRuntime = {
   inputSchema: OpenAIInputSchema,
   outputSchema: z.unknown(),
   async invoke({ input, signal }) {
+    const stream = input.body.stream === true;
     const body = { ...input.body, model: input.model };
     return openai.post(input.url, {
       headers: input.headers,
       body,
-      stream: body.stream === true,
+      stream,
       signal,
     });
   },
