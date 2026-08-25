@@ -7,6 +7,7 @@ import type { CalloutType } from 'fumadocs-ui/components/callout';
 import { Step, Steps } from 'fumadocs-ui/components/steps';
 import {
   BookOpen,
+  Bot,
   Braces,
   CircleCheck,
   CircleX,
@@ -14,6 +15,8 @@ import {
   Lightbulb,
   MousePointerClick,
   Network,
+  Plug,
+  SquareFunction,
   Terminal,
   TriangleAlert,
   Workflow,
@@ -26,9 +29,12 @@ import { cn } from '@/lib/cn';
 
 const cardIcons: Record<string, LucideIcon> = {
   BookOpen,
+  Bot,
   Braces,
   MousePointerClick,
   Network,
+  Plug,
+  SquareFunction,
   Terminal,
   Workflow,
 };

@@ -94,7 +94,7 @@ Authorization: Bearer <rgap-bearer>
 }
 ```
 
-The handler selects `store.as(bearer)`, resolves the configured resource ID,
+The handler selects `store.as(bearer.value)`, resolves the configured resource ID,
 and invokes it with the validated request body. RGAP revalidates the caller's
 grant and every bound dependency before the runtime sends the upstream request.
 
