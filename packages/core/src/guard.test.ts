@@ -92,10 +92,10 @@ describe('command guard', () => {
   it('sorts and paginates contextual root and child pages', async () => {
     const initial = state();
     initial.resources.beta = {
-      id: r('beta'), parentId: null, name: 'beta', deletedAt: null,
+      id: r('beta'), parentId: null, name: 'beta', deletedAt: null, executable: null,
     };
     initial.resources['beta-leaf'] = {
-      id: r('beta-leaf'), parentId: r('beta'), name: 'beta-leaf', deletedAt: null,
+      id: r('beta-leaf'), parentId: r('beta'), name: 'beta-leaf', deletedAt: null, executable: null,
     };
     initial.grants.coordinator.bindings = [
       cap('drive', ['read']),
@@ -120,19 +120,19 @@ describe('command guard', () => {
   it('handles overlapping, deleted, cyclic, and orphaned visibility roots', async () => {
     const initial = state();
     initial.resources.deleted = {
-      id: r('deleted'), parentId: null, name: 'deleted', deletedAt: at,
+      id: r('deleted'), parentId: null, name: 'deleted', deletedAt: at, executable: null,
     };
     initial.resources.orphan = {
-      id: r('orphan'), parentId: r('missing-parent'), name: 'orphan', deletedAt: null,
+      id: r('orphan'), parentId: r('missing-parent'), name: 'orphan', deletedAt: null, executable: null,
     };
     initial.resources.loop = {
-      id: r('loop'), parentId: r('loop'), name: 'loop', deletedAt: null,
+      id: r('loop'), parentId: r('loop'), name: 'loop', deletedAt: null, executable: null,
     };
     initial.resources['cycle-a'] = {
-      id: r('cycle-a'), parentId: r('cycle-b'), name: 'cycle-a', deletedAt: null,
+      id: r('cycle-a'), parentId: r('cycle-b'), name: 'cycle-a', deletedAt: null, executable: null,
     };
     initial.resources['cycle-b'] = {
-      id: r('cycle-b'), parentId: r('cycle-a'), name: 'cycle-b', deletedAt: null,
+      id: r('cycle-b'), parentId: r('cycle-a'), name: 'cycle-b', deletedAt: null, executable: null,
     };
     initial.grants.coordinator.bindings = [
       cap('drive', ['read']),
@@ -166,7 +166,9 @@ describe('command guard', () => {
     const initial = state();
     for (let index = 0; index < 98; index += 1) {
       const id = r(`child-${String(index).padStart(3, '0')}`);
-      initial.resources[id] = { id, parentId: r('drive'), name: id, deletedAt: null };
+      initial.resources[id] = {
+        id, parentId: r('drive'), name: id, deletedAt: null, executable: null,
+      };
     }
     const { commands, resolveBearer } = stubCommands(initial, at);
     const listResources = commands.listResources;

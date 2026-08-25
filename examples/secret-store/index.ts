@@ -2,16 +2,18 @@ import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import type { InvokeRuntime } from '@rgap/core';
+import {
+  SqliteCredentialStore,
+  type CredentialStore,
+} from '@rgap/local-credential-store';
 import { createApp } from '@rgap/server';
 import { SqliteRgapStore } from '@rgap/sqlite';
 import { z } from 'zod';
-import {
-  SqliteSecretStore,
-  type SecretStore,
-} from './store';
 
 const directory = fileURLToPath(new URL('.', import.meta.url));
-const secretStore: SecretStore = new SqliteSecretStore(`${directory}/secrets.db`);
+const secretStore: CredentialStore<string> = new SqliteCredentialStore<string>(
+  `${directory}/secrets.db`,
+);
 
 type GithubProfile = { login: string };
 
