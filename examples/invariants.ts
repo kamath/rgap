@@ -28,10 +28,10 @@ const store = postgresUrl
   ? new PostgresRgapStore({ url: postgresUrl })
   : new SqliteRgapStore({ url: ':memory:' });
 
-if (store instanceof PostgresRgapStore) await store.migrate();
-
 try {
+  if (store instanceof PostgresRgapStore) await store.migrate();
   const admin = store.admin();
+  await admin.reset();
   const acme = await admin.resources.create({ name: 'acme' });
   const platform = await acme.create({ name: 'platform' });
   const docs = await platform.create({ name: 'docs' });
