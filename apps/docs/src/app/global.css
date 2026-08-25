@@ -110,8 +110,17 @@ button[data-search-full] kbd {
 }
 
 #nd-sidebar [data-active='true'] {
-  background: var(--color-fd-accent);
+  background: transparent;
   color: var(--color-fd-foreground);
+}
+
+#nd-sidebar [data-active='true']::before {
+  display: none;
+}
+
+#nd-sidebar :where(a[data-active], button[data-panel-open]):hover {
+  background: transparent;
+  color: var(--color-fd-accent-foreground);
 }
 
 #nd-toc {
