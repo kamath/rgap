@@ -80,6 +80,14 @@ export class McpProxyRuntime {
     return status;
   }
 
+  async disconnect(serverUrl: URL, credentialId: string) {
+    const key = connectionKey(serverUrl, credentialId);
+    const connection = this.#connections.get(key);
+    if (!connection) return;
+    await connection.close();
+    this.#connections.delete(key);
+  }
+
   async close() {
     await Promise.all(
       [...this.#connections.values()].map((connection) => connection.close()),
@@ -112,7 +120,7 @@ export class McpProxyRuntime {
   }
 
   #connectionFor(serverUrl: URL, credentialId: string) {
-    const key = `${credentialId}\0${serverUrl}`;
+    const key = connectionKey(serverUrl, credentialId);
     const existing = this.#connections.get(key);
     if (existing) return existing;
     const connection = new McpConnection({
@@ -146,4 +154,8 @@ function normalizedBaseUrl(url: URL) {
 
 function routeUrl(baseUrl: URL, path: string) {
   return new URL(path, baseUrl);
+}
+
+function connectionKey(serverUrl: URL, credentialId: string) {
+  return `${credentialId}\0${serverUrl}`;
 }
