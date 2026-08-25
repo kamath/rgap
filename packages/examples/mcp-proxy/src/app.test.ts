@@ -2,17 +2,17 @@ import type {
   RgapRepository,
   RgapStore,
 } from '@rgap/core';
-import type { CredentialStore } from '@rgap/local-credential-store';
-import type {
-  OAuthFlowRecord,
-  OAuthFlowStore,
-} from '@rgap/local-oauth-flow-store';
 import { ProtocolError } from '@modelcontextprotocol/client';
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
 import { createMcpProxyApp } from './app';
 import type { McpCredential } from './oauth-provider';
 import { createMcpProxyRuntime } from './runtime';
+import type {
+  CredentialStore,
+  OAuthFlowRecord,
+  OAuthFlowStore,
+} from './storage';
 
 describe('createMcpProxyApp', () => {
   it('initializes locally and forwards requests through the guarded repository', async () => {

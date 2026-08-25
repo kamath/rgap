@@ -1,6 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { SqliteRgapStore } from '@rgap/sqlite';
+import { SqliteRgapStore } from '@rgap/store-sqlite';
 import { createApp } from '../src/app';
 
 const store = new SqliteRgapStore();

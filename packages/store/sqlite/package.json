@@ -1,5 +1,5 @@
 {
-  "name": "@rgap/sqlite",
+  "name": "@rgap/store-sqlite",
   "private": true,
   "version": "0.0.0",
   "type": "module",

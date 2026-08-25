@@ -1,4 +1,4 @@
-import { SqliteCredentialStore } from '@rgap/local-credential-store';
+import { SqliteCredentialStore } from '@rgap/credential-store-sqlite';
 import { describe, expect, it } from 'vitest';
 import {
   type McpCredential,

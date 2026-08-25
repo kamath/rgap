@@ -1,5 +1,5 @@
 import { serve } from '@hono/node-server';
-import { SqliteRgapStore } from '@rgap/sqlite';
+import { SqliteRgapStore } from '@rgap/store-sqlite';
 import { createApp } from './app';
 
 const adminToken = process.env.RGAP_ADMIN_TOKEN ?? 'test';

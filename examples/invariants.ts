@@ -5,8 +5,8 @@ import {
   type ResourceId,
   type RgapRepository,
 } from '@rgap/core';
-import { PostgresRgapStore } from '@rgap/postgres';
-import { SqliteRgapStore } from '@rgap/sqlite';
+import { PostgresRgapStore } from '@rgap/store-postgres';
+import { SqliteRgapStore } from '@rgap/store-sqlite';
 
 async function listResourceTree(repository: RgapRepository) {
   const resources: Resource[] = [];

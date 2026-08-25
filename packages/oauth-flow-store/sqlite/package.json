@@ -1,5 +1,5 @@
 {
-  "name": "@rgap/mcp-proxy",
+  "name": "@rgap/oauth-flow-store-sqlite",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -10,16 +10,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@modelcontextprotocol/client": "^2.0.0",
-    "@rgap/core": "workspace:*",
-    "hono": "^4.13.3",
-    "zod": "^4.4.3"
+    "better-sqlite3": "latest"
   },
   "devDependencies": {
-    "@rgap/credential-store-sqlite": "workspace:*",
-    "@rgap/oauth-flow-store-sqlite": "workspace:*",
+    "@types/better-sqlite3": "latest",
     "@types/node": "latest",
     "typescript": "latest",
-    "vitest": "^4.1.11"
+    "vitest": "latest"
   }
 }

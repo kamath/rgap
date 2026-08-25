@@ -10,14 +10,19 @@ HTTP server, an executable scratchpad, and this MDX documentation application.
 
 ```text
 packages/
-├── core/                    # authorization, orchestration, and contracts
+├── core/                              # authorization, orchestration, and contracts
+├── store/
+│   ├── postgres/                      # PostgreSQL RGAP persistence
+│   └── sqlite/                        # SQLite RGAP persistence
+├── credential-store/
+│   ├── postgres/                      # shared PostgreSQL credential persistence
+│   └── sqlite/                        # local SQLite credential persistence
+├── oauth-flow-store/
+│   ├── postgres/                      # shared PostgreSQL OAuth callback state
+│   └── sqlite/                        # local SQLite OAuth callback state
 ├── examples/
-│   ├── mcp-proxy/           # mountable Hono MCP and OAuth adapter
-│   └── mcp-proxy-client/    # initialized MCP client helper
-├── local-credential-store/  # local SQLite credential persistence
-├── local-oauth-flow-store/  # local SQLite OAuth callback state
-├── postgres/                # Drizzle and PostgreSQL RGAP implementation
-└── sqlite/                  # Drizzle and SQLite RGAP implementation
+│   ├── mcp-proxy/                     # mountable Hono MCP and OAuth adapter
+│   └── mcp-proxy-client/              # initialized MCP client helper
 apps/
 ├── server/         # Hono HTTP API and generated clients
 └── docs/           # Next.js and Fumadocs documentation
@@ -137,8 +142,8 @@ on Zod. Runtime registration and behavior are not repository state.
 
 ## SQLite store
 
-`@rgap/sqlite` exports `SqliteRgapStore`. It accepts a file path or `:memory:`,
-an optional initial state, and a runtime registry.
+`@rgap/store-sqlite` exports `SqliteRgapStore`. It accepts a file path or
+`:memory:`, an optional initial state, and a runtime registry.
 
 `src/schema.ts` declares normalized tables, and Drizzle Kit generates the DDL.
 The constructor applies that DDL when it opens a database.
@@ -197,12 +202,12 @@ tombstone or revision table.
 
 ## PostgreSQL store
 
-`@rgap/postgres` exports `PostgresRgapStore`. Its constructor accepts a
+`@rgap/store-postgres` exports `PostgresRgapStore`. Its constructor accepts a
 PostgreSQL connection URL, an optional initial state, and a runtime registry
 without connecting to the database:
 
 ```ts
-import { PostgresRgapStore } from '@rgap/postgres';
+import { PostgresRgapStore } from '@rgap/store-postgres';
 
 const store = new PostgresRgapStore({
   url: process.env.DATABASE_URL!,
@@ -238,6 +243,86 @@ runs migrations in a controlled deployment or startup step, and reuses the
 store across warm invocations. `close()` asynchronously drains and releases
 its connection pool; a request handler does not close a shared store after
 each invocation.
+
+## Credential stores
+
+`@rgap/credential-store-sqlite` and
+`@rgap/credential-store-postgres` export `SqliteCredentialStore` and
+`PostgresCredentialStore`. Both implement the same generic credential-store
+contract, and each package exports the contract type:
+
+```ts
+interface CredentialStore<T> {
+  get(resourceId: string): T | undefined | Promise<T | undefined>;
+  set(resourceId: string, value: T): void | Promise<void>;
+  update(
+    resourceId: string,
+    update: (current: T | undefined) => T,
+  ): T | Promise<T>;
+  delete(resourceId: string): void | Promise<void>;
+  close(): void | Promise<void>;
+}
+```
+
+Both adapters serialize credential values as JSON under an RGAP resource ID.
+`update` reads, transforms, and writes one value atomically. PostgreSQL
+serializes updates by resource ID so concurrent updates do not overwrite each
+other, including when the value does not exist yet. The SQLite constructor
+creates its table when it opens the configured database:
+
+```ts
+const credentials = new SqliteCredentialStore<McpCredential>({
+  url: 'credentials.db',
+});
+```
+
+The PostgreSQL constructor connects lazily. `migrate()` explicitly creates its
+schema before use, and `close()` drains its connection pool:
+
+```ts
+const credentials = new PostgresCredentialStore<McpCredential>({
+  url: process.env.DATABASE_URL!,
+});
+await credentials.migrate();
+```
+
+The adapters do not encrypt serialized values. A deployment encrypts sensitive
+values before storage or places the database behind an equivalent
+deployment-owned encryption boundary.
+
+## OAuth flow stores
+
+`@rgap/oauth-flow-store-sqlite` and
+`@rgap/oauth-flow-store-postgres` export `SqliteOAuthFlowStore` and
+`PostgresOAuthFlowStore`. Each package exports the `OAuthFlowStore` and
+`OAuthFlowRecord` contract types. Both adapters hash callback state with SHA-256
+before using it as a key:
+
+```ts
+interface OAuthFlowStore {
+  register(state: string, flow: OAuthFlowRecord): Promise<void>;
+  claim(state: string, now?: Date): Promise<OAuthFlowRecord>;
+  complete(state: string): Promise<void>;
+  close(): Promise<void>;
+}
+```
+
+`register` inserts or replaces a pending flow. `claim` atomically marks one
+unexpired flow as claimed and rejects invalid, expired, or previously claimed
+state. `complete` deletes the claimed flow. SQLite uses an immediate
+transaction, while PostgreSQL uses one row-locking transaction so every proxy
+replica observes the one-time claim.
+
+The SQLite constructor creates its table automatically. The PostgreSQL adapter
+connects lazily and exposes the same explicit `migrate()` lifecycle as the
+other PostgreSQL packages:
+
+```ts
+const flows = new PostgresOAuthFlowStore({
+  url: process.env.DATABASE_URL!,
+});
+await flows.migrate();
+```
 
 ## Invocation lifecycle
 

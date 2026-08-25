@@ -10,8 +10,8 @@
   },
   "dependencies": {
     "@rgap/core": "workspace:*",
-    "@rgap/postgres": "workspace:*",
-    "@rgap/sqlite": "workspace:*"
+    "@rgap/store-postgres": "workspace:*",
+    "@rgap/store-sqlite": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "latest",

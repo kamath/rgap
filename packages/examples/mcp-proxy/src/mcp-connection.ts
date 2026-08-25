@@ -4,12 +4,12 @@ import {
   StreamableHTTPClientTransport,
   UnauthorizedError,
 } from '@modelcontextprotocol/client';
-import type { CredentialStore } from '@rgap/local-credential-store';
 import { z } from 'zod';
 import {
   type McpCredential,
   PersistentOAuthProvider,
 } from './oauth-provider';
+import type { CredentialStore } from './storage';
 
 export const McpInvokeInputSchema = z.object({
   method: z.string().min(1),

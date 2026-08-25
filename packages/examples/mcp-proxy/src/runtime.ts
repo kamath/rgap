@@ -1,8 +1,4 @@
 import type { InvokeRuntime } from '@rgap/core';
-import type { CredentialStore } from '@rgap/local-credential-store';
-import type {
-  OAuthFlowStore,
-} from '@rgap/local-oauth-flow-store';
 import { z } from 'zod';
 import {
   McpConnection,
@@ -12,6 +8,10 @@ import {
   type McpCredential,
   oauthClientMetadataDocument,
 } from './oauth-provider';
+import type {
+  CredentialStore,
+  OAuthFlowStore,
+} from './storage';
 
 const McpRuntimeInputSchema = McpInvokeInputSchema.extend({
   serverUrl: z.url(),

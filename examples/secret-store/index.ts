@@ -5,15 +5,15 @@ import type { InvokeRuntime } from '@rgap/core';
 import {
   SqliteCredentialStore,
   type CredentialStore,
-} from '@rgap/local-credential-store';
+} from '@rgap/credential-store-sqlite';
 import { createApp } from '@rgap/server';
-import { SqliteRgapStore } from '@rgap/sqlite';
+import { SqliteRgapStore } from '@rgap/store-sqlite';
 import { z } from 'zod';
 
 const directory = fileURLToPath(new URL('.', import.meta.url));
-const secretStore: CredentialStore<string> = new SqliteCredentialStore<string>(
-  `${directory}/secrets.db`,
-);
+const secretStore: CredentialStore<string> = new SqliteCredentialStore<string>({
+  url: `${directory}/secrets.db`,
+});
 
 type GithubProfile = { login: string };
 

@@ -1,5 +1,5 @@
 {
-  "name": "@rgap/local-credential-store",
+  "name": "@rgap/store-postgres",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -7,14 +7,17 @@
   "types": "./src/index.ts",
   "scripts": {
     "build": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
-    "better-sqlite3": "latest"
+    "@rgap/core": "workspace:*",
+    "drizzle-orm": "latest",
+    "postgres": "latest"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "latest",
     "@types/node": "latest",
+    "drizzle-kit": "latest",
     "typescript": "latest",
     "vitest": "latest"
   }

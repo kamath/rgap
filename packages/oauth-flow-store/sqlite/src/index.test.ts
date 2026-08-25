@@ -31,7 +31,7 @@ describe('SqliteOAuthFlowStore', () => {
   it('stores state hashes and claims each flow once', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'rgap-oauth-flow-'));
     const path = join(directory, 'flows.db');
-    const store = new SqliteOAuthFlowStore(path);
+    const store = new SqliteOAuthFlowStore({ url: path });
     let closed = false;
     try {
       await store.register('secret-state', flow);

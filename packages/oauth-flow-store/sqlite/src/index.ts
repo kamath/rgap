@@ -16,6 +16,10 @@ export interface OAuthFlowStore {
   close(): Promise<void>;
 }
 
+export type SqliteOAuthFlowStoreOptions = {
+  url?: string;
+};
+
 type StoredOAuthFlow = {
   flow_id: string;
   credential_id: string;
@@ -35,8 +39,8 @@ export class SqliteOAuthFlowStore implements OAuthFlowStore {
     now: Date,
   ) => OAuthFlowRecord;
 
-  constructor(url = ':memory:') {
-    this.#database = new Database(url);
+  constructor(options: SqliteOAuthFlowStoreOptions = {}) {
+    this.#database = new Database(options.url ?? ':memory:');
     this.#database.pragma('busy_timeout = 5000');
     this.#database.pragma('journal_mode = WAL');
     this.#database.exec(`

@@ -53,20 +53,30 @@ The MCP SDK manages connection setup and protocol negotiation.
 
 OAuth tokens, registered client information, discovery state, PKCE data, and
 credential-bound pending authorization are stored through
-the `CredentialStore` interface from `@rgap/local-credential-store`. This
+the `CredentialStore` interface from `@rgap/credential-store-sqlite`. This
 example uses `SqliteCredentialStore` to keep them in `credentials.db` under the
 credential resource ID. The browser callback validates state and expiry before
 asking the MCP SDK to validate the issuer and exchange the authorization code.
 
-`@rgap/local-oauth-flow-store` provides the callback lookup store interface and
+`@rgap/oauth-flow-store-sqlite` provides the callback lookup store interface and
 `SqliteOAuthFlowStore`. It keys pending callback records by a SHA-256 hash of
 state in `oauth-flows.db`. Claiming one is atomic and one-time. A replicated
-deployment supplies shared implementations of the OAuth and credential store
-interfaces.
+deployment sets `RGAP_POSTGRES_URL` to use
+`@rgap/credential-store-postgres`, `@rgap/oauth-flow-store-postgres`, and
+`@rgap/store-postgres` for shared state.
 
 Start the proxy:
 
 ```sh
+MCP_SERVER_URL=https://server.smithery.ai/gmail \
+PUBLIC_BASE_URL=http://127.0.0.1:3003 \
+pnpm --filter @rgap/examples mcp-proxy
+```
+
+To run every store against PostgreSQL:
+
+```sh
+RGAP_POSTGRES_URL=postgres://postgres:postgres@localhost:5432/rgap \
 MCP_SERVER_URL=https://server.smithery.ai/gmail \
 PUBLIC_BASE_URL=http://127.0.0.1:3003 \
 pnpm --filter @rgap/examples mcp-proxy
@@ -130,5 +140,6 @@ timeouts and response-size limits.
 `credentials.db`, `oauth-flows.db`, `rgap.db`, the generated bearer, and the
 default RGAP admin token are local-development conveniences. The SQLite
 credential values are plaintext and must not be used as deployed secret
-storage. A deployed proxy uses an encrypted credential store and an OAuth flow
-store shared by every replica.
+storage. The PostgreSQL credential adapter also stores the JSON value it
+receives without adding encryption. A deployed proxy encrypts credential values
+before persistence or supplies an equivalent database encryption boundary.
