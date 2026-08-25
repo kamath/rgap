@@ -1,36 +1,23 @@
 ---
-title: Repository implementation
-description: TypeScript rules, SQLite persistence, Hono transport, and documentation packages.
+title: Implementation packages
+description: Published TypeScript contracts, persistence adapters, and Hono transports.
 icon: Blocks
 ---
 
-The repository implements RGAP as framework-neutral TypeScript rules, durable
-SQLite persistence, deployment-owned executable runtimes, a Hono HTTP server,
-an executable scratchpad, and this MDX documentation application.
+RGAP is distributed as framework-neutral TypeScript contracts, persistence
+adapters, and HTTP and MCP integrations:
 
-```text
-packages/
-├── core/                 # authorization, executable orchestration, and contracts
-├── store/
-│   └── sqlite/           # Drizzle and SQLite RGAP implementation
-├── secret-store/
-│   ├── src/index.ts      # secret-store interface
-│   └── sqlite/           # local SQLite secret persistence
-├── oauth-store/
-│   ├── src/index.ts      # OAuth callback-flow interface
-│   └── sqlite/           # local SQLite callback-flow persistence
-└── examples/
-    ├── mcp-proxy/        # mountable Hono MCP and OAuth adapter
-    └── mcp-proxy-client/ # initialized MCP client helper
-apps/
-├── server/         # Hono HTTP API and generated clients
-└── docs/           # Next.js and Fumadocs documentation
-examples/
-├── index.ts        # executable scratchpad
-└── invariants.ts   # executable invariant walkthrough
-tests/
-└── invariants/     # property and state-machine verification
-```
+| Package | Purpose |
+| --- | --- |
+| `@rgap/core` | Authorization rules, repository contracts, and executable orchestration. |
+| `@rgap/store-sqlite` | Durable SQLite implementation of the RGAP store. |
+| `@rgap/secret-store` | Deployment-owned typed secret-store contract. |
+| `@rgap/secret-store-sqlite` | Local SQLite secret-store adapter. |
+| `@rgap/oauth-store` | OAuth callback-flow store contract. |
+| `@rgap/oauth-store-sqlite` | Local SQLite OAuth-flow adapter. |
+| `@rgap/server` | Mountable Hono RGAP API, generated SDK, and HTTP store. |
+| `@rgap/mcp-proxy` | Mountable MCP and OAuth gateway routes. |
+| `@rgap/mcp-proxy-client` | Initialized MCP client for an RGAP gateway. |
 
 ## Core boundary
 
@@ -320,121 +307,27 @@ handling. A parent Hono app mounts it at any path. `publicBaseUrl` identifies
 the app's externally visible mount point so callback URLs remain correct when
 the route has a prefix.
 
-`@rgap/mcp-proxy-client` is a separate example-support package. Its
+`@rgap/mcp-proxy-client` is a separate client helper package. Its
 `createMcpProxyClient` factory accepts the proxy mount URL, connection resource
 ID, RGAP bearer, and client identity. It constructs the Streamable HTTP
 transport, attaches the bearer, completes MCP initialization, and returns the
 connected MCP SDK client. The caller closes that client.
 
 The proxy depends on `SecretStore` from `@rgap/secret-store` and
-`OAuthFlowStore` from `@rgap/oauth-store`. The example injects
+`OAuthFlowStore` from `@rgap/oauth-store`. A local deployment injects
 `SqliteSecretStore` from `@rgap/secret-store-sqlite` and
 `SqliteOAuthFlowStore` from `@rgap/oauth-store-sqlite`. SQLite secret values
-are plaintext and remain local example infrastructure.
-
-## Documentation application
-
-`@rgap/docs` is a Next.js application using Fumadocs and MDX. Content metadata
-defines navigation order and sidebar groups. The application generates search,
-tables of contents, syntax highlighting, theme controls, social images, and
-LLM-readable Markdown routes from the same pages. `pnpm docs:dev` serves it on
-port 3001 so the HTTP API can run beside it on port 3000.
-
-## Scratchpad
-
-`@rgap/examples` consumes `@rgap/store-sqlite` and `@rgap/core` like an
-external TypeScript application. The secret-store app configures one trusted
-runtime whose sealed input contains an externally stored credential resource
-ID and another runtime that invokes it by resource ID. It creates the outer
-executable through an ordinary delegated repository plane without granting
-that plane authority over the credential.
-
-Change only store construction to run the same walkthrough against HTTP:
-
-```ts
-const store = new HttpRgapStore({
-  baseUrl: 'http://localhost:3000',
-  adminToken: process.env.RGAP_ADMIN_TOKEN ?? 'test',
-});
-```
-
-## Commands
-
-```bash
-pnpm install
-pnpm build
-pnpm test
-pnpm scratch
-pnpm docs:dev
-pnpm docs:build
-```
-
-The core package enforces 100% statement, branch, function, and line coverage
-over its source. SQLite tests use real in-memory databases. Server tests cover
-validation, authorization plane selection, OpenAPI generation, generated SDK
-calls, and the HTTP store.
-
-## Property-based invariant suite
-
-`tests/invariants` is a separate workspace package for security properties
-that span individual modules. It uses generated resource trees, grant
-lineages, requests, and command sequences. A failure reports the random seed
-and the smallest counterexample so the sequence can be replayed as an
-ordinary regression test.
-
-The suite verifies these properties over the authority dimensions represented
-by the protocol:
-
-- ID-based grant-binding containment is reflexive and transitive.
-- Every concrete request authorized by a covered child binding is authorized by
-  its parent binding.
-- Every request allowed through a child grant is allowed through every active
-  ancestor in the current resource tree.
-- Delegation and token issuance leave the parent's authority unchanged.
-- A child grant never outlives its parent.
-- Grant amendment revokes children that the replacement no longer covers.
-- Grant revocation disables every descendant, while token revocation disables
-  only that bearer.
-- Resource moves, deletion, and expiration cannot bypass complete-lineage
-  evaluation.
-- A denied transition does not mutate authorization state.
-
-State-machine checks apply generated commands one at a time and validate the
-invariants after every transition. Resource topology changes are evaluated
-against current state: moving a resource beneath a bound resource can
-intentionally change the covered subtree, but an allowed request must still be
-covered by every ancestor. Generated states use the same `GrantBinding`
-contract as the core rules: each binding contains one stable resource `id` and
-a permission set. The checks use `bindingAuthorizes` for concrete requests and
-`setBindings` for grant amendments.
-
-The package also exports a deterministic adapter smoke harness. An adapter
-runs one fixed delegation and revocation scenario, then compares normalized
-resource paths, grant paths, and authorization decisions with the expected
-contract. Generated state-machine checks remain focused on the pure rules, and
-adapter-specific integration tests remain beside their adapters.
-
-`examples/invariants.ts` is the deterministic, executable introduction to the
-same contract. It checks child-to-parent authorization containment and
-cascading ancestor revocation without random generation.
+are plaintext and remain suitable for local development only.
 
 ## Verification
 
-`pnpm build` type-checks every workspace package and produces the documentation
-site. `pnpm test` runs the core, SQLite, server, and property-based invariant
-suites. Core's 100% coverage threshold is a gate over its source rather than a
-report, and each downstream package exercises its real adapter instead of a
-stand-in.
+RGAP verifies generated resource trees, grant lineages, requests, and command
+sequences against protocol invariants. These checks cover binding containment,
+complete grant ancestry, delegation, expiration, revocation, resource moves,
+deletion, and rejected-transition atomicity.
 
-Continuous integration installs the frozen lockfile and runs three explicit
-checks:
-
-```bash
-pnpm build
-pnpm test
-pnpm --filter @rgap/examples invariants
-```
-
-The final check executes the deterministic invariant walkthrough against the
-SQLite adapter in addition to the property-based invariant package included by
-the workspace test command.
+Adapter conformance checks run a deterministic delegation and revocation
+scenario against each store and compare normalized resources, grants, and
+authorization decisions. SQLite and HTTP integration checks exercise their
+real adapters, and the core authorization package enforces complete statement,
+branch, function, and line coverage.

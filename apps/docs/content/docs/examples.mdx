@@ -69,8 +69,7 @@ for await (const event of authorizedModel.invoke({
 ```
 
 The employee receives only `invoke` on the executable model resource. Callers
-cannot replace its sealed model name. The complete executable version lives in
-`examples/openai.ts`.
+cannot replace its sealed model name.
 
 ## Compose a secret-backed resource
 
@@ -181,12 +180,11 @@ capability and publish her wrapper's interface. Revoking or narrowing
 `author` invalidates the recorded `profile` edge on its next invocation and
 therefore disables it for every consumer.
 
-The complete Hono app lives in `examples/secret-store`. It uses one SQLite
-database for RGAP state and initializes `SqliteSecretStore` from
-`@rgap/secret-store-sqlite` with another SQLite database for secret values.
-The runtime accepts the `SecretStore` interface from `@rgap/secret-store`.
-Inputs, outputs, and secret values stay out of invocation audit records, logs,
-and errors.
+A Hono deployment uses one SQLite database for RGAP state and initializes
+`SqliteSecretStore` from `@rgap/secret-store-sqlite` with another SQLite
+database for secret values. The runtime accepts the `SecretStore` interface
+from `@rgap/secret-store`. Inputs, outputs, and secret values stay out of
+invocation audit records, logs, and errors.
 
 ## Invoke an OAuth-protected MCP server
 
@@ -325,7 +323,7 @@ management API. Both apps receive the same store, but the MCP proxy calls the
 store directly rather than making HTTP requests to `/rgap`. The deployment owns
 the credential, flow, and RGAP stores and closes them after `mcp.close()`.
 
-Clients use the separate `@rgap/mcp-proxy-client` example-support package:
+Clients use the separate `@rgap/mcp-proxy-client` helper package:
 
 ```ts
 const client = await createMcpProxyClient({
@@ -364,9 +362,9 @@ type McpCredential = {
 ```
 
 Atomic updates prevent simultaneous token refreshes from overwriting each
-other. The example SQLite store contains plaintext values and is suitable for
-local development only. A deployed proxy supplies an encrypted credential
-store and a shared OAuth flow store through their respective interfaces.
+other. The SQLite adapter contains plaintext values and is suitable for local
+development only. A deployed proxy supplies an encrypted credential store and
+a shared OAuth flow store through their respective interfaces.
 
 ## Publish OAuth client metadata
 
@@ -473,9 +471,9 @@ registered client credentials remain inside the MCP proxy.
   </Step>
 </Steps>
 
-The mountable MCP Hono application and runtime live in
-`packages/examples/mcp-proxy`. The deployment bootstrap in
-`examples/mcp-proxy` supplies local stores, provisions resources, mounts the
-OAuth and RGAP apps independently, and starts the process. Follow the
+Install `@rgap/mcp-proxy` for the mountable Hono application and runtime and
+`@rgap/mcp-proxy-client` for the initialized client helper. A deployment
+supplies stores, provisions resources, mounts the MCP and RGAP apps
+independently, and starts the process. Follow the
 [OAuth MCP proxy walkthrough](/docs/guides/mcp-proxy) to connect a server,
 complete authorization, and invoke its RPCs.

@@ -4,7 +4,7 @@ description: Connect an OAuth-protected MCP server, authorize it, and invoke its
 icon: Plug
 ---
 
-`@rgap/mcp-proxy` provides a mountable Hono app and MCP runtime. The example
+`@rgap/mcp-proxy` provides a mountable Hono app and MCP runtime. This walkthrough
 turns one authenticated Streamable HTTP connection into an executable RGAP
 resource. RGAP authorizes the caller, while the proxy keeps the upstream OAuth
 credentials and MCP session.
@@ -15,16 +15,27 @@ authorized MCP proxy route.
 
 ## Before you start
 
-Clone the repository and install its workspace dependencies:
+Create a TypeScript project and install the published packages:
 
 ```bash
-pnpm install
+npm init -y
+npm install \
+  @hono/node-server \
+  @rgap/mcp-proxy \
+  @rgap/mcp-proxy-client \
+  @rgap/oauth-store-sqlite \
+  @rgap/secret-store-sqlite \
+  @rgap/server \
+  @rgap/store-sqlite \
+  hono \
+  zod
+npm install --save-dev tsx typescript @types/node
 ```
 
 Choose a remote Streamable HTTP MCP endpoint. The endpoint may allow anonymous
 access or require the MCP OAuth authorization flow.
 
-The example listens on port `3003`. Its OAuth redirect URI is:
+The gateway listens on port `3003`. Its OAuth redirect URI is:
 
 ```text
 http://127.0.0.1:3003/oauth/callback
@@ -40,16 +51,27 @@ The MCP runtime exists before store construction so the deployment can
 register it with its RGAP store. The proxy app uses that store internally
 without mounting the generic RGAP HTTP API and can sit beneath any Hono route:
 
-```ts
+```ts title="gateway.ts"
+import { serve } from '@hono/node-server';
 import {
   createMcpProxyApp,
   createMcpProxyRuntime,
+  type McpCredential,
 } from '@rgap/mcp-proxy';
+import { SqliteOAuthFlowStore } from '@rgap/oauth-store-sqlite';
+import { SqliteSecretStore } from '@rgap/secret-store-sqlite';
 import { createApp as createRgapApp } from '@rgap/server';
+import { SqliteRgapStore } from '@rgap/store-sqlite';
 import { Hono } from 'hono';
 
+const port = Number(process.env.PORT ?? 3003);
+const publicBaseUrl = new URL(
+  process.env.PUBLIC_BASE_URL ?? `http://127.0.0.1:${port}`,
+);
+const credentialStore = new SqliteSecretStore<McpCredential>('credentials.db');
+const flowStore = new SqliteOAuthFlowStore('oauth-flows.db');
 const mcp = createMcpProxyRuntime({
-  publicBaseUrl: new URL('https://example.com/integrations/mcp'),
+  publicBaseUrl,
   credentialStore,
   flowStore,
 });
@@ -59,8 +81,13 @@ const store = new SqliteRgapStore({
 });
 
 const app = new Hono();
-app.route('/integrations/mcp', createMcpProxyApp({ mcp, store }));
-app.route('/rgap', createRgapApp({ store, adminToken }));
+app.route('/', createMcpProxyApp({ mcp, store }));
+app.route('/rgap', createRgapApp({
+  store,
+  adminToken: process.env.RGAP_ADMIN_TOKEN ?? 'test',
+}));
+
+serve({ fetch: app.fetch, port });
 ```
 
 The app exposes `POST /mcp/:connectionId`, `GET /oauth/callback`, and
@@ -80,12 +107,12 @@ so no loopback request or administrative bearer crosses between route groups.
 
 ## 1. Start the proxy
 
-Run the example from the repository root:
+Save the gateway bootstrap as `gateway.ts`, then start it:
 
 ```bash
 MCP_SERVER_URL=https://server.smithery.ai/gmail \
 PUBLIC_BASE_URL=http://127.0.0.1:3003 \
-pnpm --filter @rgap/examples mcp-proxy
+npx tsx gateway.ts
 ```
 
 The app prints:
@@ -94,7 +121,7 @@ The app prints:
 MCP proxy listening on http://localhost:3003
 Upstream MCP server resource: <server-resource-id>
 Executable MCP connection: <connection-resource-id>
-RGAP bearer written to examples/mcp-proxy/invoker.token
+RGAP bearer: <rgap-bearer>
 ```
 
 The proxy creates this resource structure:
@@ -108,7 +135,7 @@ acme/mcp/
 
 The executable connection seals the upstream URL and binds the server and
 credential resources. The generated grant contains `invoke` on the connection,
-and `invoker.token` contains its opaque bearer.
+and the printed value is its opaque bearer.
 
 ## 2. Choose client registration
 
@@ -134,7 +161,7 @@ the matching public origin:
 ```bash
 MCP_SERVER_URL=https://server.smithery.ai/gmail \
 PUBLIC_BASE_URL=https://proxy.example.com \
-pnpm --filter @rgap/examples mcp-proxy
+npx tsx gateway.ts
 ```
 
 The metadata URL and every value in its document derive from the same public
@@ -163,9 +190,9 @@ the browser to the Hono callback. The callback:
 The page displays `MCP authorization complete` when the connection succeeds.
 
 The proxy stores OAuth tokens, client registration, discovery state, and PKCE
-data in `examples/mcp-proxy/credentials.db`. The records are keyed by the RGAP
-credential resource ID. Credential values never enter RGAP invocation input,
-output, or audit records.
+data in the configured secret store. With `SqliteSecretStore`, that is
+`credentials.db`. The records are keyed by the RGAP credential resource ID.
+Credential values never enter RGAP invocation input, output, or audit records.
 
 The callback state index uses the `OAuthFlowStore` interface from
 `@rgap/oauth-store`:
@@ -179,12 +206,12 @@ interface OAuthFlowStore {
 }
 ```
 
-The example constructs `SqliteOAuthFlowStore` from
+The gateway constructs `SqliteOAuthFlowStore` from
 `@rgap/oauth-store-sqlite`, which stores the index in
-`examples/mcp-proxy/oauth-flows.db`. It hashes callback state values with
-SHA-256 before using them as keys and atomically permits one claim before the
-flow expires. Each record identifies the credential, MCP server, internal
-flow, expiration, and one-time claim.
+`oauth-flows.db`. It hashes callback state values with SHA-256 before using
+them as keys and atomically permits one claim before the flow expires. Each
+record identifies the credential, MCP server, internal flow, expiration, and
+one-time claim.
 
 The interface keeps storage-specific concurrency inside each implementation.
 A deployed proxy can supply a Redis, PostgreSQL, or other shared implementation
@@ -195,7 +222,7 @@ the process that receives the callback does not need to be the process that
 started authorization.
 
 <Callout type="warn" title="Local storage only">
-  The example SQLite credential store contains plaintext values. Use an
+  The SQLite credential adapter contains plaintext values. Use an
   encrypted deployment-owned credential store and a shared OAuth flow store for
   a deployed proxy.
 </Callout>
@@ -206,7 +233,7 @@ Create an MCP SDK client for the executable connection ID printed by the app.
 Set `RGAP_TOKEN` to the generated bearer and `MCP_CONNECTION_ID` to that ID.
 The RGAP bearer is the proxy's incoming access token:
 
-```ts
+```ts title="client.ts"
 import { createMcpProxyClient } from '@rgap/mcp-proxy-client';
 import { z } from 'zod';
 
@@ -223,13 +250,13 @@ const client = await createMcpProxyClient({
 });
 ```
 
-The repository includes that client in `examples/mcp-proxy/client.ts`. Run it
-after completing the Smithery Gmail OAuth flow:
+Save the client as `client.ts`. Run it after completing the Smithery Gmail
+OAuth flow:
 
 ```bash
-RGAP_TOKEN="$(<examples/mcp-proxy/invoker.token)" \
+RGAP_TOKEN=<rgap-bearer> \
 MCP_CONNECTION_ID=<connection-resource-id> \
-pnpm --filter @rgap/examples exec tsx mcp-proxy/client.ts
+npx tsx client.ts
 ```
 
 `createMcpProxyClient` constructs the Streamable HTTP transport, attaches the
@@ -311,26 +338,22 @@ Each child seals its MCP method and operation name. A grant on one child then
 authorizes that operation without authorizing the complete connection or its
 siblings.
 
-## 7. Restart the example
+## 7. Restart the gateway
 
-The RGAP database and credential database persist in
-`examples/mcp-proxy`. Starting the example with the same MCP URL finds the
-stable resources and reuses stored OAuth state. The app creates a fresh RGAP
-invoker grant and overwrites `invoker.token` with its bearer.
+When the SQLite adapters use `credentials.db`, `oauth-flows.db`, and `rgap.db`,
+starting the gateway with the same MCP URL finds the stable resources and
+reuses stored OAuth state. The bootstrap creates a fresh RGAP invoker grant and
+prints its bearer.
 
-Delete the local databases and bearer when you want a clean walkthrough:
+Delete the local databases when you want a clean walkthrough:
 
 ```bash
-rm -f \
-  examples/mcp-proxy/credentials.db \
-  examples/mcp-proxy/oauth-flows.db \
-  examples/mcp-proxy/rgap.db \
-  examples/mcp-proxy/invoker.token
+rm -f credentials.db oauth-flows.db rgap.db
 ```
 
 ## Deployment checks
 
-The example receives its MCP URL from trusted deployment configuration. A
+The gateway receives its MCP URL from trusted deployment configuration. A
 service that accepts user-supplied URLs also:
 
 - permits HTTPS endpoints and explicitly configured loopback development URLs;
