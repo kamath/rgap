@@ -15,7 +15,9 @@ import {
   type McpCredential,
 } from '@rgap/mcp-proxy';
 import { SqliteSecretStore } from '@rgap/secret-store-sqlite';
+import { createApp as createRgapApp } from '@rgap/server';
 import { SqliteRgapStore } from '@rgap/store-sqlite';
+import { Hono } from 'hono';
 
 const directory = fileURLToPath(new URL('.', import.meta.url));
 const port = Number(process.env.PORT ?? 3003);
@@ -74,10 +76,12 @@ const initialStatus = await mcp.connect(serverUrl, credential.id).catch((error: 
   return undefined;
 });
 
-const app = createMcpProxyApp({
-  mcp,
+const app = new Hono();
+app.route('/', createMcpProxyApp({ mcp, store }));
+app.route('/rgap', createRgapApp({
   store,
-});
+  adminToken: process.env.RGAP_ADMIN_TOKEN ?? 'test',
+}));
 
 const server = serve({ fetch: app.fetch, port }, ({ port: listeningPort }) => {
   console.log(`MCP proxy listening on http://localhost:${listeningPort}`);

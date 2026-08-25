@@ -21,6 +21,7 @@ const store = new SqliteRgapStore({
 
 const app = new Hono();
 app.route('/integrations/mcp', createMcpProxyApp({ mcp, store }));
+app.route('/rgap', createRgapApp({ store, adminToken }));
 ```
 
 `createMcpProxyApp` exposes `POST /mcp/:connectionId`,
@@ -31,23 +32,9 @@ bearer and supplied store to invoke the selected connection through RGAP.
 example above it is `https://example.com/integrations/mcp`.
 The configured public URL and Hono mount path must match.
 
-Host code manages gateway servers without exposing generic RGAP routes:
-
-```ts
-const servers = mcp.servers(store.admin());
-const registration = await servers.create({
-  name: 'example',
-  serverUrl: new URL('https://mcp.example.com'),
-});
-await servers.update(registration.server.id, {
-  serverUrl: new URL('https://mcp2.example.com'),
-});
-await servers.delete(registration.server.id);
-```
-
-Pass `store.as(operatorToken)` instead of `store.admin()` to enforce delegated
-management authority. A web application can call this service from Next.js
-server actions, TanStack Start server functions, or private management routes.
+The host mounts `@rgap/server` separately when it wants generic resource
+management. Both route groups share the store, but MCP requests call RGAP
+directly instead of making HTTP requests to `/rgap`.
 
 The server definition, authenticated connection, and credential are separate
 resources:

@@ -309,11 +309,10 @@ guarded RGAP repository and invoke `connectionId`. The route handles MCP
 initialization locally, forwards request-response methods, advertises no
 server-initiated capabilities, and does not provide SSE.
 
-The runtime also exposes `mcp.servers(repository)` for server registration
-CRUD. The supplied repository determines management authority. A registration
-owns one server resource, one credential resource, and one immutable executable
-connection. Replacing its URL replaces the executable connection. Deletion
-also removes its associated secret, so an outstanding callback cannot complete.
+The host mounts `@rgap/server` separately when it needs generic resource
+management routes. The proxy and RGAP apps share the same `RgapStore`, but the
+proxy calls its guarded repository directly rather than making loopback HTTP
+requests or receiving an administrative bearer.
 
 The package has no listener, environment parsing, database paths, or signal
 handling. A parent Hono app mounts it at any path. `publicBaseUrl` identifies

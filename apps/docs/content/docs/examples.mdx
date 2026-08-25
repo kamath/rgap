@@ -311,6 +311,7 @@ const store = new SqliteRgapStore({
 });
 
 app.route('/integrations/mcp', createMcpProxyApp({ mcp, store }));
+app.route('/rgap', createRgapApp({ store, adminToken }));
 ```
 
 `publicBaseUrl` is the public URL of the Hono mount point, including its path.
@@ -319,28 +320,10 @@ client metadata routes. It opens the supplied RGAP store with the request
 bearer and invokes the selected connection through that guarded repository. It
 does not expose generic RGAP commands.
 
-Hosts manage registered servers through the same runtime and an explicitly
-selected repository plane:
-
-```ts
-const servers = mcp.servers(store.as(operatorToken));
-const registration = await servers.create({
-  name: 'github',
-  serverUrl: new URL('https://api.githubcopilot.com/mcp'),
-});
-
-await servers.get(registration.server.id);
-await servers.list({ parentId: registration.server.parentId });
-await servers.update(registration.server.id, {
-  serverUrl: new URL('https://mcp.github.example.com'),
-});
-await servers.delete(registration.server.id);
-```
-
-The application decides whether to call that service from server actions,
-server functions, or a private management API. Gateway management never
-reveals values from the secret store. The deployment owns the credential, flow,
-and RGAP stores and closes them after `mcp.close()`.
+The host mounts `@rgap/server` separately when it wants the RGAP resource
+management API. Both apps receive the same store, but the MCP proxy calls the
+store directly rather than making HTTP requests to `/rgap`. The deployment owns
+the credential, flow, and RGAP stores and closes them after `mcp.close()`.
 
 An OAuth redirect does not call the RGAP invoke endpoint directly. Authorization
 servers send browser `GET` requests without an RGAP bearer, while resource

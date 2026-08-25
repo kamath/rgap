@@ -45,6 +45,7 @@ import {
   createMcpProxyApp,
   createMcpProxyRuntime,
 } from '@rgap/mcp-proxy';
+import { createApp as createRgapApp } from '@rgap/server';
 import { Hono } from 'hono';
 
 const mcp = createMcpProxyRuntime({
@@ -59,6 +60,7 @@ const store = new SqliteRgapStore({
 
 const app = new Hono();
 app.route('/integrations/mcp', createMcpProxyApp({ mcp, store }));
+app.route('/rgap', createRgapApp({ store, adminToken }));
 ```
 
 The app exposes `POST /mcp/:connectionId`, `GET /oauth/callback`, and
@@ -71,52 +73,10 @@ The package derives OAuth URLs by appending their paths to `publicBaseUrl`. The
 public URL and Hono mount path must identify the same route. The caller owns all
 injected stores and calls `mcp.close()` before closing them.
 
-## Manage gateway servers
-
-The runtime exposes a server registry scoped to an `RgapRepository`. The caller
-chooses whether management runs through an administrative repository or a
-delegated bearer:
-
-```ts
-const operator = mcp.servers(store.as(operatorToken));
-const created = await operator.create({
-  name: 'github',
-  serverUrl: new URL('https://api.githubcopilot.com/mcp'),
-});
-
-console.log(created.server.id);
-console.log(created.credential.id);
-console.log(created.connection.id);
-console.log(`/integrations/mcp/mcp/${created.connection.id}`);
-
-console.log(await operator.get(created.server.id));
-const page = await operator.list({ limit: 100 });
-
-const updated = await operator.update(created.server.id, {
-  name: 'github-production',
-  serverUrl: new URL('https://mcp.github.example.com'),
-});
-
-await operator.delete(updated.server.id);
-```
-
-Creating a gateway server creates a server resource, a credential resource, and
-an executable connection resource whose sealed input contains the upstream
-URL and whose bindings identify the server and credential. Reading and listing
-return metadata and resource IDs, never stored credentials.
-
-Updating a name renames the server resources. Updating the upstream URL replaces
-the immutable executable connection and returns its new ID. Deleting removes
-the connection and server resources and deletes the associated secret. Any
-claimed callback can no longer complete after its credential is removed. The
-host exposes these operations through Next.js server actions, TanStack Start
-server functions, or a separate administrative API; the mountable Hono app
-does not add management routes.
-
-`mcp.servers(store.as(token))` performs every repository operation through the
-bearer's guarded plane. The token needs authority to create, bind, update, and
-delete resources beneath the configured gateway root. Trusted deployment
-bootstrap can use `mcp.servers(store.admin())`.
+The `/rgap` mount remains an ordinary `@rgap/server` app. Applications use it
+to manage server, credential, and executable connection resources. The MCP
+proxy does not call those HTTP routes; it calls the shared `RgapStore` directly,
+so no loopback request or administrative bearer crosses between route groups.
 
 ## 1. Start the proxy
 
