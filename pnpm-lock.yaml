@@ -114,9 +114,6 @@ importers:
       '@hono/node-server':
         specifier: ^2.1.1
         version: 2.1.1(hono@4.13.3)
-      '@modelcontextprotocol/client':
-        specifier: ^2.0.0
-        version: 2.0.0
       '@rgap/core':
         specifier: workspace:*
         version: link:../packages/core
@@ -126,6 +123,12 @@ importers:
       '@rgap/local-oauth-flow-store':
         specifier: workspace:*
         version: link:../packages/local-oauth-flow-store
+      '@rgap/mcp-proxy':
+        specifier: workspace:*
+        version: link:../packages/examples/mcp-proxy
+      '@rgap/mcp-proxy-client':
+        specifier: workspace:*
+        version: link:../packages/examples/mcp-proxy-client
       '@rgap/postgres':
         specifier: workspace:*
         version: link:../packages/postgres
@@ -154,9 +157,6 @@ importers:
       typescript:
         specifier: latest
         version: 7.0.2
-      vitest:
-        specifier: ^4.1.11
-        version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.11)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
   packages/core:
     devDependencies:
@@ -168,6 +168,53 @@ importers:
         version: 7.0.2
       vitest:
         specifier: latest
+        version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.11)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/examples/mcp-proxy:
+    dependencies:
+      '@modelcontextprotocol/client':
+        specifier: ^2.0.0
+        version: 2.0.0
+      '@rgap/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@rgap/local-credential-store':
+        specifier: workspace:*
+        version: link:../../local-credential-store
+      '@rgap/local-oauth-flow-store':
+        specifier: workspace:*
+        version: link:../../local-oauth-flow-store
+      hono:
+        specifier: ^4.13.3
+        version: 4.13.3
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@types/node':
+        specifier: latest
+        version: 26.2.0
+      typescript:
+        specifier: latest
+        version: 7.0.2
+      vitest:
+        specifier: ^4.1.11
+        version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.11)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/examples/mcp-proxy-client:
+    dependencies:
+      '@modelcontextprotocol/client':
+        specifier: ^2.0.0
+        version: 2.0.0
+    devDependencies:
+      '@types/node':
+        specifier: latest
+        version: 26.2.0
+      typescript:
+        specifier: latest
+        version: 7.0.2
+      vitest:
+        specifier: ^4.1.11
         version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.11)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
   packages/local-credential-store:

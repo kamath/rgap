@@ -203,7 +203,7 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
 
 export function oauthClientMetadata(callbackUrl: URL): OAuthClientMetadata {
   return {
-    client_name: 'RGAP MCP proxy example',
+    client_name: 'RGAP MCP proxy',
     redirect_uris: [callbackUrl.toString()],
     grant_types: ['authorization_code', 'refresh_token'],
     response_types: ['code'],

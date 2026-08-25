@@ -21,7 +21,7 @@ export type McpInvokeInput = z.infer<typeof McpInvokeInputSchema>;
 type ConnectionOptions = {
   serverUrl: URL;
   credentialId: string;
-  publicBaseUrl: URL;
+  callbackUrl: URL;
   clientMetadataUrl?: string;
   credentialStore: CredentialStore<McpCredential>;
 };
@@ -29,7 +29,7 @@ type ConnectionOptions = {
 export class McpConnection {
   readonly #serverUrl: URL;
   readonly #credentialId: string;
-  readonly #publicBaseUrl: URL;
+  readonly #callbackUrl: URL;
   readonly #clientMetadataUrl?: string;
   readonly #credentialStore: CredentialStore<McpCredential>;
   #client?: Client;
@@ -40,7 +40,7 @@ export class McpConnection {
   constructor(options: ConnectionOptions) {
     this.#serverUrl = options.serverUrl;
     this.#credentialId = options.credentialId;
-    this.#publicBaseUrl = options.publicBaseUrl;
+    this.#callbackUrl = options.callbackUrl;
     this.#clientMetadataUrl = options.clientMetadataUrl;
     this.#credentialStore = options.credentialStore;
   }
@@ -50,10 +50,9 @@ export class McpConnection {
     const pending = await this.#freshPending();
     const flowId = pending?.flowId ?? randomUUID();
     const state = pending?.state ?? randomUUID();
-    const callbackUrl = new URL('/oauth/callback', this.#publicBaseUrl);
     const provider = new PersistentOAuthProvider({
       credentialId: this.#credentialId,
-      callbackUrl,
+      callbackUrl: this.#callbackUrl,
       clientMetadataUrl: this.#clientMetadataUrl,
       store: this.#credentialStore,
     });
@@ -79,6 +78,7 @@ export class McpConnection {
     try {
       await client.connect(transport);
       this.#connected = true;
+      await provider.complete();
       return { status: 'connected' as const };
     } catch (error) {
       if (!(error instanceof UnauthorizedError)) throw error;
@@ -113,11 +113,12 @@ export class McpConnection {
   }
 
   async request(input: McpInvokeInput, signal: AbortSignal) {
-    if (input.method === 'initialize' || input.method === 'server/discover') {
-      throw new Error(`The MCP SDK owns the ${input.method} lifecycle request.`);
-    }
     if (!this.#client || !this.#connected) {
       throw new Error('The MCP connection is awaiting OAuth authorization.');
+    }
+    if (input.method === 'initialize') return this.description();
+    if (input.method === 'server/discover') {
+      throw new Error('The MCP SDK owns the server/discover lifecycle request.');
     }
     try {
       return await this.#client.request(
@@ -131,6 +132,23 @@ export class McpConnection {
       if (!authorizationUrl) throw error;
       throw new Error(`MCP OAuth authorization is required: ${authorizationUrl}`);
     }
+  }
+
+  description() {
+    const client = this.#client;
+    if (!client || !this.#connected) {
+      throw new Error('The MCP connection is awaiting OAuth authorization.');
+    }
+    return {
+      capabilities: client.getServerCapabilities() ?? {},
+      serverInfo: client.getServerVersion() ?? {
+        name: 'rgap-mcp-proxy',
+        version: '0.0.0',
+      },
+      ...(client.getInstructions()
+        ? { instructions: client.getInstructions() }
+        : {}),
+    };
   }
 
   async pendingAuthorization() {
