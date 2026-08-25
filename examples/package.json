@@ -9,16 +9,16 @@
     "mcp-proxy": "tsx mcp-proxy/index.ts",
     "secret-store": "tsx secret-store/index.ts",
     "prestart": "pnpm --filter @rgap/server generate",
-    "start": "tsx index.ts",
-    "test": "vitest run"
+    "start": "tsx index.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.46",
     "@hono/node-server": "^2.1.1",
-    "@modelcontextprotocol/client": "^2.0.0",
     "@rgap/core": "workspace:*",
     "@rgap/local-credential-store": "workspace:*",
     "@rgap/local-oauth-flow-store": "workspace:*",
+    "@rgap/mcp-proxy": "workspace:*",
+    "@rgap/mcp-proxy-client": "workspace:*",
     "@rgap/postgres": "workspace:*",
     "@rgap/server": "workspace:*",
     "@rgap/sqlite": "workspace:*",
@@ -29,7 +29,6 @@
   "devDependencies": {
     "@types/node": "latest",
     "tsx": "latest",
-    "typescript": "latest",
-    "vitest": "^4.1.11"
+    "typescript": "latest"
   }
 }

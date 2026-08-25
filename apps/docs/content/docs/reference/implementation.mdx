@@ -10,6 +10,9 @@ HTTP server, an executable scratchpad, and this MDX documentation application.
 ```text
 packages/
 ├── core/                    # authorization, orchestration, and contracts
+├── examples/
+│   ├── mcp-proxy/           # mountable Hono MCP and OAuth adapter
+│   └── mcp-proxy-client/    # initialized MCP client helper
 ├── local-credential-store/  # local SQLite credential persistence
 ├── local-oauth-flow-store/  # local SQLite OAuth callback state
 ├── postgres/                # Drizzle and PostgreSQL RGAP implementation
@@ -299,6 +302,43 @@ obtains the first event before committing the response, propagates request
 cancellation, and closes the runtime iterator when the client disconnects.
 `HttpRgapStore` uses generated methods for JSON operations and a streaming
 fetch reader for invocation.
+
+## MCP proxy packages
+
+`@rgap/mcp-proxy` provides MCP connections, upstream OAuth persistence, an RGAP
+invoke runtime, and a mountable Hono app. Runtime and app creation are separate
+because the deployment registers the MCP runtime while constructing its RGAP
+store:
+
+```ts
+const mcp = createMcpProxyRuntime({
+  publicBaseUrl,
+  credentialStore,
+  flowStore,
+});
+const store = new SqliteRgapStore({
+  url,
+  runtimes: { mcp: mcp.runtime },
+});
+const proxy = createMcpProxyApp({ mcp, store });
+```
+
+The app exposes `POST /mcp/:connectionId`, `GET /oauth/callback`, and
+`GET /oauth/client-metadata.json`. It does not expose the generic RGAP API.
+Each MCP request uses its bearer to open the guarded RGAP repository and invoke
+`connectionId`. Initialization is handled locally, request-response methods
+are forwarded through RGAP, and SSE and server-initiated messages are not
+supported.
+
+The host mounts `@rgap/server` separately when it needs generic resource
+management routes. The proxy and RGAP apps share the same `RgapStore`, but the
+proxy calls its guarded repository directly rather than making loopback HTTP
+requests.
+
+`@rgap/mcp-proxy-client` exports `createMcpProxyClient`. The factory accepts the
+proxy mount URL, connection resource ID, RGAP bearer, and client identity. It
+attaches the bearer, completes MCP initialization, and returns the connected
+MCP SDK client. The caller closes that client.
 
 ## Documentation application
 

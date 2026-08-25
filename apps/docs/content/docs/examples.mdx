@@ -429,6 +429,9 @@ registered client credentials remain inside the MCP proxy.
   </Step>
 </Steps>
 
-The complete Hono application lives in `examples/mcp-proxy`. Follow the
+The mountable app and initialized client helper live in
+`packages/examples/mcp-proxy` and `packages/examples/mcp-proxy-client`.
+`examples/mcp-proxy` supplies the local stores, resource bootstrap, server
+process, and executable client walkthrough. Follow the
 [OAuth MCP proxy](/docs/guides/mcp-proxy) to connect a server,
 complete authorization, and invoke its RPCs.
