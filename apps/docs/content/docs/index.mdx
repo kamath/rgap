@@ -1,106 +1,123 @@
 ---
 title: Introduction
-description: Organize resources and delegated authority, then execute services without exposing credentials.
+description: Build fine-grained gateways for models, MCP servers, functions, and organizational resources.
 icon: House
 ---
 
 RGAP is a protocol for organizing resources and authority across teams,
-applications, tools, and services. Resources follow a familiar hierarchy,
-grants reflect how an organization delegates control, and each bearer carries a
-narrow, revocable slice of that authority.
+applications, tools, and services.
 
-The same protocol provides an execution proxy for tools, models, APIs, and MCP
-servers. A caller invokes an executable resource with an RGAP bearer; the proxy
-checks its authority, adds deployment-owned credentials, and sends the request
-upstream. The caller gets the result without receiving an OAuth token, API key,
-refresh token, or other provider credential.
-
-<Callout type="info" title="Want to see it run?">
-  Follow the [OAuth MCP proxy walkthrough](/docs/guides/mcp-proxy) to connect an
-  MCP server, complete OAuth, list its tools, and invoke one through RGAP.
-</Callout>
+Use it to put one consistent, programmable boundary in front of anything your
+users or software can access. RGAP combines hierarchical resources, delegated
+grants, opaque bearers, and an execution proxy, so the same protocol can protect
+a model catalog, an MCP deployment, internal functions, or a complete
+organization.
 
 <Cards>
   <Card
-    title="Run the execution proxy"
-    description="Connect an OAuth-protected MCP server and call a tool."
+    title="Build an LLM gateway"
+    description="Grant access by provider, model, team, workload, or environment without distributing provider keys."
+    href="/docs/examples#invoke-openai-through-a-resource"
+    icon="Bot"
+  />
+  <Card
+    title="Build an MCP gateway"
+    description="Expose a complete MCP connection or selected tools while the gateway retains OAuth credentials."
     href="/docs/guides/mcp-proxy"
     icon="Plug"
   />
   <Card
-    title="Try the TypeScript API"
-    description="Create resources, issue a bearer, invoke, and revoke access."
-    href="/docs/quickstarts/typescript"
-    icon="Terminal"
+    title="Expose secure functions"
+    description="Publish a narrow callable interface backed by secrets and other protected resources."
+    href="/docs/examples#compose-a-secret-backed-resource"
+    icon="SquareFunction"
   />
   <Card
-    title="Build an executable resource"
-    description="Define a runtime and compose it with other resources."
-    href="/docs/examples"
-    icon="Workflow"
+    title="Represent an organization"
+    description="Map teams, services, and delegated operators into authority that can only become narrower."
+    href="/docs/concepts/delegation"
+    icon="Network"
   />
 </Cards>
 
-## What happens when a caller invokes a resource
+## One protocol, several gateways
+
+### Fine-grained LLM access
+
+Represent providers, model families, and individual models as resources. A
+grant can cover the complete catalog or one model, and can be delegated again
+to a team, application, or short-lived workload. The execution proxy adds the
+provider credential only after RGAP authorizes the call.
+
+### MCP access without credential sharing
+
+Represent an MCP server, authenticated connection, and discovered operations in
+one resource hierarchy. Grant `invoke` on the connection for complete access or
+on selected child resources for specific tools, prompts, and resources. OAuth
+tokens, refresh tokens, and session state stay in the gateway.
+
+### Secure functions and compositions
+
+Turn a function into an executable resource with a sealed runtime definition.
+Its public input stays separate from deployment-controlled configuration and
+bound resources. A function can call explicitly bound models, APIs, or other
+functions without giving that broader authority to its caller.
+
+### Authority that follows the organization
+
+Resource paths organize what exists; grant paths organize who can act. A
+company can delegate to a division, team, service, or temporary workflow, and
+every descendant is mechanically constrained to the authority of its
+ancestors. Revoking one grant stops its complete descendant tree on the next
+authorization check.
+
+## How an invocation works
 
 1. The caller sends input, an executable resource ID, and its RGAP bearer.
-2. RGAP resolves the bearer and authorizes `invoke` against the complete grant
+2. RGAP resolves the bearer and checks `invoke` through its complete grant
    lineage.
-3. The runtime receives the resource's sealed definition and explicitly bound
-   resources. Deployment-owned credentials stay inside the proxy.
-4. The runtime calls the upstream service and streams events back to the caller.
+3. The execution proxy loads the resource's sealed definition and the protected
+   resources explicitly bound to it.
+4. The runtime performs the operation and streams its result back to the
+   caller.
 
-This keeps authorization and credential handling at the network boundary. The
-caller cannot turn a purpose-built executable into an unrestricted authenticated
-proxy by replacing its upstream URL, credential binding, or other sealed
-configuration.
+The caller never receives the provider key, OAuth token, or secret used by the
+runtime. It also cannot replace sealed details such as the upstream service,
+model, credential binding, or function implementation.
 
-## Why use the proxy
-
-- **Keep secrets out of application context.** Provider credentials live in a
-  deployment-owned store and never appear in caller-controlled invocation
-  input.
-- **Expose useful operations, not raw credentials.** A resource can represent
-  one tool, one model, one MCP connection, or a carefully designed composition.
-- **Narrow access for each task.** A bearer reaches only the executable
-  resources granted to it.
-- **Stop access immediately.** Revoking a grant disables its bearer and every
-  descendant on the next invocation.
-- **Compose calls safely.** An executable can invoke explicitly bound resources
-  without passing their credentials or broad authority to the caller.
-
-## The four pieces
+## The protocol underneath
 
 | Piece | What it does |
 | --- | --- |
-| **Executable resource** | Seals the runtime and deployment-controlled configuration behind a stable ID. |
-| **Binding** | Gives a runtime explicit access to another RGAP resource it needs. |
-| **Grant** | Selects which resources and operations a caller may use. |
-| **Bearer** | Lets a caller exercise one grant without exposing upstream credentials. |
+| **Resource** | Gives a model, tool, function, service, or organizational object a stable identity in a hierarchy. |
+| **Grant** | Selects resources and permissions, then delegates only equal or narrower authority. |
+| **Bearer** | Lets a caller exercise one grant through an opaque, revocable credential. |
+| **Executable definition** | Seals how a callable resource runs and which configuration the caller cannot override. |
+| **Binding** | Gives an executable explicit access to another protected resource it needs. |
 
-Resources and grants form hierarchies so authority can follow an organization's
-teams, services, workflows, and delegated operators without becoming broader.
-Read [Core concepts](/docs/concepts) when you need the full model.
+The authorization model and execution proxy use the same resource identities,
+so moving or renaming an object does not invalidate grants or integrations.
 
 <Steps>
   <Step>
-    ### Run a local example
+    ### Learn the core API
 
     Use the [TypeScript quickstart](/docs/quickstarts/typescript) for the
     smallest runnable path through resource creation, bearer issuance, and
     revocation.
   </Step>
   <Step>
-    ### Proxy a real service
+    ### Choose a gateway pattern
 
-    Follow the [MCP proxy walkthrough](/docs/guides/mcp-proxy) to keep OAuth
-    credentials in the gateway while a caller invokes upstream tools.
+    Review the [model and function examples](/docs/examples), or follow the
+    [MCP proxy walkthrough](/docs/guides/mcp-proxy) with a real OAuth-protected
+    server.
   </Step>
   <Step>
-    ### Design your execution boundary
+    ### Integrate the protocol
 
-    Review [privilege delegation](/docs/concepts/privilege-delegation) before
-    exposing a runtime, then use the [HTTP API](/docs/guides/http-api) to
-    integrate it with your application.
+    Read [Core concepts](/docs/concepts) to design your resource and grant
+    hierarchies, then use the [HTTP API](/docs/guides/http-api) to connect RGAP
+    to your application.
   </Step>
 </Steps>
