@@ -37,7 +37,7 @@ for (const model of grantedModels) {
 const OpenAIInputSchema = z.object({
   method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
   endpoint: z.string().startsWith('/'),
-  headers: z.record(z.string(), z.string()),
+  headers: z.record(z.string(), z.string()).default({}),
   model: z.string().min(1),
   body: z.record(z.string(), z.unknown()),
 });
@@ -90,7 +90,6 @@ for (const modelName of providerModels) {
       runtime: 'openai',
       input: {
         ...chatCompletions,
-        headers: {},
         model: modelName,
       },
     },

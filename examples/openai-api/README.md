@@ -49,11 +49,12 @@ const store = new SqliteRgapStore({
 });
 ```
 
-Each model resource seals `method`, `endpoint`, `headers`, and `model`. The route
+Each model resource seals `method`, `endpoint`, and `model`. Headers default to
+`{}` and can also be sealed when an operation needs custom headers. The route
 forwards every other request body field unchanged, and the runtime applies the
 sealed model after the caller's body. Callers therefore cannot redirect the
-provider request, replace deployment-controlled headers, change its method, or
-use authority for one model to call another.
+provider request, change its method, or use authority for one model to call
+another.
 
 The Hono route and resource share one operation descriptor:
 
@@ -69,7 +70,6 @@ const model = await admin.resources.create({
     runtime: 'openai',
     input: {
       ...chatCompletions,
-      headers: {},
       model: 'gpt-5.6-sol',
     },
   },

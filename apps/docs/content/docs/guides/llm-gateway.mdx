@@ -40,6 +40,14 @@ const providerBaseURL = new URL(
   process.env.OPENAI_BASE_URL ?? 'https://api.openai.com',
 );
 
+const OpenAIInputSchema = z.object({
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
+  endpoint: z.string().startsWith('/'),
+  headers: z.record(z.string(), z.string()).default({}),
+  model: z.string().min(1),
+  body: z.record(z.string(), z.unknown()),
+});
+
 const openaiRuntime = {
   inputSchema: OpenAIInputSchema,
   outputSchema: z.unknown(),
@@ -63,8 +71,9 @@ const openaiRuntime = {
 } satisfies InvokeRuntime<OpenAIInput, unknown>;
 ```
 
-The host reads `OPENAI_API_KEY` and `OPENAI_BASE_URL`. The runtime forwards the
-resource's method, endpoint, and headers plus the caller's body, then applies the
+The host reads `OPENAI_API_KEY` and `OPENAI_BASE_URL`. Headers default to an
+empty object when the resource does not provide them. The runtime forwards the
+resource's method and endpoint plus the caller's body, then applies the
 separately sealed model after the caller-controlled body.
 
 ```ts
@@ -79,17 +88,17 @@ const model = await admin.resources.create({
     runtime: 'openai',
     input: {
       ...chatCompletions,
-      headers: {},
       model: 'gpt-5.6-sol',
     },
   },
 });
 ```
 
-The sealed method, endpoint, headers, and model prevent a caller from redirecting
-the credentialed request, replacing deployment-controlled headers, changing the
-operation, or turning authority for one model into authority for another. The
-caller supplies the remaining OpenAI body under `body`.
+The sealed method, endpoint, and model prevent a caller from redirecting the
+credentialed request, changing the operation, or turning authority for one model
+into authority for another. An operation can also seal custom headers when it
+needs them; otherwise the runtime uses `{}`. The caller supplies the remaining
+OpenAI body under `body`.
 
 ## Grant the smallest useful scope
 

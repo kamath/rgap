@@ -109,10 +109,11 @@ const store = new SqliteRgapStore({
 
 The request bearer selects an RGAP authorization plane, and the request's
 `model` selects a deployment-owned resource. The route checks `invoke` before
-starting the provider request. Each resource seals the method, endpoint, headers,
-and model. The caller controls the remaining OpenAI request body, which the
-runtime forwards without enumerating its fields. The public Hono route and its
-resources share the chat-completions operation descriptor.
+starting the provider request. Each resource seals the method, endpoint, and
+model. Headers default to `{}` and can be sealed when an operation needs custom
+headers. The caller controls the remaining OpenAI request body, which the runtime
+forwards without enumerating its fields. The public Hono route and its resources
+share the chat-completions operation descriptor.
 
 Model access changes by replacing a client's grant bindings:
 
