@@ -73,33 +73,39 @@ cannot replace its sealed model name. The complete executable version lives in
 
 ### Run an OpenAI-compatible HTTP gateway
 
-`@rgap/openai-proxy` packages the OpenAI runtime and a streaming Hono route over
-the same resource design. The host registers the runtime before constructing
-its store, then supplies the store and its public model map to the app:
+`examples/openai-api` defines its runtime directly with the official OpenAI SDK
+and registers it before constructing the store:
 
 ```ts
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  baseURL: process.env.OPENAI_BASE_URL,
+});
+const openaiRuntime = {
+  inputSchema: OpenAIInputSchema,
+  outputSchema: z.unknown(),
+  async invoke({ input, signal }) {
+    const body = { ...input.body, model: input.model };
+    return openai.post(input.url, {
+      headers: input.headers,
+      body,
+      stream: body.stream === true,
+      signal,
+    });
+  },
+} satisfies InvokeRuntime<OpenAIInput, unknown>;
+
 const store = new SqliteRgapStore({
   url: 'rgap.db',
-  runtimes: {
-    openai: createOpenAIProxyRuntime({
-      apiKey: process.env.OPENAI_API_KEY,
-      baseURL: process.env.OPENAI_BASE_URL,
-    }),
-  },
-});
-
-const app = createOpenAIProxyApp({
-  store,
-  models: new Map([
-    ['gpt-5.6-sol', model.id],
-  ]),
+  runtimes: { openai: openaiRuntime },
 });
 ```
 
 The request bearer selects an RGAP authorization plane, and the request's
 `model` selects a deployment-owned resource. The route checks `invoke` before
-starting the provider request. The runtime constructor accepts an API key and
-base URL, with OpenAI environment and origin defaults when either is omitted.
+starting the provider request. Each resource seals the request path, headers,
+and model. The caller controls the remaining OpenAI request body, which the
+runtime forwards without enumerating its fields.
 
 The example writes a scoped bearer to `examples/openai-api/client.token`. Use
 that bearer as an OpenAI client's API key and set its base URL to
