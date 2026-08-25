@@ -1,6 +1,7 @@
 import postgres, {
   type Options,
   type Sql,
+  type TransactionSql,
 } from 'postgres';
 
 export type Awaitable<T> = T | Promise<T>;
@@ -52,12 +53,15 @@ export class PostgresCredentialStore<T> implements CredentialStore<T> {
 
   async set(resourceId: string, value: T) {
     const serialized = serialize(value);
-    await this.#connection`
-      INSERT INTO credentials (resource_id, value)
-      VALUES (${resourceId}, ${serialized})
-      ON CONFLICT (resource_id) DO UPDATE
-      SET value = excluded.value
-    `;
+    await this.#connection.begin(async (transaction) => {
+      await lock(transaction, resourceId);
+      await transaction`
+        INSERT INTO credentials (resource_id, value)
+        VALUES (${resourceId}, ${serialized})
+        ON CONFLICT (resource_id) DO UPDATE
+        SET value = excluded.value
+      `;
+    });
   }
 
   async update(
@@ -65,9 +69,7 @@ export class PostgresCredentialStore<T> implements CredentialStore<T> {
     update: (current: T | undefined) => T,
   ): Promise<T> {
     return await this.#connection.begin(async (transaction) => {
-      await transaction`
-        SELECT pg_advisory_xact_lock(hashtextextended(${resourceId}, 0))
-      `;
+      await lock(transaction, resourceId);
       const [stored] = await transaction<StoredCredential[]>`
         SELECT value
         FROM credentials
@@ -89,10 +91,13 @@ export class PostgresCredentialStore<T> implements CredentialStore<T> {
   }
 
   async delete(resourceId: string) {
-    await this.#connection`
-      DELETE FROM credentials
-      WHERE resource_id = ${resourceId}
-    `;
+    await this.#connection.begin(async (transaction) => {
+      await lock(transaction, resourceId);
+      await transaction`
+        DELETE FROM credentials
+        WHERE resource_id = ${resourceId}
+      `;
+    });
   }
 
   async close() {
@@ -106,4 +111,13 @@ function serialize(value: unknown) {
     throw new TypeError('Credential values must be JSON-serializable.');
   }
   return serialized;
+}
+
+async function lock(
+  connection: TransactionSql,
+  resourceId: string,
+) {
+  await connection`
+    SELECT pg_advisory_xact_lock(hashtextextended(${resourceId}, 0))
+  `;
 }

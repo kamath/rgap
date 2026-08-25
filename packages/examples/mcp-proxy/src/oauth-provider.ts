@@ -7,7 +7,7 @@ import {
   type StoredOAuthClientInformation,
   type StoredOAuthTokens,
 } from '@modelcontextprotocol/client';
-import type { CredentialStore } from '@rgap/credential-store-sqlite';
+import type { CredentialStore } from './storage';
 
 export type PendingAuthorization = {
   flowId: string;

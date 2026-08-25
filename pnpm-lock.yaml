@@ -219,12 +219,6 @@ importers:
       '@rgap/core':
         specifier: workspace:*
         version: link:../../core
-      '@rgap/credential-store-sqlite':
-        specifier: workspace:*
-        version: link:../../credential-store/sqlite
-      '@rgap/oauth-flow-store-sqlite':
-        specifier: workspace:*
-        version: link:../../oauth-flow-store/sqlite
       hono:
         specifier: ^4.13.3
         version: 4.13.3
@@ -232,6 +226,12 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@rgap/credential-store-sqlite':
+        specifier: workspace:*
+        version: link:../../credential-store/sqlite
+      '@rgap/oauth-flow-store-sqlite':
+        specifier: workspace:*
+        version: link:../../oauth-flow-store/sqlite
       '@types/node':
         specifier: latest
         version: 26.2.0

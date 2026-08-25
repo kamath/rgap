@@ -12,12 +12,12 @@
   "dependencies": {
     "@modelcontextprotocol/client": "^2.0.0",
     "@rgap/core": "workspace:*",
-    "@rgap/credential-store-sqlite": "workspace:*",
-    "@rgap/oauth-flow-store-sqlite": "workspace:*",
     "hono": "^4.13.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@rgap/credential-store-sqlite": "workspace:*",
+    "@rgap/oauth-flow-store-sqlite": "workspace:*",
     "@types/node": "latest",
     "typescript": "latest",
     "vitest": "^4.1.11"

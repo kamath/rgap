@@ -15,3 +15,8 @@ export {
   McpProxyRuntime,
   type McpProxyRuntimeOptions,
 } from './runtime';
+export {
+  type CredentialStore,
+  type OAuthFlowRecord,
+  type OAuthFlowStore,
+} from './storage';
