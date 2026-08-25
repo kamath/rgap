@@ -15,10 +15,11 @@
   "dependencies": {
     "@ai-sdk/openai": "^4.0.46",
     "@hono/node-server": "^2.1.1",
-    "@modelcontextprotocol/client": "^2.0.0",
     "@rgap/core": "workspace:*",
     "@rgap/local-credential-store": "workspace:*",
     "@rgap/local-oauth-flow-store": "workspace:*",
+    "@rgap/mcp-proxy": "workspace:*",
+    "@rgap/mcp-proxy-client": "workspace:*",
     "@rgap/server": "workspace:*",
     "@rgap/sqlite": "workspace:*",
     "ai": "^7.0.77",
