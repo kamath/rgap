@@ -3,7 +3,12 @@ import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createOpenAI } from '@ai-sdk/openai';
 import { serve } from '@hono/node-server';
-import { RgapError, type InvokeRuntime, type ResourceHandle } from '@rgap/core';
+import {
+  RgapError,
+  tokenValue,
+  type InvokeRuntime,
+  type ResourceHandle,
+} from '@rgap/core';
 import { SqliteRgapStore } from '@rgap/store-sqlite';
 import { streamText, type ModelMessage } from 'ai';
 import { Hono, type Context } from 'hono';
@@ -222,7 +227,7 @@ function completionChunk(
 
 function bearerFrom(context: Context) {
   const match = /^Bearer\s+(.+)$/i.exec(context.req.header('authorization') ?? '');
-  return match?.[1];
+  return match?.[1] ? tokenValue(match[1]) : undefined;
 }
 
 function openAIError(
