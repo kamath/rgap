@@ -21,7 +21,12 @@ provider model only after RGAP validates the bearer and its `invoke` grant.
 ```ts
 const store = new SqliteRgapStore({
   url: 'rgap.db',
-  runtimes: { openai: createOpenAIProxyRuntime() },
+  runtimes: {
+    openai: createOpenAIProxyRuntime({
+      apiKey: process.env.OPENAI_API_KEY,
+      baseURL: process.env.OPENAI_BASE_URL,
+    }),
+  },
 });
 
 const app = createOpenAIProxyApp({
@@ -42,6 +47,10 @@ Start the API:
 OPENAI_API_KEY=<provider-key> \
 pnpm --filter @rgap/examples openai-api
 ```
+
+`apiKey` defaults to `OPENAI_API_KEY` when omitted. `baseURL` defaults to the
+OpenAI API origin; set `OPENAI_BASE_URL` to target another OpenAI-compatible
+provider endpoint.
 
 The example writes a local RGAP bearer to `client.token`. By default, that
 bearer can invoke `gpt-5.6-sol`, while `gpt-5.6-luna` remains outside its grant.

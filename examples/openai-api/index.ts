@@ -26,7 +26,12 @@ for (const model of grantedModels) {
 
 const store = new SqliteRgapStore({
   url: `${directory}/rgap.db`,
-  runtimes: { openai: createOpenAIProxyRuntime() },
+  runtimes: {
+    openai: createOpenAIProxyRuntime({
+      apiKey: process.env.OPENAI_API_KEY,
+      baseURL: process.env.OPENAI_BASE_URL,
+    }),
+  },
 });
 const admin = store.admin();
 await admin.reset();

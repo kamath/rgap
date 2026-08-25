@@ -80,7 +80,12 @@ its store, then supplies the store and its public model map to the app:
 ```ts
 const store = new SqliteRgapStore({
   url: 'rgap.db',
-  runtimes: { openai: createOpenAIProxyRuntime() },
+  runtimes: {
+    openai: createOpenAIProxyRuntime({
+      apiKey: process.env.OPENAI_API_KEY,
+      baseURL: process.env.OPENAI_BASE_URL,
+    }),
+  },
 });
 
 const app = createOpenAIProxyApp({
@@ -93,7 +98,8 @@ const app = createOpenAIProxyApp({
 
 The request bearer selects an RGAP authorization plane, and the request's
 `model` selects a deployment-owned resource. The route checks `invoke` before
-starting the provider request.
+starting the provider request. The runtime constructor accepts an API key and
+base URL, with OpenAI environment and origin defaults when either is omitted.
 
 The example writes a scoped bearer to `examples/openai-api/client.token`. Use
 that bearer as an OpenAI client's API key and set its base URL to

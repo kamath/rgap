@@ -41,14 +41,19 @@ import { createOpenAIProxyRuntime } from '@rgap/openai-proxy';
 const store = new SqliteRgapStore({
   url: 'rgap.db',
   runtimes: {
-    openai: createOpenAIProxyRuntime(),
+    openai: createOpenAIProxyRuntime({
+      apiKey: process.env.OPENAI_API_KEY,
+      baseURL: process.env.OPENAI_BASE_URL,
+    }),
   },
 });
 ```
 
-The runtime reads `OPENAI_API_KEY` through the OpenAI provider. It accepts
-validated caller-controlled messages and generation settings after RGAP merges
-the sealed model into its input.
+Both constructor options are optional. `apiKey` defaults to `OPENAI_API_KEY`,
+and `baseURL` defaults to the OpenAI API origin. An OpenAI-compatible provider
+can supply its own URL without changing the resource or grant design. The
+runtime accepts validated caller-controlled messages and generation settings
+after RGAP merges the sealed model into its input.
 
 ```ts
 const model = await admin.resources.create({
