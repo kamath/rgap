@@ -8,15 +8,18 @@ import {
   type RgapRepository,
   type SetExecutableInput,
 } from '@rgap/core';
-import { SqliteCredentialStore } from '@rgap/local-credential-store';
-import { SqliteOAuthFlowStore } from '@rgap/local-oauth-flow-store';
+import { PostgresCredentialStore } from '@rgap/credential-store-postgres';
+import { SqliteCredentialStore } from '@rgap/credential-store-sqlite';
 import {
   createMcpProxyApp,
   createMcpProxyRuntime,
   type McpCredential,
 } from '@rgap/mcp-proxy';
+import { PostgresOAuthFlowStore } from '@rgap/oauth-flow-store-postgres';
+import { SqliteOAuthFlowStore } from '@rgap/oauth-flow-store-sqlite';
 import { createApp as createRgapApp } from '@rgap/server';
-import { SqliteRgapStore } from '@rgap/sqlite';
+import { PostgresRgapStore } from '@rgap/store-postgres';
+import { SqliteRgapStore } from '@rgap/store-sqlite';
 import { Hono } from 'hono';
 
 const directory = fileURLToPath(new URL('.', import.meta.url));
@@ -27,20 +30,40 @@ const publicBaseUrl = new URL(
 const serverUrl = new URL(
   process.env.MCP_SERVER_URL ?? 'https://server.smithery.ai/gmail',
 );
-const credentialStore = new SqliteCredentialStore<McpCredential>(
-  `${directory}/credentials.db`,
-);
-const flowStore = new SqliteOAuthFlowStore(`${directory}/oauth-flows.db`);
+const postgresUrl = process.env.RGAP_POSTGRES_URL;
+const credentialStore = postgresUrl
+  ? new PostgresCredentialStore<McpCredential>({ url: postgresUrl })
+  : new SqliteCredentialStore<McpCredential>({
+      url: `${directory}/credentials.db`,
+    });
+const flowStore = postgresUrl
+  ? new PostgresOAuthFlowStore({ url: postgresUrl })
+  : new SqliteOAuthFlowStore({ url: `${directory}/oauth-flows.db` });
+if (
+  credentialStore instanceof PostgresCredentialStore
+  && flowStore instanceof PostgresOAuthFlowStore
+) {
+  await Promise.all([
+    credentialStore.migrate(),
+    flowStore.migrate(),
+  ]);
+}
 const mcp = createMcpProxyRuntime({
   publicBaseUrl,
   credentialStore,
   flowStore,
 });
 
-const store = new SqliteRgapStore({
-  url: `${directory}/rgap.db`,
-  runtimes: { mcp: mcp.runtime },
-});
+const store = postgresUrl
+  ? new PostgresRgapStore({
+      url: postgresUrl,
+      runtimes: { mcp: mcp.runtime },
+    })
+  : new SqliteRgapStore({
+      url: `${directory}/rgap.db`,
+      runtimes: { mcp: mcp.runtime },
+    });
+if (store instanceof PostgresRgapStore) await store.migrate();
 const admin = store.admin();
 const serverName = resourceName(serverUrl);
 const serverResource = await ensureResource(admin, `acme/mcp/servers/${serverName}`);
@@ -158,7 +181,7 @@ function message(error: unknown) {
 async function close() {
   server.close(async () => {
     await mcp.close();
-    store.close();
+    await store.close();
     await credentialStore.close();
     await flowStore.close();
   });

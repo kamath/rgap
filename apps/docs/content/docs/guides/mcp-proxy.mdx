@@ -47,20 +47,20 @@ import {
   createMcpProxyRuntime,
   type McpCredential,
 } from '@rgap/mcp-proxy';
-import { SqliteCredentialStore } from '@rgap/local-credential-store';
-import { SqliteOAuthFlowStore } from '@rgap/local-oauth-flow-store';
+import { SqliteCredentialStore } from '@rgap/credential-store-sqlite';
+import { SqliteOAuthFlowStore } from '@rgap/oauth-flow-store-sqlite';
 import { createApp as createRgapApp } from '@rgap/server';
-import { SqliteRgapStore } from '@rgap/sqlite';
+import { SqliteRgapStore } from '@rgap/store-sqlite';
 import { Hono } from 'hono';
 
 const port = Number(process.env.PORT ?? 3003);
 const publicBaseUrl = new URL(
   process.env.PUBLIC_BASE_URL ?? `http://127.0.0.1:${port}`,
 );
-const credentialStore = new SqliteCredentialStore<McpCredential>(
-  'credentials.db',
-);
-const flowStore = new SqliteOAuthFlowStore('oauth-flows.db');
+const credentialStore = new SqliteCredentialStore<McpCredential>({
+  url: 'credentials.db',
+});
+const flowStore = new SqliteOAuthFlowStore({ url: 'oauth-flows.db' });
 const mcp = createMcpProxyRuntime({
   publicBaseUrl,
   credentialStore,
@@ -186,7 +186,7 @@ credential resource ID. Credential values never enter RGAP invocation input,
 output, or audit records.
 
 The callback state index uses the `OAuthFlowStore` interface from
-`@rgap/local-oauth-flow-store`:
+`@rgap/oauth-flow-store-sqlite`:
 
 ```ts
 interface OAuthFlowStore {
@@ -204,17 +204,20 @@ before the flow expires. Each record identifies the credential, MCP server,
 internal flow, expiration, and one-time claim.
 
 The interface keeps storage-specific concurrency inside each implementation.
-A deployed proxy can supply a Redis, PostgreSQL, or other shared implementation
-without changing callback routing. All proxy replicas share both the flow store
-and the credential store. The callback restores the pending MCP connection from
-the credential store before it gives the callback parameters to the MCP SDK, so
-the process that receives the callback does not need to be the process that
-started authorization.
+A deployed proxy can use `PostgresOAuthFlowStore` from
+`@rgap/oauth-flow-store-postgres` and `PostgresCredentialStore` from
+`@rgap/credential-store-postgres` without changing callback routing. Both
+PostgreSQL adapters expose `migrate()` and can share the RGAP database URL. All
+proxy replicas share both stores. The callback restores the pending MCP
+connection from the credential store before it gives the callback parameters to
+the MCP SDK, so the process that receives the callback does not need to be the
+process that started authorization.
 
-<Callout type="warn" title="Local storage only">
+<Callout type="warn" title="Plaintext credential values">
   The SQLite credential adapter contains plaintext values. Use an
-  encrypted deployment-owned credential store and a shared OAuth flow store for
-  a deployed proxy.
+  encrypted deployment-owned credential value or equivalent database encryption
+  for a deployed proxy. The PostgreSQL credential adapter also stores the JSON
+  value it receives without adding encryption.
 </Callout>
 
 ## 4. Initialize an MCP client
@@ -355,9 +358,10 @@ service that accepts user-supplied URLs also:
 - revalidates every redirect and DNS resolution;
 - applies connection, request, and response-size limits;
 - rate-limits callback failures and never logs callback query parameters;
-- replaces the SQLite credential store with encrypted secret storage;
-- replaces the local OAuth flow store with an implementation shared by every
-  proxy replica; and
+- encrypts credential values before either credential-store adapter persists
+  them;
+- uses the PostgreSQL credential and OAuth-flow adapters when every proxy
+  replica needs shared state; and
 - places the RGAP administrative bearer behind an infrastructure boundary.
 
 Continue with [MCP and agent examples](/docs/examples) for the resource and

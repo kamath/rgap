@@ -1,4 +1,4 @@
-import { SqliteRgapStore } from '@rgap/sqlite';
+import { SqliteRgapStore } from '@rgap/store-sqlite';
 
 // Each command loads the records needed by its rule and commits only its changed rows and audit
 // event. `:memory:` changes durability, not the focused transaction model.
