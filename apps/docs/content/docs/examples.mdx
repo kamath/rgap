@@ -310,15 +310,37 @@ const store = new SqliteRgapStore({
   runtimes: { mcp: mcp.runtime },
 });
 
-app.route('/integrations/mcp/oauth', createMcpProxyApp({ mcp }));
-app.route('/rgap', createRgapApp({ store, adminToken }));
+app.route('/integrations/mcp', createMcpProxyApp({ mcp, store }));
 ```
 
-`publicBaseUrl` is the public URL of the OAuth Hono mount point, including its
-path. `createMcpProxyApp` exposes only `/callback` and
-`/client-metadata.json`; the deployment mounts its RGAP API separately. The
-deployment owns the credential, flow, and RGAP stores and closes them after
-`mcp.close()`.
+`publicBaseUrl` is the public URL of the Hono mount point, including its path.
+`createMcpProxyApp` exposes `/mcp/:connectionId` plus the OAuth callback and
+client metadata routes. It opens the supplied RGAP store with the request
+bearer and invokes the selected connection through that guarded repository. It
+does not expose generic RGAP commands.
+
+Hosts manage registered servers through the same runtime and an explicitly
+selected repository plane:
+
+```ts
+const servers = mcp.servers(store.as(operatorToken));
+const registration = await servers.create({
+  name: 'github',
+  serverUrl: new URL('https://api.githubcopilot.com/mcp'),
+});
+
+await servers.get(registration.server.id);
+await servers.list({ parentId: registration.server.parentId });
+await servers.update(registration.server.id, {
+  serverUrl: new URL('https://mcp.github.example.com'),
+});
+await servers.delete(registration.server.id);
+```
+
+The application decides whether to call that service from server actions,
+server functions, or a private management API. Gateway management never
+reveals values from the secret store. The deployment owns the credential, flow,
+and RGAP stores and closes them after `mcp.close()`.
 
 An OAuth redirect does not call the RGAP invoke endpoint directly. Authorization
 servers send browser `GET` requests without an RGAP bearer, while resource
@@ -453,7 +475,7 @@ registered client credentials remain inside the MCP proxy.
   </Step>
 </Steps>
 
-The mountable OAuth Hono application and MCP runtime live in
+The mountable MCP Hono application and runtime live in
 `packages/examples/mcp-proxy`. The deployment bootstrap in
 `examples/mcp-proxy` supplies local stores, provisions resources, mounts the
 OAuth and RGAP apps independently, and starts the process. Follow the

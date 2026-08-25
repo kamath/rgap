@@ -20,15 +20,34 @@ const store = new SqliteRgapStore({
 });
 
 const app = new Hono();
-app.route('/integrations/mcp/oauth', createMcpProxyApp({ mcp }));
-app.route('/rgap', createRgapApp({ store, adminToken }));
+app.route('/integrations/mcp', createMcpProxyApp({ mcp, store }));
 ```
 
-`createMcpProxyApp` exposes only `GET /callback` and
-`GET /client-metadata.json`, relative to its mount point. It does not mount the
-RGAP API. `publicBaseUrl` is the externally visible URL of that mount point.
-For the example above it is `https://example.com/integrations/mcp/oauth`.
+`createMcpProxyApp` exposes `POST /mcp/:connectionId`,
+`GET /oauth/callback`, and `GET /oauth/client-metadata.json`, relative to its
+mount point. It does not mount the RGAP API. The MCP route uses the request
+bearer and supplied store to invoke the selected connection through RGAP.
+`publicBaseUrl` is the externally visible URL of that mount point. For the
+example above it is `https://example.com/integrations/mcp`.
 The configured public URL and Hono mount path must match.
+
+Host code manages gateway servers without exposing generic RGAP routes:
+
+```ts
+const servers = mcp.servers(store.admin());
+const registration = await servers.create({
+  name: 'example',
+  serverUrl: new URL('https://mcp.example.com'),
+});
+await servers.update(registration.server.id, {
+  serverUrl: new URL('https://mcp2.example.com'),
+});
+await servers.delete(registration.server.id);
+```
+
+Pass `store.as(operatorToken)` instead of `store.admin()` to enforce delegated
+management authority. A web application can call this service from Next.js
+server actions, TanStack Start server functions, or private management routes.
 
 The server definition, authenticated connection, and credential are separate
 resources:
@@ -63,7 +82,7 @@ Start the proxy:
 
 ```sh
 MCP_SERVER_URL=https://mcp.example.com \
-PUBLIC_BASE_URL=http://127.0.0.1:3003/oauth \
+PUBLIC_BASE_URL=http://127.0.0.1:3003 \
 pnpm --filter @rgap/examples mcp-proxy
 ```
 
@@ -91,13 +110,13 @@ TOKEN=$(<examples/mcp-proxy/invoker.token)
 curl --no-buffer \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  --data '{"input":{"method":"tools/list"}}' \
-  http://localhost:3003/resources/<connection-resource-id>/invoke
+  --data '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+  http://localhost:3003/mcp/<connection-resource-id>
 ```
 
-The response is an NDJSON stream containing the upstream MCP result followed
-by a `done` event. `initialize` and `server/discover` remain owned by the MCP
-SDK and are not caller-controlled.
+The response is an MCP JSON-RPC response. An MCP client first sends
+`initialize`; the proxy handles lifecycle messages locally and forwards
+ordinary request-response methods through the executable RGAP connection.
 
 The example accepts one upstream URL from deployment configuration. A service
 that accepts user-supplied URLs also validates redirects and resolved

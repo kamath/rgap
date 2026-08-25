@@ -11,7 +11,7 @@ credentials and MCP session.
 
 This walkthrough connects a remote MCP endpoint, completes OAuth when the
 server requires it, and sends `tools/list` and `tools/call` through the RGAP
-invoke API.
+authorized MCP proxy route.
 
 ## Before you start
 
@@ -37,19 +37,18 @@ where the proxy app is mounted, including any path prefix.
 ## Compose the proxy
 
 The MCP runtime exists before store construction so the deployment can
-register it with its RGAP store. The OAuth app is independent from the RGAP
-HTTP API and can be mounted beneath any Hono route:
+register it with its RGAP store. The proxy app uses that store internally
+without mounting the generic RGAP HTTP API and can sit beneath any Hono route:
 
 ```ts
 import {
   createMcpProxyApp,
   createMcpProxyRuntime,
 } from '@rgap/mcp-proxy';
-import { createApp as createRgapApp } from '@rgap/server';
 import { Hono } from 'hono';
 
 const mcp = createMcpProxyRuntime({
-  publicBaseUrl: new URL('https://example.com/integrations/mcp/oauth'),
+  publicBaseUrl: new URL('https://example.com/integrations/mcp'),
   credentialStore,
   flowStore,
 });
@@ -59,15 +58,65 @@ const store = new SqliteRgapStore({
 });
 
 const app = new Hono();
-app.route('/integrations/mcp/oauth', createMcpProxyApp({ mcp }));
-app.route('/rgap', createRgapApp({ store, adminToken }));
+app.route('/integrations/mcp', createMcpProxyApp({ mcp, store }));
 ```
 
-`createMcpProxyApp` exposes only `GET /callback` and
-`GET /client-metadata.json`. It does not expose RGAP routes. The package derives
-the OAuth URLs by appending those paths to `publicBaseUrl`. The public URL and
-Hono mount path must identify the same route. The caller owns all injected
-stores and calls `mcp.close()` before closing them.
+The app exposes `POST /mcp/:connectionId`, `GET /oauth/callback`, and
+`GET /oauth/client-metadata.json` relative to its mount point. It does not
+expose generic RGAP routes. The MCP route extracts the RGAP bearer, opens the
+guarded repository with `store.as(token)`, and invokes the fixed connection ID
+from the route. RGAP therefore authorizes each forwarded MCP request.
+
+The package derives OAuth URLs by appending their paths to `publicBaseUrl`. The
+public URL and Hono mount path must identify the same route. The caller owns all
+injected stores and calls `mcp.close()` before closing them.
+
+## Manage gateway servers
+
+The runtime exposes a server registry scoped to an `RgapRepository`. The caller
+chooses whether management runs through an administrative repository or a
+delegated bearer:
+
+```ts
+const operator = mcp.servers(store.as(operatorToken));
+const created = await operator.create({
+  name: 'github',
+  serverUrl: new URL('https://api.githubcopilot.com/mcp'),
+});
+
+console.log(created.server.id);
+console.log(created.credential.id);
+console.log(created.connection.id);
+console.log(`/integrations/mcp/mcp/${created.connection.id}`);
+
+console.log(await operator.get(created.server.id));
+const page = await operator.list({ limit: 100 });
+
+const updated = await operator.update(created.server.id, {
+  name: 'github-production',
+  serverUrl: new URL('https://mcp.github.example.com'),
+});
+
+await operator.delete(updated.server.id);
+```
+
+Creating a gateway server creates a server resource, a credential resource, and
+an executable connection resource whose sealed input contains the upstream
+URL and whose bindings identify the server and credential. Reading and listing
+return metadata and resource IDs, never stored credentials.
+
+Updating a name renames the server resources. Updating the upstream URL replaces
+the immutable executable connection and returns its new ID. Deleting removes
+the connection and server resources and deletes the associated secret. Any
+claimed callback can no longer complete after its credential is removed. The
+host exposes these operations through Next.js server actions, TanStack Start
+server functions, or a separate administrative API; the mountable Hono app
+does not add management routes.
+
+`mcp.servers(store.as(token))` performs every repository operation through the
+bearer's guarded plane. The token needs authority to create, bind, update, and
+delete resources beneath the configured gateway root. Trusted deployment
+bootstrap can use `mcp.servers(store.admin())`.
 
 ## 1. Start the proxy
 
@@ -75,7 +124,7 @@ Run the example from the repository root:
 
 ```bash
 MCP_SERVER_URL=https://mcp.example.com/mcp \
-PUBLIC_BASE_URL=http://127.0.0.1:3003/oauth \
+PUBLIC_BASE_URL=http://127.0.0.1:3003 \
 pnpm --filter @rgap/examples mcp-proxy
 ```
 
@@ -124,7 +173,7 @@ the matching public origin:
 
 ```bash
 MCP_SERVER_URL=https://mcp.example.com/mcp \
-PUBLIC_BASE_URL=https://proxy.example.com/oauth \
+PUBLIC_BASE_URL=https://proxy.example.com \
 pnpm --filter @rgap/examples mcp-proxy
 ```
 
@@ -206,18 +255,17 @@ Copy the executable connection resource ID printed by the app, then invoke
 curl --no-buffer \
   --header "Authorization: Bearer $TOKEN" \
   --header "Content-Type: application/json" \
-  --data '{"input":{"method":"tools/list"}}' \
-  http://localhost:3003/resources/<connection-resource-id>/invoke
+  --data '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+  http://localhost:3003/mcp/<connection-resource-id>
 ```
 
-The response is an NDJSON invocation stream:
+The response is an MCP JSON-RPC response:
 
 ```json
-{"type":"data","value":{"tools":[{"name":"example_tool"}]}}
-{"type":"done"}
+{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"example_tool"}]}}
 ```
 
-The exact `value` comes from the upstream MCP server. RGAP validates `invoke`
+The exact `result` comes from the upstream MCP server. RGAP validates `invoke`
 before the runtime resolves the credential binding or sends the MCP request.
 
 ## 5. Call a tool
@@ -229,17 +277,17 @@ curl --no-buffer \
   --header "Authorization: Bearer $TOKEN" \
   --header "Content-Type: application/json" \
   --data '{
-    "input": {
-      "method": "tools/call",
-      "params": {
-        "name": "example_tool",
-        "arguments": {
-          "query": "authorization"
-        }
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/call",
+    "params": {
+      "name": "example_tool",
+      "arguments": {
+        "query": "authorization"
       }
     }
   }' \
-  http://localhost:3003/resources/<connection-resource-id>/invoke
+  http://localhost:3003/mcp/<connection-resource-id>
 ```
 
 The connection accepts every client-to-server request supported by the

@@ -292,16 +292,33 @@ const store = new SqliteRgapStore({
   url,
   runtimes: { mcp: mcp.runtime },
 });
-const oauth = createMcpProxyApp({ mcp });
+const proxy = createMcpProxyApp({ mcp, store });
 ```
 
-The app contains only the public OAuth callback and client metadata routes,
-relative to its mount point. It does not expose the RGAP API or accept an RGAP
-store or administrative token. It has no listener, environment parsing,
-database paths, resource provisioning, or signal handling. A parent Hono app
-mounts it at any path and mounts `@rgap/server` independently when needed.
-`publicBaseUrl` identifies the OAuth app's externally visible mount point so
-callback URLs remain correct when the route has a prefix.
+The app contains one stateless MCP Streamable HTTP route and the public OAuth
+callback and client metadata routes, relative to its mount point:
+
+```text
+POST /mcp/:connectionId
+GET  /oauth/callback
+GET  /oauth/client-metadata.json
+```
+
+It does not expose the RGAP API. Each MCP request uses its bearer to open the
+guarded RGAP repository and invoke `connectionId`. The route handles MCP
+initialization locally, forwards request-response methods, advertises no
+server-initiated capabilities, and does not provide SSE.
+
+The runtime also exposes `mcp.servers(repository)` for server registration
+CRUD. The supplied repository determines management authority. A registration
+owns one server resource, one credential resource, and one immutable executable
+connection. Replacing its URL replaces the executable connection. Deletion
+also removes its associated secret, so an outstanding callback cannot complete.
+
+The package has no listener, environment parsing, database paths, or signal
+handling. A parent Hono app mounts it at any path. `publicBaseUrl` identifies
+the app's externally visible mount point so callback URLs remain correct when
+the route has a prefix.
 
 The proxy depends on `SecretStore` from `@rgap/secret-store` and
 `OAuthFlowStore` from `@rgap/oauth-store`. The example injects
