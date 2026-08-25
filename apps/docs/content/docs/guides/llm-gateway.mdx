@@ -79,9 +79,7 @@ const model = await admin.resources.create({
     runtime: 'openai',
     input: {
       ...chatCompletions,
-      headers: {
-        'x-rgap-example': 'gated-openai-api',
-      },
+      headers: {},
       model: 'gpt-5.6-sol',
     },
   },

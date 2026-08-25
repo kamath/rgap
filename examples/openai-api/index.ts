@@ -90,9 +90,7 @@ for (const modelName of providerModels) {
       runtime: 'openai',
       input: {
         ...chatCompletions,
-        headers: {
-          'x-rgap-example': 'gated-openai-api',
-        },
+        headers: {},
         model: modelName,
       },
     },
