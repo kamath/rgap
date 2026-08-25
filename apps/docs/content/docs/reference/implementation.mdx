@@ -438,10 +438,13 @@ rather than a report, and each downstream package exercises its real adapter
 instead of a stand-in.
 
 Continuous integration installs the frozen lockfile and runs three explicit
-checks:
+checks. The GitHub Actions build excludes the application workspaces under
+`apps/`; Vercel builds those applications separately. CI generates the server
+client first because the non-application examples import it:
 
 ```bash
-pnpm build
+pnpm --filter @rgap/server generate
+pnpm --filter '!./apps/**' --recursive --if-present build
 pnpm test
 pnpm --filter @rgap/examples invariants
 ```

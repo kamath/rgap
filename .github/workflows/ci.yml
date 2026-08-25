@@ -42,7 +42,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build
-        run: pnpm build
+        run: |
+          pnpm --filter @rgap/server generate
+          pnpm --filter '!./apps/**' --recursive --if-present build
 
       - name: Test
         run: pnpm test

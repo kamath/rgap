@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit",
+    "build:ci-workspaces": "pnpm --filter @rgap/server generate && pnpm --filter '!./apps/**' --recursive --if-present build",
     "invariants": "tsx invariants.ts",
     "mcp-proxy": "tsx mcp-proxy/index.ts",
     "secret-store": "tsx secret-store/index.ts",
