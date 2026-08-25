@@ -185,6 +185,10 @@ app.on(chatCompletions.method, chatCompletions.endpoint, async (context) => {
 const server = serve({ fetch: app.fetch, port }, ({ port: listeningPort }) => {
   console.log(`OpenAI-compatible API listening on http://localhost:${listeningPort}/v1`);
   console.log(`RGAP bearer written to ${tokenPath}`);
+  console.log(`Access grant: ${application.id}`);
+  for (const [name, model] of models) {
+    console.log(`Model resource ${name}: ${model.id}`);
+  }
   console.log(`Granted models: ${[...grantedModels].join(', ')}`);
 });
 

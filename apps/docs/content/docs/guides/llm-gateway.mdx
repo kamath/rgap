@@ -114,6 +114,38 @@ The grant path can mirror a company, team, service, environment, or workload.
 Delegated child grants can shorten expiration or narrow model coverage, but
 cannot add models or permissions outside their parent.
 
+## Manage access to models
+
+Create a grant for one model, read its current bindings, replace those bindings
+to change model access, and revoke the grant to remove access:
+
+```ts
+const access = await admin.grants.create({
+  name: 'company/product/chat-client',
+  bindings: [{
+    id: models.get('gpt-5.6-sol')!.id,
+    permissions: ['invoke'],
+  }],
+  expiresAt: null,
+});
+const token = await access.tokens.create({ label: 'chat-client' });
+
+const current = await admin.grants.get(access.id);
+console.log([...current.bindings]);
+
+const updated = await current.bindings.set([{
+  id: models.get('gpt-5.6-luna')!.id,
+  permissions: ['invoke'],
+}]);
+
+await updated.revoke();
+```
+
+Replacing bindings changes what existing bearers can invoke on their next
+request. Revocation invalidates the grant and its bearers. Grants are retained
+for lineage and audit records, so removing access uses `revoke()` rather than
+deleting the grant record.
+
 ## Invoke through the gateway
 
 The application resolves the model with its RGAP bearer and invokes its narrow
@@ -172,11 +204,6 @@ selects only from the host's fixed map.
 
 Existing OpenAI clients connect by setting the app's `/v1` URL as their base
 URL and using an RGAP bearer as the API key.
-
-Other operations use the same pattern. An image-generation resource seals
-`POST /v1/images/generations`, its headers, and its approved model; the public
-Hono route mounts that descriptor and invokes the selected resource. JSON
-responses and JSON SSE streams use the same runtime.
 
 ## Apply policy at the right level
 

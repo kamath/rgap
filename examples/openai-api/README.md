@@ -78,9 +78,6 @@ const model = await admin.resources.create({
 app.on(chatCompletions.method, chatCompletions.endpoint, handler);
 ```
 
-Add another descriptor, resource map, and route for operations such as
-`POST /v1/images/generations`.
-
 Start the API:
 
 ```sh
@@ -102,6 +99,34 @@ OPENAI_MODELS=gpt-5.6-sol,gpt-5.6-luna \
 GRANTED_OPENAI_MODELS=gpt-5.6-sol \
 pnpm --filter @rgap/examples openai-api
 ```
+
+Manage a client's model access through its grant:
+
+```ts
+const access = await admin.grants.create({
+  name: 'company/product/chat-client',
+  bindings: [{
+    id: models.get('gpt-5.6-sol')!.id,
+    permissions: ['invoke'],
+  }],
+  expiresAt: null,
+});
+const token = await access.tokens.create({ label: 'chat-client' });
+
+const current = await admin.grants.get(access.id);
+console.log([...current.bindings]);
+
+const updated = await current.bindings.set([{
+  id: models.get('gpt-5.6-luna')!.id,
+  permissions: ['invoke'],
+}]);
+
+await updated.revoke();
+```
+
+The binding replacement immediately moves existing bearers from
+`gpt-5.6-sol` to `gpt-5.6-luna`. RGAP retains grants for lineage and audit
+records, so removing access revokes the grant instead of deleting it.
 
 Call the streaming endpoint with an OpenAI client or `curl`:
 

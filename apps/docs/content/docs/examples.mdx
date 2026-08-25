@@ -112,9 +112,22 @@ The request bearer selects an RGAP authorization plane, and the request's
 starting the provider request. Each resource seals the method, endpoint, headers,
 and model. The caller controls the remaining OpenAI request body, which the
 runtime forwards without enumerating its fields. The public Hono route and its
-resources share one operation descriptor, so adding an endpoint such as
-`POST /v1/images/generations` adds a matching route that invokes resources
-parameterized for that operation.
+resources share the chat-completions operation descriptor.
+
+Model access changes by replacing a client's grant bindings:
+
+```ts
+const access = await admin.grants.get(clientGrantId);
+await access.bindings.set([{
+  id: models.get('gpt-5.6-luna')!.id,
+  permissions: ['invoke'],
+}]);
+await access.revoke();
+```
+
+The binding replacement affects existing bearers on their next request.
+Revocation removes their remaining access while retaining the grant record for
+lineage and audit history.
 
 The example writes a scoped bearer to `examples/openai-api/client.token`. Use
 that bearer as an OpenAI client's API key and set its base URL to
