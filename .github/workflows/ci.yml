@@ -11,6 +11,20 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: rgap
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d rgap"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -32,6 +46,13 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      - name: Test PostgreSQL adapter
+        env:
+          TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/rgap
+        run: |
+          pnpm --filter @rgap/postgres test
+          pnpm --filter @rgap/invariant-tests test
 
       - name: Test invariant walkthrough
         run: pnpm --filter @rgap/examples invariants

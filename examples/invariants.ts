@@ -5,6 +5,7 @@ import {
   type ResourceId,
   type RgapRepository,
 } from '@rgap/core';
+import { PostgresRgapStore } from '@rgap/postgres';
 import { SqliteRgapStore } from '@rgap/sqlite';
 
 async function listResourceTree(repository: RgapRepository) {
@@ -22,10 +23,15 @@ async function listResourceTree(repository: RgapRepository) {
   return resources;
 }
 
-const store = new SqliteRgapStore({ url: ':memory:' });
+const postgresUrl = process.env.RGAP_POSTGRES_URL;
+const store = postgresUrl
+  ? new PostgresRgapStore({ url: postgresUrl })
+  : new SqliteRgapStore({ url: ':memory:' });
 
 try {
+  if (store instanceof PostgresRgapStore) await store.migrate();
   const admin = store.admin();
+  await admin.reset();
   const acme = await admin.resources.create({ name: 'acme' });
   const platform = await acme.create({ name: 'platform' });
   const docs = await platform.create({ name: 'docs' });
@@ -97,5 +103,5 @@ try {
 
   console.log('Invariant walkthrough passed.');
 } finally {
-  store.close();
+  await store.close();
 }

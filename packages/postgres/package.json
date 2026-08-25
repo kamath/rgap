@@ -1,21 +1,23 @@
 {
-  "name": "@rgap/invariant-tests",
+  "name": "@rgap/postgres",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "exports": "./src/index.ts",
+  "types": "./src/index.ts",
   "scripts": {
     "build": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
     "@rgap/core": "workspace:*",
-    "@rgap/postgres": "workspace:*",
-    "@rgap/sqlite": "workspace:*"
+    "drizzle-orm": "latest",
+    "postgres": "latest"
   },
   "devDependencies": {
     "@types/node": "latest",
-    "fast-check": "latest",
+    "drizzle-kit": "latest",
     "typescript": "latest",
     "vitest": "latest"
   }
