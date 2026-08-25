@@ -10,6 +10,10 @@ import {
   type SetExecutableInput,
 } from '@rgap/core';
 import { SqliteCredentialStore } from '@rgap/local-credential-store';
+import {
+  type OAuthFlowRecord,
+  SqliteOAuthFlowStore,
+} from '@rgap/local-oauth-flow-store';
 import { createApp as createRgapApp } from '@rgap/server';
 import { SqliteRgapStore } from '@rgap/sqlite';
 import { Hono } from 'hono';
@@ -18,7 +22,6 @@ import {
   McpConnection,
   McpInvokeInputSchema,
 } from './mcp-connection';
-import { OAuthFlowStore, type OAuthFlowRecord } from './oauth-flow-store';
 import {
   type McpCredential,
   oauthClientMetadataDocument,
@@ -35,9 +38,7 @@ const serverUrl = new URL(process.env.MCP_SERVER_URL ?? 'http://127.0.0.1:3001/m
 const credentialStore = new SqliteCredentialStore<McpCredential>(
   `${directory}/credentials.db`,
 );
-const oauthFlowStore = new OAuthFlowStore(
-  new SqliteCredentialStore<OAuthFlowRecord>(`${directory}/oauth-flows.db`),
-);
+const oauthFlowStore = new SqliteOAuthFlowStore(`${directory}/oauth-flows.db`);
 const connections = new Map<string, McpConnection>();
 
 const McpRuntimeInputSchema = McpInvokeInputSchema.extend({
@@ -140,6 +141,7 @@ app.get('/oauth/callback', async (context) => {
   }
   const connection = connectionFor(new URL(flow.serverUrl), flow.credentialId);
   try {
+    if (!connection.isConnected()) await connection.connect();
     const status = await connection.finishAuthorization(flow.flowId, new URL(context.req.url));
     await oauthFlowStore.complete(state);
     await registerFlow(connection);
