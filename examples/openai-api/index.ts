@@ -166,7 +166,9 @@ app.post('/v1/chat/completions', async (context) => {
     if (response === undefined) {
       return openAIError(context, 500, 'The provider returned no response.', 'server_error');
     }
-    return context.json(response);
+    return new Response(JSON.stringify(response), {
+      headers: { 'content-type': 'application/json' },
+    });
   } catch (error) {
     if (error instanceof RgapError && error.code === 'invalid_bearer') {
       return openAIError(context, 401, error.message, 'invalid_api_key');
