@@ -17,13 +17,16 @@ forward any client-to-server MCP request supported by the negotiated protocol.
 The MCP SDK manages connection setup and protocol negotiation.
 
 OAuth tokens, registered client information, discovery state, PKCE data, and
-pending callback state are stored through `@rgap/local-credential-store` in
-`credentials.db` under the credential resource ID. The browser callback
-validates state and expiry before asking the MCP SDK to validate the issuer and
-exchange the authorization code.
+credential-bound pending authorization are stored through
+`@rgap/local-credential-store` in `credentials.db` under the credential resource
+ID. The browser callback validates state and expiry before asking the MCP SDK to
+validate the issuer and exchange the authorization code.
 
-Pending callback lookup records are keyed by a SHA-256 hash of state in
-`oauth-flows.db`. Claiming one is atomic and one-time.
+`@rgap/local-oauth-flow-store` provides the callback lookup store interface and
+its local SQLite implementation. `SqliteOAuthFlowStore` keys pending callback
+records by a SHA-256 hash of state in `oauth-flows.db`. Claiming one is atomic
+and one-time. A replicated deployment supplies a shared implementation of the
+same interface and shares its credential store between proxy processes.
 
 Start the proxy:
 
@@ -73,4 +76,5 @@ timeouts and response-size limits.
 `credentials.db`, `oauth-flows.db`, `rgap.db`, the generated bearer, and the
 default RGAP admin token are local-development conveniences. The SQLite
 credential values are plaintext and must not be used as deployed secret
-storage.
+storage. A deployed proxy uses an encrypted credential store and an OAuth flow
+store shared by every replica.
