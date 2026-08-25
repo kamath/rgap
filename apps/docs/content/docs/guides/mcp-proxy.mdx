@@ -120,13 +120,36 @@ data in `examples/mcp-proxy/credentials.db`. The records are keyed by the RGAP
 credential resource ID. Credential values never enter RGAP invocation input,
 output, or audit records.
 
-The state index lives in `examples/mcp-proxy/oauth-flows.db`. Its keys are
-SHA-256 hashes rather than callback state values. Each record identifies the
-credential, MCP server, internal flow, expiration, and one-time claim.
+The callback state index uses the `OAuthFlowStore` interface from
+`@rgap/local-oauth-flow-store`:
+
+```ts
+interface OAuthFlowStore {
+  register(state: string, flow: OAuthFlowRecord): Promise<void>;
+  claim(state: string, now?: Date): Promise<OAuthFlowRecord>;
+  complete(state: string): Promise<void>;
+  close(): Promise<void>;
+}
+```
+
+The example constructs `SqliteOAuthFlowStore`, which stores the index in
+`examples/mcp-proxy/oauth-flows.db`. It hashes callback state values with
+SHA-256 before using them as keys and atomically permits one claim before the
+flow expires. Each record identifies the credential, MCP server, internal
+flow, expiration, and one-time claim.
+
+The interface keeps storage-specific concurrency inside each implementation.
+A deployed proxy can supply a Redis, PostgreSQL, or other shared implementation
+without changing callback routing. All proxy replicas share both the flow store
+and the credential store. The callback restores the pending MCP connection from
+the credential store before it gives the callback parameters to the MCP SDK, so
+the process that receives the callback does not need to be the process that
+started authorization.
 
 <Callout type="warn" title="Local storage only">
   The example SQLite credential store contains plaintext values. Use an
-  encrypted deployment-owned credential store for a deployed proxy.
+  encrypted deployment-owned credential store and a shared OAuth flow store for
+  a deployed proxy.
 </Callout>
 
 ## 4. List the upstream tools
@@ -245,7 +268,9 @@ service that accepts user-supplied URLs also:
 - revalidates every redirect and DNS resolution;
 - applies connection, request, and response-size limits;
 - rate-limits callback failures and never logs callback query parameters;
-- replaces the SQLite credential store with encrypted secret storage; and
+- replaces the SQLite credential store with encrypted secret storage;
+- replaces the local OAuth flow store with an implementation shared by every
+  proxy replica; and
 - places the RGAP administrative bearer behind an infrastructure boundary.
 
 Continue with [MCP and agent examples](/docs/examples) for the resource and
