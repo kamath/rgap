@@ -68,7 +68,7 @@ OAuth and secret store interfaces.
 Start the proxy:
 
 ```sh
-MCP_SERVER_URL=https://mcp.example.com \
+MCP_SERVER_URL=https://server.smithery.ai/gmail \
 PUBLIC_BASE_URL=http://127.0.0.1:3003 \
 pnpm --filter @rgap/examples mcp-proxy
 ```
@@ -87,12 +87,23 @@ selects dynamic client registration when it advertises a registration
 endpoint. HTTP loopback development uses dynamic registration because CIMD
 client IDs require public HTTPS URLs.
 
-The app writes an RGAP bearer to `invoker.token` and prints the executable
-connection resource ID. Initialize an MCP client with that route and bearer:
+After the browser displays `MCP authorization complete`, leave the gateway
+running. It writes an RGAP bearer to `invoker.token` and prints the executable
+connection resource ID.
+
+Run the executable client example against that gateway:
+
+```sh
+RGAP_TOKEN="$(<examples/mcp-proxy/invoker.token)" \
+MCP_CONNECTION_ID=<connection-resource-id> \
+pnpm --filter @rgap/examples exec tsx mcp-proxy/client.ts
+```
+
+The client example uses the helper this way:
 
 ```ts
 const client = await createMcpProxyClient({
-  proxyUrl: new URL('http://localhost:3003'),
+  proxyUrl: new URL(process.env.MCP_PROXY_URL ?? 'http://localhost:3003'),
   connectionId,
   rgapToken,
   clientInfo: {
@@ -110,6 +121,7 @@ const tools = await client.request(
 example-support package. It attaches the bearer and sends `initialize` before
 returning the client. The proxy handles lifecycle messages locally and forwards
 ordinary request-response methods through the executable RGAP connection.
+The example prints the upstream `tools/list` result and closes the client.
 
 The example accepts one upstream URL from deployment configuration. A service
 that accepts user-supplied URLs also validates redirects and resolved

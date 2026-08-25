@@ -24,7 +24,9 @@ const port = Number(process.env.PORT ?? 3003);
 const publicBaseUrl = new URL(
   process.env.PUBLIC_BASE_URL ?? `http://127.0.0.1:${port}`,
 );
-const serverUrl = new URL(process.env.MCP_SERVER_URL ?? 'http://127.0.0.1:3001/mcp');
+const serverUrl = new URL(
+  process.env.MCP_SERVER_URL ?? 'https://server.smithery.ai/gmail',
+);
 const credentialStore = new SqliteSecretStore<McpCredential>(
   `${directory}/credentials.db`,
 );

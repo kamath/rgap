@@ -83,7 +83,7 @@ so no loopback request or administrative bearer crosses between route groups.
 Run the example from the repository root:
 
 ```bash
-MCP_SERVER_URL=https://mcp.example.com/mcp \
+MCP_SERVER_URL=https://server.smithery.ai/gmail \
 PUBLIC_BASE_URL=http://127.0.0.1:3003 \
 pnpm --filter @rgap/examples mcp-proxy
 ```
@@ -132,7 +132,7 @@ To exercise Client ID Metadata Documents, expose the app through HTTPS and set
 the matching public origin:
 
 ```bash
-MCP_SERVER_URL=https://mcp.example.com/mcp \
+MCP_SERVER_URL=https://server.smithery.ai/gmail \
 PUBLIC_BASE_URL=https://proxy.example.com \
 pnpm --filter @rgap/examples mcp-proxy
 ```
@@ -221,6 +221,15 @@ const client = await createMcpProxyClient({
     version: '0.0.0',
   },
 });
+```
+
+The repository includes that client in `examples/mcp-proxy/client.ts`. Run it
+after completing the Smithery Gmail OAuth flow:
+
+```bash
+RGAP_TOKEN="$(<examples/mcp-proxy/invoker.token)" \
+MCP_CONNECTION_ID=<connection-resource-id> \
+pnpm --filter @rgap/examples exec tsx mcp-proxy/client.ts
 ```
 
 `createMcpProxyClient` constructs the Streamable HTTP transport, attaches the
