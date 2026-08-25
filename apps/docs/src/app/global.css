@@ -166,7 +166,7 @@ button[data-search-full] kbd {
   font-weight: 550;
 }
 
-#nd-page [data-card] {
+#nd-page [data-card='true'] {
   border-color: color-mix(in oklab, var(--color-fd-border) 82%, transparent);
   border-radius: 0.625rem;
   background: color-mix(in oklab, var(--color-fd-card) 82%, transparent);
@@ -178,13 +178,13 @@ button[data-search-full] kbd {
     transform 160ms ease;
 }
 
-#nd-page [data-card]:hover {
+#nd-page [data-card='true']:hover {
   border-color: color-mix(in oklab, var(--color-fd-foreground) 22%, transparent);
   background: var(--color-fd-card);
   transform: translateY(-1px);
 }
 
-#nd-page [data-card] > div:first-child {
+#nd-page [data-card='true'] > div:first-child {
   box-shadow: none;
 }
 
