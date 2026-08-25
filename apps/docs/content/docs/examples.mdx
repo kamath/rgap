@@ -287,12 +287,15 @@ RGAP command API:
 GET /oauth/callback
 ```
 
-The callback hashes the returned OAuth state and uses that key to load the
-pending flow from local storage. It compares the returned state with the value
-bound to the credential, checks its expiration, and consumes it exactly once
-with an atomic update. It then passes the callback parameters to the MCP SDK,
-which validates the authorization-server issuer and exchanges the code. The
-resulting tokens and client information remain in the credential store.
+The callback uses an `OAuthFlowStore` to locate and atomically claim the pending
+flow. `SqliteOAuthFlowStore` hashes the returned OAuth state before using it as
+a local database key. A shared Redis or PostgreSQL implementation can satisfy
+the same interface for a replicated deployment. The callback restores the
+pending connection from the credential store, compares the returned state with
+the value bound to the credential, checks its expiration, and consumes it
+exactly once. It then passes the callback parameters to the MCP SDK, which
+validates the authorization-server issuer and exchanges the code. The resulting
+tokens and client information remain in the credential store.
 
 `@rgap/mcp-proxy` separates runtime creation from Hono app creation:
 
@@ -341,7 +344,7 @@ type McpCredential = {
 Atomic updates prevent simultaneous token refreshes from overwriting each
 other. The example SQLite store contains plaintext values and is suitable for
 local development only. A deployed proxy supplies an encrypted credential
-store through the same interface.
+store and a shared OAuth flow store through their respective interfaces.
 
 ## Publish OAuth client metadata
 

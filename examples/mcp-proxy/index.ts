@@ -10,10 +10,12 @@ import {
 } from '@rgap/core';
 import { SqliteCredentialStore } from '@rgap/local-credential-store';
 import {
+  SqliteOAuthFlowStore,
+} from '@rgap/local-oauth-flow-store';
+import {
   createMcpProxyApp,
   createMcpProxyRuntime,
   type McpCredential,
-  type OAuthFlowRecord,
 } from '@rgap/mcp-proxy';
 import { SqliteRgapStore } from '@rgap/sqlite';
 
@@ -24,9 +26,7 @@ const serverUrl = new URL(process.env.MCP_SERVER_URL ?? 'http://127.0.0.1:3001/m
 const credentialStore = new SqliteCredentialStore<McpCredential>(
   `${directory}/credentials.db`,
 );
-const flowStore = new SqliteCredentialStore<OAuthFlowRecord>(
-  `${directory}/oauth-flows.db`,
-);
+const flowStore = new SqliteOAuthFlowStore(`${directory}/oauth-flows.db`);
 const mcp = createMcpProxyRuntime({
   publicBaseUrl,
   credentialStore,
