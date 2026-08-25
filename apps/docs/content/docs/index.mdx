@@ -15,8 +15,8 @@ organization.
 
 <Cards>
   <Card
-    title="Build an LLM gateway"
-    description="Grant access by provider, model, team, workload, or environment without distributing provider keys."
+    title="Build an LLM proxy."
+    description="Expose a streaming OpenAI-compatible proxy that gates access to approved models without distributing provider keys."
     href="/docs/guides/llm-gateway"
     icon="Bot"
   />
@@ -41,12 +41,12 @@ organization.
 
 ## One protocol, several gateways
 
-### Fine-grained LLM access
+### Streaming, OpenAI-compatible model access
 
-Represent providers, model families, and individual models as resources. A
-grant can cover the complete catalog or one model, and can be delegated again
-to a team, application, or short-lived workload. The execution proxy adds the
-provider credential only after RGAP authorizes the call.
+Expose a streaming OpenAI-compatible proxy while RGAP gates each request to the
+models its caller can access. RBAC and scoped grants support policies for a
+complete catalog, one provider, or one model, and the proxy adds provider
+credentials only after RGAP authorizes the call.
 
 ### MCP access without credential sharing
 

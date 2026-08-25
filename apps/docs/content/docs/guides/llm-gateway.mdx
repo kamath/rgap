@@ -1,11 +1,16 @@
 ---
-title: Fine-grained LLM gateway
-description: Expose models through stable resources, scoped grants, and deployment-owned provider credentials.
+title: Build an LLM proxy.
+description: Expose a streaming OpenAI-compatible proxy that gates access to approved models while keeping provider credentials private.
 ---
 
-An RGAP LLM gateway represents each callable model as an executable resource.
-Applications receive RGAP bearers instead of provider API keys, and the gateway
-selects credentials only after it authorizes `invoke`.
+Expose a streaming OpenAI-compatible proxy that applications can use to call
+approved models without receiving provider API keys. RGAP gates every request
+to the models its caller can access and selects provider credentials only after
+authorization succeeds.
+
+RBAC and scoped grants support the proxy's access policies. Represent each
+callable model as an executable resource, then grant a team, application, or
+workload access to the complete catalog, one provider, or one model.
 
 ## Design the model hierarchy
 
