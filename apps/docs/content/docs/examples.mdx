@@ -325,6 +325,21 @@ management API. Both apps receive the same store, but the MCP proxy calls the
 store directly rather than making HTTP requests to `/rgap`. The deployment owns
 the credential, flow, and RGAP stores and closes them after `mcp.close()`.
 
+Clients use the separate `@rgap/mcp-proxy-client` example-support package:
+
+```ts
+const client = await createMcpProxyClient({
+  proxyUrl,
+  connectionId,
+  rgapToken,
+  clientInfo: { name: 'agent', version: '0.0.0' },
+});
+```
+
+The factory attaches the RGAP bearer and completes MCP initialization before it
+returns. The caller uses the ordinary MCP SDK client surface and closes the
+client when finished.
+
 An OAuth redirect does not call the RGAP invoke endpoint directly. Authorization
 servers send browser `GET` requests without an RGAP bearer, while resource
 invocation is an authenticated `POST`. The Hono callback is the adapter between

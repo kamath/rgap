@@ -91,25 +91,25 @@ The app writes an RGAP bearer to `invoker.token` and prints the executable
 connection resource ID. Initialize an MCP client with that route and bearer:
 
 ```ts
-const transport = new StreamableHTTPClientTransport(
-  new URL(`http://localhost:3003/mcp/${connectionId}`),
-  {
-    requestInit: {
-      headers: { Authorization: `Bearer ${rgapToken}` },
-    },
+const client = await createMcpProxyClient({
+  proxyUrl: new URL('http://localhost:3003'),
+  connectionId,
+  rgapToken,
+  clientInfo: {
+    name: 'example',
+    version: '0.0.0',
   },
-);
-const client = new Client({ name: 'example', version: '0.0.0' });
-await client.connect(transport);
+});
 const tools = await client.request(
   { method: 'tools/list', params: {} },
   z.unknown(),
 );
 ```
 
-`client.connect()` sends `initialize`. The proxy handles lifecycle messages
-locally and forwards ordinary request-response methods through the executable
-RGAP connection.
+`createMcpProxyClient` comes from the separate `@rgap/mcp-proxy-client`
+example-support package. It attaches the bearer and sends `initialize` before
+returning the client. The proxy handles lifecycle messages locally and forwards
+ordinary request-response methods through the executable RGAP connection.
 
 The example accepts one upstream URL from deployment configuration. A service
 that accepts user-supplied URLs also validates redirects and resolved

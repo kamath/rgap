@@ -20,7 +20,8 @@ packages/
 │   ├── src/index.ts      # OAuth callback-flow interface
 │   └── sqlite/           # local SQLite callback-flow persistence
 └── examples/
-    └── mcp-proxy/        # mountable Hono MCP and OAuth adapter
+    ├── mcp-proxy/        # mountable Hono MCP and OAuth adapter
+    └── mcp-proxy-client/ # initialized MCP client helper
 apps/
 ├── server/         # Hono HTTP API and generated clients
 └── docs/           # Next.js and Fumadocs documentation
@@ -318,6 +319,12 @@ The package has no listener, environment parsing, database paths, or signal
 handling. A parent Hono app mounts it at any path. `publicBaseUrl` identifies
 the app's externally visible mount point so callback URLs remain correct when
 the route has a prefix.
+
+`@rgap/mcp-proxy-client` is a separate example-support package. Its
+`createMcpProxyClient` factory accepts the proxy mount URL, connection resource
+ID, RGAP bearer, and client identity. It constructs the Streamable HTTP
+transport, attaches the bearer, completes MCP initialization, and returns the
+connected MCP SDK client. The caller closes that client.
 
 The proxy depends on `SecretStore` from `@rgap/secret-store` and
 `OAuthFlowStore` from `@rgap/oauth-store`. The example injects

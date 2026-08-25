@@ -207,37 +207,27 @@ Set `RGAP_TOKEN` to the generated bearer and `MCP_CONNECTION_ID` to that ID.
 The RGAP bearer is the proxy's incoming access token:
 
 ```ts
-import {
-  Client,
-  StreamableHTTPClientTransport,
-} from '@modelcontextprotocol/client';
+import { createMcpProxyClient } from '@rgap/mcp-proxy-client';
 import { z } from 'zod';
 
 const token = process.env.RGAP_TOKEN!;
 const connectionId = process.env.MCP_CONNECTION_ID!;
-
-const transport = new StreamableHTTPClientTransport(
-  new URL(`http://localhost:3003/mcp/${connectionId}`),
-  {
-    requestInit: {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    },
+const client = await createMcpProxyClient({
+  proxyUrl: new URL('http://localhost:3003'),
+  connectionId,
+  rgapToken: token,
+  clientInfo: {
+    name: 'rgap-walkthrough',
+    version: '0.0.0',
   },
-);
-const client = new Client({
-  name: 'rgap-walkthrough',
-  version: '0.0.0',
 });
-
-await client.connect(transport);
 ```
 
-`client.connect()` sends `initialize` and the initialized notification. The
-proxy handles that lifecycle locally and advertises request-response
-capabilities only. It does not forward lifecycle messages through RGAP and
-does not open an SSE channel.
+`createMcpProxyClient` constructs the Streamable HTTP transport, attaches the
+RGAP bearer, sends `initialize` and the initialized notification, and returns
+the connected MCP SDK client. The proxy handles that lifecycle locally and
+advertises request-response capabilities only. It does not forward lifecycle
+messages through RGAP and does not open an SSE channel.
 
 List the upstream tools through the initialized client:
 
