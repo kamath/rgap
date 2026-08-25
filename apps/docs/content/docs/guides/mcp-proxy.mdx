@@ -15,22 +15,8 @@ authorized MCP proxy route.
 
 ## Before you start
 
-Create a TypeScript project and install the published packages:
-
-```bash
-npm init -y
-npm install \
-  @hono/node-server \
-  @rgap/local-credential-store \
-  @rgap/local-oauth-flow-store \
-  @rgap/mcp-proxy \
-  @rgap/mcp-proxy-client \
-  @rgap/server \
-  @rgap/sqlite \
-  hono \
-  zod
-npm install --save-dev tsx typescript @types/node
-```
+Use a TypeScript project with the imported `@rgap` packages, Hono, and Zod
+available.
 
 Choose a remote Streamable HTTP MCP endpoint. The endpoint may allow anonymous
 access or require the MCP OAuth authorization flow.
@@ -114,7 +100,7 @@ Save the gateway bootstrap as `gateway.ts`, then start it:
 ```bash
 MCP_SERVER_URL=https://server.smithery.ai/gmail \
 PUBLIC_BASE_URL=http://127.0.0.1:3003 \
-npx tsx gateway.ts
+tsx gateway.ts
 ```
 
 The app prints:
@@ -163,7 +149,7 @@ the matching public origin:
 ```bash
 MCP_SERVER_URL=https://server.smithery.ai/gmail \
 PUBLIC_BASE_URL=https://proxy.example.com \
-npx tsx gateway.ts
+tsx gateway.ts
 ```
 
 The metadata URL and every value in its document derive from the same public
@@ -257,7 +243,7 @@ OAuth flow:
 ```bash
 RGAP_TOKEN=<rgap-bearer> \
 MCP_CONNECTION_ID=<connection-resource-id> \
-npx tsx client.ts
+tsx client.ts
 ```
 
 `createMcpProxyClient` constructs the Streamable HTTP transport, attaches the

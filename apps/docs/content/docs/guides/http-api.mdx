@@ -10,14 +10,8 @@ types, and the generated fetch client.
 
 ## Start the server
 
-Install the published server and SQLite adapter:
-
-```bash
-npm install @rgap/server @rgap/sqlite @hono/node-server
-npm install --save-dev tsx typescript @types/node
-```
-
-Create `server.ts`:
+In a TypeScript project with `@rgap/server`, `@rgap/sqlite`, and
+`@hono/node-server` available, create `server.ts`:
 
 ```ts
 import { serve } from '@hono/node-server';
@@ -38,7 +32,7 @@ serve({ fetch: app.fetch, port: 3000 });
 Start it:
 
 ```bash
-npx tsx server.ts
+tsx server.ts
 ```
 
 The server uses these environment variables:

@@ -9,15 +9,8 @@ same repository interface used by durable and HTTP-backed stores.
 
 ## Set up a project
 
-Create a TypeScript project and install the published SQLite adapter:
-
-```bash
-npm init -y
-npm install @rgap/sqlite
-npm install --save-dev tsx typescript @types/node
-```
-
-Save the following file as `quickstart.ts`.
+In a TypeScript project with `@rgap/sqlite` available, save the following file
+as `quickstart.ts`.
 
 ## Review the complete example
 
@@ -86,7 +79,7 @@ try {
 Run the file:
 
 ```bash
-npx tsx quickstart.ts
+tsx quickstart.ts
 ```
 
 The first result reports the `design` resource with `read: true` and
