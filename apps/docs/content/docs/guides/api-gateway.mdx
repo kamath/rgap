@@ -1,0 +1,118 @@
+---
+title: API gateway
+description: Publish narrow API operations backed by protected credentials and revocable RGAP grants.
+---
+
+An RGAP API gateway exposes purpose-built operations instead of forwarding
+arbitrary authenticated HTTP requests. Each operation is an executable
+resource with a stable ID, a validated interface, and explicit access to the
+credentials or services it needs.
+
+## Model APIs as operations
+
+Use folders for services and executable children for callable operations:
+
+```text
+apis/
+└── github/
+    ├── get-profile
+    ├── list-issues
+    └── create-issue
+```
+
+This lets a grant cover a complete service or one operation. Adding a new child
+does not require changing the identity of existing operations.
+
+## Bind protected dependencies
+
+Store the provider credential behind an ordinary RGAP resource, then bind it to
+a narrow executable:
+
+```ts
+const credential = await admin.resources.create({
+  name: 'credentials/github/product-team',
+});
+await credentialStore.set(
+  credential.id,
+  process.env.GITHUB_TOKEN,
+);
+
+const createIssue = await admin.resources.create({
+  name: 'apis/github/create-issue',
+  executable: {
+    runtime: 'githubCreateIssue',
+    input: {
+      organization: 'acme',
+    },
+    bind: {
+      credential: credential.id,
+    },
+  },
+});
+```
+
+The gateway fixes the upstream origin, HTTP method, organization, and
+credential binding. The runtime accepts only the repository, title, and body
+needed by this operation.
+
+## Grant operation access
+
+Give a caller `invoke` on the operation without giving it `read` or `bind` on
+the credential:
+
+```ts
+const service = await admin.grants.create({
+  name: 'company/automation/issue-bot',
+  bindings: [{
+    id: createIssue.id,
+    permissions: ['invoke'],
+  }],
+  expiresAt: null,
+});
+
+const bearer = await service.tokens.create({
+  label: 'issue-bot',
+});
+```
+
+The caller can create an issue through the published interface. It cannot read
+the token, call sibling operations, or redirect the authenticated request to a
+different origin.
+
+## Route HTTP requests to resources
+
+An API route maps a stable public operation to its RGAP resource ID:
+
+```text
+POST /gateway/github/issues
+Authorization: Bearer <rgap-bearer>
+
+{
+  "repository": "rgap",
+  "title": "Review gateway policy",
+  "body": "Confirm the operation scope."
+}
+```
+
+The handler selects `store.as(bearer)`, resolves the configured resource ID,
+and invokes it with the validated request body. RGAP revalidates the caller's
+grant and every bound dependency before the runtime sends the upstream request.
+
+## Avoid generic authenticated forwarding
+
+Do not accept a caller-selected URL, authorization header, HTTP method, or
+arbitrary path in a credential-backed runtime. Those fields let a caller apply
+the gateway's stronger credential outside the intended operation even when the
+credential itself remains hidden.
+
+Prefer:
+
+- one executable resource per security-sensitive operation;
+- fixed upstream origins and methods;
+- schemas for all caller-controlled path, query, and body fields;
+- explicit resource bindings for credentials and nested operations; and
+- separate grants for services, environments, and temporary workflows.
+
+See [Privilege delegation and escalation](/docs/concepts/privilege-delegation)
+for the complete confused-deputy boundary. The runnable secret-backed example
+lives in [`examples/secret-store`](/docs/examples#compose-a-secret-backed-resource).

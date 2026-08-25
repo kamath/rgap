@@ -2,5 +2,11 @@
   "title": "Guides",
   "icon": "Route",
   "defaultOpen": true,
-  "pages": ["http-api", "mcp-proxy"]
+  "pages": [
+    "llm-gateway",
+    "mcp-proxy",
+    "api-gateway",
+    "api-to-mcp-gateway",
+    "http-api"
+  ]
 }

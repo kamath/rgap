@@ -1,0 +1,111 @@
+---
+title: API to MCP gateway
+description: Publish protected API operations as MCP tools while RGAP controls invocation and credentials.
+---
+
+An API-to-MCP gateway turns narrow RGAP executable resources into MCP tools.
+The MCP interface describes each operation, while RGAP authorizes the caller
+and invokes the protected API implementation behind it.
+
+This direction is different from the [OAuth MCP proxy](/docs/guides/mcp-proxy),
+which connects to an upstream MCP server. An API-to-MCP gateway is the MCP
+server and publishes existing API operations to MCP clients.
+
+## Start with secure API operations
+
+Create one executable resource for each operation you want to publish:
+
+```text
+apis/
+└── github/
+    ├── get-profile
+    ├── list-issues
+    └── create-issue
+```
+
+Each resource fixes its upstream origin, method, provider scope, and credential
+binding. Follow the [API gateway guide](/docs/guides/api-gateway) to define
+these resources before adding the MCP transport.
+
+## Map tools to stable resource IDs
+
+Keep the MCP tool-to-resource mapping in trusted server configuration:
+
+```ts
+const tools = {
+  github_create_issue: {
+    resourceId: createIssue.id,
+    description: 'Create an issue in an approved repository.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repository: { type: 'string' },
+        title: { type: 'string' },
+        body: { type: 'string' },
+      },
+      required: ['repository', 'title'],
+    },
+  },
+};
+```
+
+The client chooses a published tool name, not an arbitrary resource ID. The
+mapping ensures that each tool reaches the intended executable and that
+unpublished resources remain unavailable through this MCP server.
+
+## Invoke from the MCP tool handler
+
+The MCP authentication layer supplies the caller's RGAP bearer. The tool
+handler resolves the configured resource and forwards only validated tool
+arguments:
+
+```ts
+const tool = tools[request.params.name];
+if (!tool) throw new Error('Unknown tool.');
+
+const plane = store.as(rgapBearer);
+const resource = await plane.resources.get(tool.resourceId);
+
+for await (const event of resource.invoke({
+  input: request.params.arguments,
+})) {
+  sendMcpEvent(event);
+}
+```
+
+RGAP checks `invoke` on the mapped resource and revalidates its protected
+bindings. The API credential remains in the gateway and never enters the MCP
+request, tool result, or client session.
+
+## Choose the authorization granularity
+
+Use resource hierarchy to control how much of the MCP surface a grant reaches:
+
+| Grant target | MCP access |
+| --- | --- |
+| `apis` | Every published API operation below it. |
+| `apis/github` | Every published GitHub operation. |
+| `apis/github/create-issue` | Only the `github_create_issue` tool. |
+
+The MCP server can advertise the complete configured tool catalog while RGAP
+enforces authorization at call time. It can also filter `tools/list` by
+authorizing each mapped resource for the current bearer before returning the
+tool definition.
+
+## Preserve both security boundaries
+
+The MCP adapter and API runtime have different responsibilities:
+
+- The MCP adapter maps fixed tool names to fixed RGAP resource IDs.
+- RGAP determines whether the caller can invoke the mapped resource.
+- The API runtime validates operation arguments and constructs the upstream
+  request.
+- The credential store provides secrets only to the trusted API runtime.
+
+Do not let tool arguments select an arbitrary resource ID, upstream URL,
+credential, HTTP method, or authorization header.
+
+Continue with [Delegation and attenuation](/docs/concepts/delegation) to issue
+narrower MCP access for teams and workloads, or use the
+[HTTP API](/docs/guides/http-api) when the MCP adapter runs outside the RGAP
+process.

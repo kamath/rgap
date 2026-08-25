@@ -1,0 +1,110 @@
+---
+title: Fine-grained LLM gateway
+description: Expose models through stable resources, scoped grants, and deployment-owned provider credentials.
+---
+
+An RGAP LLM gateway represents each callable model as an executable resource.
+Applications receive RGAP bearers instead of provider API keys, and the gateway
+selects credentials only after it authorizes `invoke`.
+
+## Design the model hierarchy
+
+Organize resources at the level where policy changes:
+
+```text
+models/
+├── openai/
+│   ├── gpt-5.6-sol
+│   └── gpt-5.6-luna
+└── anthropic/
+    └── claude-sonnet
+```
+
+A grant on `models` covers the complete catalog. A grant on `models/openai`
+covers that provider, and a grant on one model reaches only that model.
+Resources keep stable IDs when names or catalog placement change.
+
+## Register provider runtimes
+
+The gateway registers one trusted runtime for each provider integration.
+Provider credentials stay in deployment configuration or a credential store.
+The runtime accepts caller-controlled fields such as a prompt, but obtains the
+provider and model from the executable definition.
+
+```ts
+const model = await admin.resources.create({
+  name: 'models/openai/gpt-5.6-sol',
+  executable: {
+    runtime: 'openai',
+    input: {
+      model: 'gpt-5.6-sol',
+    },
+  },
+});
+```
+
+The sealed model field prevents a caller from turning authority for one model
+into authority for another.
+
+## Grant the smallest useful scope
+
+Bind organizational grants to the appropriate catalog node:
+
+```ts
+const application = await admin.grants.create({
+  name: 'company/product/search-service',
+  bindings: [{
+    id: model.id,
+    permissions: ['invoke'],
+  }],
+  expiresAt: null,
+});
+
+const bearer = await application.tokens.create({
+  label: 'production',
+});
+```
+
+The grant path can mirror a company, team, service, environment, or workload.
+Delegated child grants can shorten expiration or narrow model coverage, but
+cannot add models or permissions outside their parent.
+
+## Invoke through the gateway
+
+The application resolves the model with its RGAP bearer and invokes its narrow
+interface:
+
+```ts
+const plane = store.as(bearer.value);
+const authorizedModel = await plane.resources.get(model.id);
+
+for await (const event of authorizedModel.invoke({
+  input: {
+    prompt: 'Summarize the incident report.',
+  },
+})) {
+  console.log(event);
+}
+```
+
+The same operation is available through
+`POST /resources/{id}/invoke` on the [HTTP API](/docs/guides/http-api).
+
+## Apply policy at the right level
+
+| Requirement | Resource and grant design |
+| --- | --- |
+| One approved model | Grant `invoke` on the model resource. |
+| Every model from one provider | Grant `invoke` on the provider folder. |
+| Separate staging and production | Use distinct grant branches and bearers. |
+| Short-lived workload access | Delegate a child grant with an earlier expiration. |
+| Immediate shutdown | Revoke the workload, service, team, or company ancestor. |
+
+<Callout type="warn" title="Keep trusted fields out of caller input">
+  Seal the provider, model, credential reference, and fixed safety configuration
+  in the executable resource. Validate every caller-controlled field in the
+  runtime.
+</Callout>
+
+The complete OpenAI runtime and invocation live in
+[`examples/openai.ts`](/docs/examples#invoke-openai-through-a-resource).
