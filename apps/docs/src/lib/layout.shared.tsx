@@ -1,21 +1,18 @@
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
-import { Network } from 'lucide-react';
 import { appName, gitConfig } from './shared';
 
 export function baseOptions(): BaseLayoutProps {
   return {
     nav: {
       title: (
-        <span className="flex items-center gap-2.5 font-semibold tracking-tight">
-          <span className="grid size-7 place-items-center rounded-lg bg-fd-primary text-fd-primary-foreground shadow-sm">
-            <Network className="size-4" aria-hidden="true" />
-          </span>
-          <span>{appName}</span>
-          <span className="hidden rounded-full border border-fd-border bg-fd-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-fd-muted-foreground sm:inline">
-            Docs
-          </span>
-        </span>
+        <span className="font-semibold tracking-[-0.02em]">{appName}</span>
       ),
+    },
+    searchToggle: {
+      full: {
+        className:
+          'h-10 w-full rounded-xl border-fd-border/60 bg-fd-background/65 px-3 shadow-[0_1px_2px_color-mix(in_oklab,var(--color-fd-foreground)_4%,transparent)] backdrop-blur transition-all hover:border-fd-border hover:bg-fd-background hover:shadow-sm',
+      },
     },
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
   };

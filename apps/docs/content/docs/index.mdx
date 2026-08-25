@@ -1,117 +1,102 @@
 ---
-title: Introduction
-description: Hierarchical capability access for resources, tools, and agent-accessible services.
+title: Execute tools without sharing credentials
+description: Put a narrow, revocable execution boundary between agents and upstream services.
 icon: House
 ---
 
-RGAP is an authorization model for filesystem-like resources, tools, and
-agent-accessible services. It supports hierarchical delegation, strict
-downscoping, immediate revocation, and predictable access across resource
-moves and renames.
+RGAP is an execution proxy for tools, models, APIs, and MCP servers. An agent
+calls an executable resource with an RGAP bearer. The proxy checks whether that
+bearer can invoke the resource, adds deployment-owned credentials, and sends the
+request upstream.
 
-<Callout type="info" title="The security invariant">
-  Authority may only stay the same or become narrower as it is delegated. It
-  can never expand.
+The agent gets the result without receiving an OAuth token, API key, refresh
+token, or other provider credential.
+
+<Callout type="info" title="Want to see it run?">
+  Follow the [OAuth MCP proxy walkthrough](/docs/guides/mcp-proxy) to connect an
+  MCP server, complete OAuth, list its tools, and invoke one through RGAP.
 </Callout>
 
 <Cards>
   <Card
-    title="Understand the model"
-    description="Learn how resources, grants, and tokens fit together."
-    href="/docs/concepts"
-    icon="Network"
+    title="Run the execution proxy"
+    description="Connect an OAuth-protected MCP server and call a tool."
+    href="/docs/guides/mcp-proxy"
+    icon="Plug"
   />
   <Card
-    title="Run the quickstart"
-    description="Create a resource tree and delegate a narrower grant."
+    title="Try the TypeScript API"
+    description="Create resources, issue a bearer, invoke, and revoke access."
     href="/docs/quickstarts/typescript"
     icon="Terminal"
   />
   <Card
-    title="Read the protocol"
-    description="See the normative records, algebra, and decision procedure."
-    href="/docs/reference/protocol"
-    icon="BookOpen"
-  />
-  <Card
-    title="Explore examples"
-    description="Apply RGAP to MCP servers, tools, agents, and sub-agents."
+    title="Build an executable resource"
+    description="Define a runtime and compose it with other resources."
     href="/docs/examples"
     icon="Workflow"
   />
 </Cards>
 
-## The model in one minute
+## What happens when an agent invokes a resource
 
-RGAP separates three concerns:
+1. The agent sends input, an executable resource ID, and its RGAP bearer.
+2. RGAP resolves the bearer and authorizes `invoke` against the complete grant
+   lineage.
+3. The runtime receives the resource's sealed definition and explicitly bound
+   resources. Deployment-owned credentials stay inside the proxy.
+4. The runtime calls the upstream service and streams events back to the agent.
 
-| Concern | Purpose |
+This keeps authorization and credential handling at the network boundary. The
+agent cannot turn a purpose-built executable into an unrestricted authenticated
+proxy by replacing its upstream URL, credential binding, or other sealed
+configuration.
+
+## Why use the proxy
+
+- **Keep secrets out of agent context.** Provider credentials live in a
+  deployment-owned store and never appear in prompts or invocation input.
+- **Expose useful operations, not raw credentials.** A resource can represent
+  one tool, one model, one MCP connection, or a carefully designed composition.
+- **Narrow access for each task.** A bearer reaches only the executable
+  resources granted to it.
+- **Stop access immediately.** Revoking a grant disables its bearer and every
+  descendant on the next invocation.
+- **Compose calls safely.** An executable can invoke explicitly bound resources
+  without passing their credentials or broad authority to the caller.
+
+## The four pieces
+
+| Piece | What it does |
 | --- | --- |
-| **Resources** | Describe where objects live in a mutable hierarchy. |
-| **Grants** | Describe where authority comes from and how it delegates. |
-| **Tokens** | Provide opaque bearer credentials used to exercise a grant. |
+| **Executable resource** | Seals the runtime and deployment-controlled configuration behind a stable ID. |
+| **Binding** | Gives a runtime explicit access to another RGAP resource it needs. |
+| **Grant** | Selects which resources and operations a caller may use. |
+| **Bearer** | Lets a caller exercise one grant without exposing upstream credentials. |
 
-```text
-Resource tree                   Grant tree
-
-acme/                           company
-├── platform/                   └── platform-team
-│   ├── docs/                       └── agent
-│   └── tools/                          └── subagent
-└── finance/
-```
-
-A resource keeps the same stable identity when it moves. A grant contains one
-or more bindings to stable resource IDs. A child grant can only narrow its
-parent's bindings, permissions, constraints, and expiration.
-
-## Why RGAP
-
-Agent runtimes often hold broad user authority while one execution needs a
-small, auditable subset. Giving an agent the upstream OAuth token or API key
-makes that boundary impossible to enforce.
-
-RGAP lets a gateway retain provider credentials and issue an opaque token that
-represents only the selected tools and resources. A sub-agent receives a new,
-narrower token—not the parent token and never the provider credential.
-
-<Cards>
-  <Card
-    title="Stable identities"
-    description="ID entries follow resources through moves and renames."
-    href="/docs/concepts/resources"
-  />
-  <Card
-    title="Provable attenuation"
-    description="Every child binding is covered by a parent binding."
-    href="/docs/concepts/delegation"
-  />
-  <Card
-    title="Live revocation"
-    description="Revoking an ancestor disables every descendant on the next check."
-    href="/docs/concepts/tokens"
-  />
-</Cards>
-
-## Choose where to start
+Resources and grants form hierarchies so access can be delegated to agents and
+sub-agents without becoming broader. Read [Core concepts](/docs/concepts) when
+you need the full model.
 
 <Steps>
   <Step>
-    ### Learn the vocabulary
+    ### Run a local example
 
-    Start with [core concepts](/docs/concepts) to understand the resource and
-    grant trees.
+    Use the [TypeScript quickstart](/docs/quickstarts/typescript) for the
+    smallest runnable path through resource creation, bearer issuance, and
+    revocation.
   </Step>
   <Step>
-    ### Build a delegation
+    ### Proxy a real service
 
-    Follow the [quickstart](/docs/quickstarts/typescript) with the TypeScript
-    repository API.
+    Follow the [MCP proxy walkthrough](/docs/guides/mcp-proxy) to keep OAuth
+    credentials in the gateway while an agent invokes upstream tools.
   </Step>
   <Step>
-    ### Integrate an enforcement point
+    ### Design your execution boundary
 
-    Use the [HTTP API guide](/docs/guides/http-api) or implement the
-    [normative protocol](/docs/reference/protocol).
+    Review [privilege delegation](/docs/concepts/privilege-delegation) before
+    exposing a runtime, then use the [HTTP API](/docs/guides/http-api) to
+    integrate it with your agent system.
   </Step>
 </Steps>

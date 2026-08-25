@@ -1,3 +1,4 @@
+@import url('https://api.fontshare.com/v2/css?f[]=sentient@300,400,500,700&display=swap');
 @import 'tailwindcss';
 @import 'fumadocs-ui/css/neutral.css';
 @import 'fumadocs-ui/css/preset.css';
@@ -19,7 +20,7 @@
   --color-fd-accent: oklch(92% 0.035 255 / 70%);
   --color-fd-accent-foreground: oklch(25% 0.04 255);
   --color-fd-ring: oklch(58% 0.18 263);
-  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Sentient', ui-serif, Georgia, serif;
 }
 
 .dark {
@@ -55,6 +56,38 @@ body {
   font-family: var(--font-sans);
   background-image:
     radial-gradient(circle at 20% -20%, color-mix(in oklab, var(--color-fd-primary) 5%, transparent), transparent 28rem);
+}
+
+body:has(#nd-docs-layout) {
+  overflow: hidden;
+}
+
+#nd-docs-layout {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#nd-page {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
+}
+
+button[data-search-full] {
+  letter-spacing: -0.01em;
+}
+
+button[data-search-full] kbd {
+  border: 0;
+  background: transparent;
+  color: color-mix(in oklab, currentColor 55%, transparent);
+  font-family: inherit;
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  padding-inline: 0.08rem;
 }
 
 ::selection {
