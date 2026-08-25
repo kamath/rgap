@@ -10,9 +10,11 @@ HTTP server, an executable scratchpad, and this MDX documentation application.
 
 ```text
 packages/
-├── core/           # authorization, executable orchestration, and contracts
-├── postgres/       # Drizzle and PostgreSQL implementation
-└── sqlite/         # Drizzle and SQLite implementation
+├── core/                    # authorization, orchestration, and contracts
+├── local-credential-store/  # local SQLite credential persistence
+├── local-oauth-flow-store/  # local SQLite OAuth callback state
+├── postgres/                # Drizzle and PostgreSQL RGAP implementation
+└── sqlite/                  # Drizzle and SQLite RGAP implementation
 apps/
 ├── server/         # Hono HTTP API and generated clients
 └── docs/           # Next.js and Fumadocs documentation
