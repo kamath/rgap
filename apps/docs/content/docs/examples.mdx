@@ -73,10 +73,27 @@ cannot replace its sealed model name. The complete executable version lives in
 
 ### Run an OpenAI-compatible HTTP gateway
 
-`examples/openai-api` mounts a streaming `POST /v1/chat/completions` route over
-the same resource design. The request bearer selects an RGAP authorization
-plane, and the request's `model` selects a deployment-owned resource. The route
-checks `invoke` before starting the provider request.
+`@rgap/openai-proxy` packages the OpenAI runtime and a streaming Hono route over
+the same resource design. The host registers the runtime before constructing
+its store, then supplies the store and its public model map to the app:
+
+```ts
+const store = new SqliteRgapStore({
+  url: 'rgap.db',
+  runtimes: { openai: createOpenAIProxyRuntime() },
+});
+
+const app = createOpenAIProxyApp({
+  store,
+  models: new Map([
+    ['gpt-5.6-sol', model.id],
+  ]),
+});
+```
+
+The request bearer selects an RGAP authorization plane, and the request's
+`model` selects a deployment-owned resource. The route checks `invoke` before
+starting the provider request.
 
 The example writes a scoped bearer to `examples/openai-api/client.token`. Use
 that bearer as an OpenAI client's API key and set its base URL to

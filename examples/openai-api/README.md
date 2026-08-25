@@ -16,6 +16,26 @@ The request's `model` selects a resource from this deployment-owned catalog.
 It does not become provider input. The executable definition supplies the
 provider model only after RGAP validates the bearer and its `invoke` grant.
 
+`@rgap/openai-proxy` provides the trusted runtime and mountable Hono app:
+
+```ts
+const store = new SqliteRgapStore({
+  url: 'rgap.db',
+  runtimes: { openai: createOpenAIProxyRuntime() },
+});
+
+const app = createOpenAIProxyApp({
+  store,
+  models: new Map([
+    ['gpt-5.6-sol', modelResource.id],
+  ]),
+});
+```
+
+The host owns storage, model resource provisioning, grants, tokens, and process
+lifecycle. The package owns OpenAI request validation, RGAP invocation, provider
+streaming, and OpenAI-compatible responses.
+
 Start the API:
 
 ```sh

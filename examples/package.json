@@ -23,6 +23,7 @@
     "@rgap/mcp-proxy-client": "workspace:*",
     "@rgap/oauth-flow-store-postgres": "workspace:*",
     "@rgap/oauth-flow-store-sqlite": "workspace:*",
+    "@rgap/openai-proxy": "workspace:*",
     "@rgap/server": "workspace:*",
     "@rgap/store-postgres": "workspace:*",
     "@rgap/store-sqlite": "workspace:*",

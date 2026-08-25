@@ -31,10 +31,24 @@ Resources keep stable IDs when names or catalog placement change.
 
 ## Register provider runtimes
 
-The gateway registers one trusted runtime for each provider integration.
-Provider credentials stay in deployment configuration or a credential store.
-The runtime accepts caller-controlled fields such as a prompt, but obtains the
-provider and model from the executable definition.
+`@rgap/openai-proxy` provides a trusted streaming runtime. Provider credentials
+stay in deployment configuration, and the runtime obtains the model from the
+executable definition:
+
+```ts
+import { createOpenAIProxyRuntime } from '@rgap/openai-proxy';
+
+const store = new SqliteRgapStore({
+  url: 'rgap.db',
+  runtimes: {
+    openai: createOpenAIProxyRuntime(),
+  },
+});
+```
+
+The runtime reads `OPENAI_API_KEY` through the OpenAI provider. It accepts
+validated caller-controlled messages and generation settings after RGAP merges
+the sealed model into its input.
 
 ```ts
 const model = await admin.resources.create({
@@ -85,7 +99,10 @@ const authorizedModel = await plane.resources.get(model.id);
 
 for await (const event of authorizedModel.invoke({
   input: {
-    prompt: 'Summarize the incident report.',
+    messages: [{
+      role: 'user',
+      content: 'Summarize the incident report.',
+    }],
   },
 })) {
   console.log(event);
@@ -94,6 +111,31 @@ for await (const event of authorizedModel.invoke({
 
 The same operation is available through
 `POST /resources/{id}/invoke` on the [HTTP API](/docs/guides/http-api).
+
+## Mount an OpenAI-compatible API
+
+The package also provides a mountable Hono app. The host maps public model names
+to deployment-owned RGAP resource IDs:
+
+```ts
+import { createOpenAIProxyApp } from '@rgap/openai-proxy';
+
+const app = createOpenAIProxyApp({
+  store,
+  models: new Map([
+    ['gpt-5.6-sol', model.id],
+  ]),
+});
+```
+
+The app exposes `POST /v1/chat/completions`. It reads the request bearer,
+selects `store.as(bearer)`, authorizes `invoke` on the mapped model resource,
+and returns either a chat completion object or server-sent completion chunks.
+The caller-supplied model name selects only from the host's fixed map.
+
+Existing OpenAI clients connect by setting the app's `/v1` URL as their base
+URL and using an RGAP bearer as the API key. A separate client package is not
+needed because the wire interface is OpenAI-compatible.
 
 ## Apply policy at the right level
 
