@@ -71,6 +71,18 @@ The employee receives only `invoke` on the executable model resource. Callers
 cannot replace its sealed model name. The complete executable version lives in
 `examples/openai.ts`.
 
+### Run an OpenAI-compatible HTTP gateway
+
+`examples/openai-api` mounts a streaming `POST /v1/chat/completions` route over
+the same resource design. The request bearer selects an RGAP authorization
+plane, and the request's `model` selects a deployment-owned resource. The route
+checks `invoke` before starting the provider request.
+
+The example writes a scoped bearer to `examples/openai-api/client.token`. Use
+that bearer as an OpenAI client's API key and set its base URL to
+`http://localhost:3004/v1`. `OPENAI_MODELS` configures the catalog, while
+`GRANTED_OPENAI_MODELS` limits the models covered by the generated bearer.
+
 ## Compose a secret-backed resource
 
 A deployment stores each credential under an ordinary RGAP resource ID. An
